@@ -32,9 +32,9 @@ And oh yeah, the implementation looks like this:
     config_btn = Pushable(lambda: print("Hi mom!"), ["UI/cog.png", "UI/cog_mo.png", "UI/cog_red.png"], width=22, height=23)
     config_btn.place(x=10 y=10)
   
-Won't mom be proud when she sees the button you skineed for her yourself!
+Won't mom be proud when she sees the button you skinned just for her!
 
-Classes include:
+guiABLE Classes include:
 
     Backgroundable - simple object that accepts a background image.
 
@@ -61,6 +61,7 @@ Classes include:
                      vertical and horizontal scrollbars, either as needed, or by your explicit declaration.
 
 ...and SO MUCH MORE!
+
 
 Actually, that's most of it for now. What else do you want? I made tkinter actually work! Isn't that enough for you people?!
 
