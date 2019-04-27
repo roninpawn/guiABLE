@@ -46,7 +46,7 @@ guiABLE Classes include:
                      Accepts up to 8 images to represent all ticked/not-ticked visual states.
 
     Holdable       - also a 'Pushable' that fires a function continuously when held.
-                     With optional second-click delay.
+                     With optional initial-click delay.
 
     Draggable      - a 'Holdable' that can be dragged anywhere within the boundaries of its parent object.
                      'Why?' you ask? Because scrollbars. Which reminds me!
