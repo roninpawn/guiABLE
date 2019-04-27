@@ -2,9 +2,10 @@
 The project to make Python's tkinter suck considerably less.
 
 guiABLE is a quick, all-inlusive library that allows you to whip up a graphic user interface in Python that:
-1.) Doesn't look awful.
-2.) Didn't take two weeks to get a simple scrollbar working.
-3.) Doesn't require a dozen other libraries to make function.
+
+    1.) Doesn't look awful.
+    2.) Didn't take two weeks to get a simple scrollbar working.
+    3.) Doesn't require a dozen other libraries to work.
 
 guiABLE is built on Python's tkinter. Yes, THAT tkinter. Wait! No. Come back! It doesn't smell, I promise!
 This library allows you to create and graphically texture all the basic needs of a UI, over-riding the
