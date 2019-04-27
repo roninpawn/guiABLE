@@ -29,8 +29,8 @@ like.
 
 And oh yeah, the implementation looks like this:
 
-    config_btn = Pushable(lambda: print("Hi mom!"), ["UI/cog.png", "UI/cog_mo.png", "UI/cog_red.png"], width=22, height=23)
-    config_btn.place(x=10 y=10)
+    moms_btn = Pushable(lambda: print("Hi mom!"), ["UI/mombtn.png", "UI/mombtn_mo.png"], width=22, height=23)
+    moms_btn.place(x=10 y=10)
   
 Won't mom be proud when she sees the button you skinned just for her!
 
@@ -62,10 +62,6 @@ guiABLE Classes include:
 
 ...and SO MUCH MORE!
 
-
 Actually, that's most of it for now. What else do you want? I made tkinter actually work! Isn't that enough for you people?!
 
-
--Roninpawn S. Preston, Esq., 4/27/2019, 5:21pm
-
-hungry and needing to pee.
+-Roninpawn S. Preston, Esq., 4/27/2019, 5:21pm (hungry and needing to pee)
