@@ -12,11 +12,8 @@ default visual style of whatever operating system your application is run on. Ea
 to cover the 4 typical states of behavior:
 
     1.) Normal
-
     2.) Moused-over (hover)
-
     3.) Active (clicking)
-
     4.) Disabled
 
 You can populate as many of those image-states as you choose to, or none at all. (if you like the look of
