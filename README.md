@@ -36,29 +36,29 @@ Won't mom be proud when she sees the button you skineed for her yourself!
 
 Classes include:
 
-  Backgroundable - simple object that accepts a background image.
+    Backgroundable - simple object that accepts a background image.
 
-  Hoverable      - object that changes image when hovered over.
+    Hoverable      - object that changes image when hovered over.
 
-  Clickable      - a 'Hoverable' that fires a function the instant you click it.
+    Clickable      - a 'Hoverable' that fires a function the instant you click it.
 
-  Pushable       - a 'Clickable' that fires a function when you let off the mouse button, while over it.
-                   (it's just a button, that's how buttons work)
+    Pushable       - a 'Clickable' that fires a function when you let off the mouse button, while over it.
+                     (it's just a button, that's how buttons work)
 
-  Toggleable     - a 'Pushable' that maintains an internal true/false state. (Think 'checkbox')
-                   Accepts up to 8 images to represent all ticked/not-ticked visual states.
+    Toggleable     - a 'Pushable' that maintains an internal true/false state. (Think 'checkbox')
+                     Accepts up to 8 images to represent all ticked/not-ticked visual states.
 
-  Holdable       - also a 'Pushable' that fires a function continuously when held.
-                   With optional second-click delay.
+    Holdable       - also a 'Pushable' that fires a function continuously when held.
+                     With optional second-click delay.
 
-  Draggable      - a 'Holdable' that can be dragged anywhere within the boundaries of its parent object.
-                   'Why?' you ask? Because scrollbars. Which reminds me!
+    Draggable      - a 'Holdable' that can be dragged anywhere within the boundaries of its parent object.
+                     'Why?' you ask? Because scrollbars. Which reminds me!
 
-  Scrollable     - a 133-line-long class containing the insanely convoluted amount of code required to make
-                   a simple scrollbar function LIKE IT SHOULD in tkinter.
+    Scrollable     - a 133-line-long class containing the insanely convoluted amount of code required to make
+                     a simple scrollbar function LIKE IT SHOULD in tkinter.
 
-  ScrollablePane - an object into which you may insert... whatever you feel appropriate... that will manifest
-                   vertical and horizontal scrollbars, either as needed, or by your explicit declaration.
+    ScrollablePane - an object into which you may insert... whatever you feel appropriate... that will manifest
+                     vertical and horizontal scrollbars, either as needed, or by your explicit declaration.
 
 ...and SO MUCH MORE!
 
