@@ -11,13 +11,13 @@ This library allows you to create and graphically texture all the basic needs of
 default visual style of whatever operating system your application is run on. Each class accepts 4 images
 to cover the 4 typical states of behavior:
 
-  1.) Normal
+    1.) Normal
 
-  2.) Moused-over (hover)
+    2.) Moused-over (hover)
 
-  3.) Active (clicking)
+    3.) Active (clicking)
 
-  4.) Disabled
+    4.) Disabled
 
 You can populate as many of those image-states as you choose to, or none at all. (if you like the look of
 blank gray boxes) Buttons will look the way YOU want buttons to look; Checkboxes the way YOU want boxes to
@@ -29,8 +29,8 @@ like.
 
 And oh yeah, the implementation looks like this:
 
-  config_btn = Pushable(lambda: print("Hi mom!"), ["UI/cog.png", "UI/cog_mo.png", "UI/cog_red.png"], width=22, height=23)
-  config_btn.place(x=10 y=10)
+    config_btn = Pushable(lambda: print("Hi mom!"), ["UI/cog.png", "UI/cog_mo.png", "UI/cog_red.png"], width=22, height=23)
+    config_btn.place(x=10 y=10)
   
 Won't mom be proud when she sees the button you skineed for her yourself!
 
