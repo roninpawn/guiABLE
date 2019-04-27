@@ -66,5 +66,6 @@ guiABLE Classes include:
 Actually, that's most of it for now. What else do you want? I made tkinter actually work! Isn't that enough for you people?!
 
 
--Roninpawn S. Preston, Esq.
-  4/27/2019, 5:21pm, hungry and needing to pee.
+-Roninpawn S. Preston, Esq., 4/27/2019, 5:21pm
+
+hungry and needing to pee.
