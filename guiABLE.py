@@ -1,8 +1,9 @@
 import tkinter as tk
+from time import time as time
 from warnings import warn
 
 
-def _limitMove(start, size, low_bound, high_bound):
+def limitMove(start, size, low_bound, high_bound):
     if start < low_bound:
         return low_bound
     elif start + size > high_bound:
@@ -10,7 +11,7 @@ def _limitMove(start, size, low_bound, high_bound):
     return start
 
 
-def _getLocalMouse(widget):
+def getLocalMouse(widget):
     x = widget.winfo_pointerx() - widget.winfo_rootx()
     y = widget.winfo_pointery() - widget.winfo_rooty()
     if x < 0 or x > widget.winfo_width():
@@ -21,8 +22,167 @@ def _getLocalMouse(widget):
 
 
 def updateHover(widget):
-    x, y, mouse_in = _getLocalMouse(widget)
-    widget.mouseIn(None) if mouse_in else widget.mouseOut(None)
+    x, y, mouse_in = getLocalMouse(widget)
+    if widget.enabled:
+        widget.mouseIn(None) if mouse_in else widget.mouseOut(None)
+    else:
+        widget.disable()
+    
+
+def drawBar(trough_image, cap_image, width, height, horizontal=False):
+    newimg = tk.PhotoImage(width=width, height=height)
+    cap_w, cap_h = cap_image.width(), cap_image.height()
+
+    if horizontal or width > height:
+        putToImage(cap_image, newimg, (0, 0, cap_h, cap_w), rotate=True)
+        putToImage(trough_image, newimg, (cap_h, 0, width-cap_h, height), rotate=True)
+        putToImage(cap_image, newimg, (width-cap_h, 0, width, height), mirror_x=True, rotate=True)
+    else:
+        cap_h = cap_image.height()
+        putToImage(cap_image, newimg, (0, 0, cap_w, cap_h))
+        putToImage(trough_image, newimg, (0, cap_h, width, height-cap_h))
+        putToImage(cap_image, newimg, (0, height-cap_h, width, height), mirror_y=True)
+    return newimg
+
+
+def putToImage(brush, canvas, bbox, mirror_x=False, mirror_y=False, rotate=False):
+    value1 = brush.height() if rotate else brush.width()
+    value2 = brush.width() if rotate else brush.height()
+    start1, end1, increment1 = (value1-1, -1, -1) if mirror_x else (0, value1, 1)
+    start2, end2, increment2 = (value2-1, -1, -1) if mirror_y else (0, value2, 1)
+
+    data = ""
+    for col in range(start2, end2, increment2):
+        data = data + "{"
+        for row in range(start1, end1, increment1):
+            data = data + "#%02x%02x%02x " % brush.get(col if rotate else row, row if rotate else col)
+        data = data + "} "
+    canvas.put(data, to=bbox)
+
+
+class Windowable(tk.Tk):
+    def __init__(self, geometry="200x200", title=""):
+        self._mid_width = 0
+        self._mid_height = 0
+        self._lost_focus = time()
+        self.child_list = []
+        self.lock_handle = True
+
+        super().__init__()
+        self.overrideredirect(True)
+        self.title(title)
+        self.geometry(geometry)
+
+        self.taskbar_handle = tk.Toplevel(self)
+        self.taskbar_handle.title(title)
+
+        taskbar_geometry = self.geometry()
+        self.taskbar_handle.geometry(f"0x0+{taskbar_geometry.split('+', 1)[1]}")
+        self.taskbar_handle.wm_attributes('-alpha', 0.0)     # On windows, calling early prevents white-flash.
+        self.taskbar_handle.wait_visibility()                # On linux, alpha change has no effect until first load.
+        self.taskbar_handle.wm_attributes('-alpha', 0.0)
+        self.taskbar_handle.iconify()
+
+        self.bind("<ButtonRelease-1>", self.mouseUp)
+        self.bind("<FocusIn>", self.tookFocus)
+        self.bind("<FocusOut>", self.lostFocus)
+        self.taskbar_handle.bind("<Map>", self.deiconify)
+
+        self.update_idletasks()
+
+    def bindDrag(self, widget):
+        if widget is None:
+            widget.unbind("<B1-Motion>")
+        else:
+            widget.bind("<B1-Motion>", self.mouseDrag)
+
+    def bindChild(self, ChildableWindow): self.child_list.append(ChildableWindow)
+
+    def loadTabImage(self, image_path):
+        img = tk.PhotoImage(file=image_path)
+        img_w, img_h = img.width(), img.height()
+        self._mid_width = int((img_w - self.winfo_width()) / 2)
+        self._mid_height = int((img_h - self.winfo_height()) / 2)
+
+        self.lock_handle = False
+        self.taskbar_handle.deiconify()
+        self.taskbar_handle.geometry(f"{img_w}x{img_h}"
+                                     f"+{self.winfo_rootx() - self._mid_width}+{self.winfo_rooty() - self._mid_height}")
+        tab_image = Backgroundable(self.taskbar_handle, img_w, img_h)
+        tab_image.directSetImage(img)
+        tab_image.place(x=0, y=0)
+        self.taskbar_handle.update()
+        self.taskbar_handle.iconify()
+        self.lock_handle = True
+
+    def mouseDrag(self, event):
+        if self.lock_handle:
+            self.x = event.x
+            self.y = event.y
+            self.lock_handle = False
+            self.taskbar_handle.deiconify()
+            self.focus_force()
+            self.active_children = [child for child in self.child_list if child.visible]
+
+        x = self.winfo_x() + event.x - self.x
+        y = self.winfo_y() + event.y - self.y
+        self.taskbar_handle.geometry(f"+{x - self._mid_width}+{y - self._mid_height}")
+        self.geometry(f"+{x}+{y}")
+        [child.geometry(f"+{x + child.winfo_x()}+{y + child.winfo_y()}") for child in self.active_children]
+
+    def mouseUp(self, event):
+        if not self.lock_handle:
+            self.taskbar_handle.wm_iconify()
+            self.focus_force()
+            self.lock_handle = True
+
+    def tookFocus(self, event):
+        [child.lift() for child in self.child_list]
+
+    def lostFocus(self, event):
+        self._lost_focus = time() + .4
+
+    def iconify(self, event=None):
+        [child.withdraw() for child in self.child_list]
+        self.withdraw()
+        self.taskbar_handle.iconify()
+
+    def deiconify(self, event=None):
+        if self.lock_handle:
+            if self.wm_state() == tk.NORMAL and time() < self._lost_focus:
+                self.iconify()
+            else:
+                super().deiconify()
+                [child.deiconify() for child in self.child_list]
+                self.focus_force()
+            self.taskbar_handle.wm_iconify()
+
+
+class ChildableWindow(tk.Toplevel):
+    def __init__(self, parent, position=(100, 100), visible=False):
+        parent.bindChild(self)
+        self._visible = visible
+
+        super().__init__(parent)
+        self.overrideredirect(True)
+        self.geometry(f"+{self.master.winfo_rootx() + position[0]}+{self.master.winfo_rooty() + position[1]}")
+        self.update_idletasks()
+
+        if not self._visible:
+            self.withdraw()
+
+    def winfo_x(self): return self.winfo_rootx() - self.master.winfo_rootx()
+
+    def winfo_y(self): return self.winfo_rooty() - self.master.winfo_rooty()
+
+    def deiconify(self):
+        if self._visible:
+            self.geometry(f"+{self.master.winfo_rootx() + self.winfo_x()}+{self.master.winfo_rooty() + self.winfo_y()}")
+            super().deiconify()
+
+    def visible(self, bool=None):
+        self._visible = bool if bool is not None else not self._visible
+        self.deiconify() if self._visible else self.withdraw()
 
 
 class Canvasable(tk.Text):
@@ -61,44 +221,106 @@ class Backgroundable(tk.Frame):
         self.inner.configure(state=tk.DISABLED)
 
 
+class Skinnable():
+    def __init__(self, normal_path=None, hover_path=None, active_path=None, disabled_path=None):
+        self._recipients = []
+        self._paths = [normal_path, hover_path, active_path, disabled_path]
+        self._images = [None, None, None, None]
+
+        self.changePaths(normal_path, hover_path, active_path, disabled_path)
+
+        if self._images[0] is None:
+            for n in range(1, 4):
+                if self._images[n] is not None:
+                    self._images[0] = self._images[n]
+                    break
+            if self._images[0] is None:
+                self._images[0] = tk.PhotoImage(width=0, height=0)
+
+        for n in range(1, 3):
+            if self._images[n] is None:
+                self._images[n] = self._images[n-1]
+                self._paths[n] = self._paths[n-1]
+
+        if self._images[3] is None:
+            self._paths[3] = self._paths[0]
+            self._images[3] = self._images[0]
+
+    def changePaths(self, normal_path=None, hover_path=None, active_path=None, disabled_path=None, _direct=False):
+        paths = [normal_path, hover_path, active_path, disabled_path]
+        for n in range(4):
+            if paths[n] is not None:
+                if not self._checkDuplicates(paths[n], n):
+                    self._paths[n] = paths[n]
+                    if _direct:
+                        self._images[n] = paths[n]
+                    else:
+                        self._loadImg(paths[n], n)
+
+    def directSetImages(self, normal_img=None, hover_img=None, active_img=None, disabled_img=None):
+        self.changePaths(normal_img, hover_img, active_img, disabled_img, True)
+
+    def bindWidget(self, widget): self._recipients.append(widget)
+
+    def unbindWidget(self, widget):
+        if widget in self._recipients: self._recipients.remove(widget)
+
+    def updateRecipients(self): [updateHover(recipient) for recipient in self._recipients]
+
+    def paths(self): return self._paths
+
+    def images(self): return self._images
+
+    def _checkDuplicates(self, reference, index):
+        for i in range(4):
+            if self._images[i] is not None and self._paths[i] == reference:
+                self._paths[index] = reference
+                self._images[index] = self._images[i]
+                return True
+        return False
+
+    def _loadImg(self, img_path, index):
+        if img_path is not None:
+            try:
+                self._images[index] = tk.PhotoImage(file=img_path)
+            except tk.TclError:
+                warn(f"guiABLE: Image not found: {img_path}", RuntimeWarning)
+
+
 class Hoverable(tk.Canvas):
-    def __init__(self, parent, image_paths=None, **kwargs):
+    def __init__(self, parent, skinnable=None, **kwargs):
         super().__init__(parent, highlightthickness=0, **kwargs)
 
         self.enabled = True
         self.moused_over = False
-        self.images = self._loadImages(image_paths)
+
+        if skinnable is not None:
+            self._skin = None
+            self.setSkin(skinnable)
+        else:
+            self._skin = Skinnable()
         self.enable()
 
-    def _loadImages(self, image_paths):
-        images = [[], [], [], []]
-        if image_paths is not None:
-            images = [self._loadImg(img) for img in image_paths] + images[len(image_paths):]
-            if len(image_paths) < 4:
-                images[3] = images[0]
-        return images
+    def setSkin(self, skinnable):
+        if self._skin is not None:
+            self._skin.unbindWidget(self)
+        skinnable.bindWidget(self)
+        self._skin = skinnable
 
-    def _loadImg(self, img_location):
-        try:
-            img_out = tk.PhotoImage(file=img_location)
-        except tk.TclError:
-            warn(f"guiABLE: Image not found: {img_location}", RuntimeWarning)
-            img_out = []
-        return img_out
-
-    def loadImages(self, image_paths):
-        self.images = self._loadImages(image_paths)
-        updateHover(self)
+    def clearSkin(self):
+        if self._skin is not None:
+            self._skin.unbindWidget(self)
+        self._skin.images = [[],[],[],[]]
 
     def mouseIn(self, event):
         self.moused_over = True
         self.configure(bg="white")
-        self.create_image(0, 0, image=self.images[1], anchor=tk.NW)
+        self.create_image(0, 0, image=self._skin.images()[1], anchor=tk.NW)
 
     def mouseOut(self, event):
         self.moused_over = False
         self.configure(bg="gray")
-        self.create_image(0, 0, image=self.images[0], anchor=tk.NW)
+        self.create_image(0, 0, image=self._skin.images()[0], anchor=tk.NW)
 
     def enable(self):
         self.bind("<Enter>", self.mouseIn)
@@ -109,18 +331,18 @@ class Hoverable(tk.Canvas):
     def disable(self):
         self.unbind("<Enter>")
         self.unbind("<Leave>")
-        self.create_image(0, 0, image=self.images[3], anchor=tk.NW)
+        self.create_image(0, 0, image=self._skin.images()[3], anchor=tk.NW)
         self.enabled = False
 
 
 class Clickable(Hoverable):
-    def __init__(self, parent, function=lambda: None, image_paths=None, **kwargs):
+    def __init__(self, parent, function=lambda: None, skinnable=None, **kwargs):
         self.function = function
-        super().__init__(parent, image_paths, **kwargs)
+        super().__init__(parent, skinnable, **kwargs)
 
     def clicked(self, event):
         self.configure(bg="red")
-        self.create_image(0, 0, image=self.images[2], anchor=tk.NW)
+        self.create_image(0, 0, image=self._skin.images()[2], anchor=tk.NW)
         self.function()
         updateHover(self)
 
@@ -138,14 +360,14 @@ class Clickable(Hoverable):
         self.unbind("<ButtonRelease-1>")
 
 
-class Pushable(Clickable):
-    def __init__(self, parent, function=lambda: None, image_paths=None, **kwargs):
+class Rollable(Clickable):
+    def __init__(self, parent, function=lambda: None, skinnable=None, **kwargs):
         self._clicking = False
-        super().__init__(parent, function, image_paths, **kwargs)
+        super().__init__(parent, function, skinnable, **kwargs)
 
     def mouseIn(self, event):
+        self.moused_over = True
         if self._clicking:
-            self.moused_over = True
             self.clicked(event)
         else:
             super().mouseIn(event)
@@ -153,7 +375,15 @@ class Pushable(Clickable):
     def clicked(self, event):
         self._clicking = True
         self.configure(bg="red")
-        self.create_image(0, 0, image=self.images[2], anchor=tk.NW)
+        self.create_image(0, 0, image=self._skin.images()[2], anchor=tk.NW)
+        self.function()
+
+
+class Pushable(Rollable):
+    def clicked(self, event):
+        self._clicking = True
+        self.configure(bg="red")
+        self.create_image(0, 0, image=self._skin.images()[2], anchor=tk.NW)
 
     def mouseUp(self, event):
         self._clicking = False
@@ -163,29 +393,41 @@ class Pushable(Clickable):
 
 
 class Toggleable(Pushable):
-    def __init__(self, parent, state=False, function=lambda: None, image_paths1=None, image_paths2=None, **kwargs):
+    def __init__(self, parent, state=False, function=lambda: None, skinnable_1=None, skinnable_2=None, **kwargs):
         self.state = state
-        super().__init__(parent, function, **kwargs)
+        super().__init__(parent, function, skinnable_1, **kwargs)
+        if skinnable_1 is None and skinnable_2 is None:
+            self._skins = [[[],[],[],[]], [[],[],[],[]]]
+        else:
+            if skinnable_2 is None:
+                skinnable_1.bindWidget(self)
+                skinnable_2 = skinnable_1
+            elif skinnable_1 is None:
+                skinnable_2.bindWidget(self)
+                skinnable_1 = skinnable_2
+            else:
+                skinnable_1.bindWidget(self)
+                skinnable_2.bindWidget(self)
 
-        self.images = self._loadImages(image_paths1) + self._loadImages(image_paths2)
-        if not self.state:
-            self.images = self.images[4:8] + self.images[0:4]
+            self._skins = [skinnable_1, skinnable_2]
+            self._skin = self._skins[not self.state]
+
         updateHover(self)
 
     def mouseUp(self, event):
         self._clicking = False
         if self.moused_over:
             self.state = not self.state
-            self.images = self.images[4:8] + self.images[0:4]
+            self._skin = self._skins[not self.state]
             self.function()
             updateHover(self)
 
 
 class Holdable(Pushable):
-    def __init__(self, parent, function=lambda: None, image_paths=None, delay=100, init_delay=400, **kwargs):
+    def __init__(self, parent, function=lambda: None, skinnable=None, delay=100, init_delay=400, **kwargs):
         self.delay = delay
         self.init_delay = init_delay
-        super().__init__(parent, function, image_paths, **kwargs)
+        super().__init__(parent, function, skinnable, **kwargs)
 
     def mouseOut(self, event):
         self.moused_over = False if self._clicking else super().mouseOut(None)
@@ -216,8 +458,8 @@ class Draggable(Holdable):
     def mouseDrag(self, event):
         x = event.x - self.x + self.winfo_x()
         y = event.y - self.y + self.winfo_y()
-        x = _limitMove(x, self.winfo_width(), 0, self.master.winfo_width())
-        y = _limitMove(y, self.winfo_height(), 0, self.master.winfo_height())
+        x = limitMove(x, self.winfo_width(), 0, self.master.winfo_width())
+        y = limitMove(y, self.winfo_height(), 0, self.master.winfo_height())
 
         self.place_configure(x=x, y=y)
 
@@ -231,79 +473,88 @@ class Draggable(Holdable):
 
 
 class Troughable(Backgroundable):
-    def __init__(self, parent, width, height, **kwargs):
-        self.enabled = True
-        self.images = None
-        super().__init__(parent, width=width, height=height, bg="lightgray", **kwargs)
+    def __init__(self, parent, width, height, skinnable=None, **kwargs):
+        super().__init__(parent, width=width, height=height, **kwargs)
 
-    def setImage(self, img_list):
-        self.images = img_list
+        self.enabled = False
+        self._clicking = False
+        self._skin = skinnable if skinnable is not None else Skinnable()
         self.enable()
 
+    def setSkin(self, skinnable):
+        if self._skin is not None:
+            self._skin.unbindWidget(self)
+        skinnable.bindWidget(self)
+        self._skin = skinnable
+
     def mouseOut(self, event):
-        self.directSetImage(self.images[0])
+        if not self._clicking:
+            self.directSetImage(self._skin.images()[0])
+            self.inner.configure(bg="darkgray")
+        self.moused_over = False
 
     def mouseIn(self, event):
-        self.directSetImage(self.images[1])
+        if not self._clicking:
+            self.directSetImage(self._skin.images()[1])
+            self.inner.configure(bg="lightgray")
+        self.moused_over = True
 
     def clicked(self, event):
-        self.directSetImage(self.images[2])
+        self.directSetImage(self._skin.images()[2])
+        self.inner.configure(bg="red")
+        self._clicking = True
 
     def mouseUp(self, event):
-        self.directSetImage(self.images[1])
+        self._clicking = False
+        self.mouseIn(event) if self.moused_over else self.mouseOut(event)
 
     def enable(self):
-        if self.images is not None:
-            self.inner.bind("<Enter>", self.mouseIn)
-            self.inner.bind("<Leave>", self.mouseOut)
-            self.inner.bind("<Button-1>", self.clicked, "+")
-            self.inner.bind("<ButtonRelease-1>", self.mouseUp, "+")
-            updateHover(self)
+        self.inner.bind("<Enter>", self.mouseIn)
+        self.inner.bind("<Leave>", self.mouseOut)
+        self.inner.bind("<Button-1>", self.clicked)
+        self.inner.bind("<ButtonRelease-1>", self.mouseUp)
         self.enabled = True
+        updateHover(self)
 
     def disable(self):
         self.inner.unbind("<Enter>")
         self.inner.unbind("<Leave>")
         self.inner.unbind("<Button-1>")
         self.inner.unbind("<ButtonRelease-1>")
-        if self.images is not None:
-            self.directSetImage(self.images[3])
+        self.directSetImage(self._skin.images()[3])
         self.enabled = False
 
 
-class Scrollable(Holdable):
-    def __init__(self, parent, trough_width, trough_height, handle_width, handle_height, scrollwheel_speed=10, **kwargs):
-        self.scrollwheel_speed = scrollwheel_speed
-        self.linked = False
+class Scrollable(Troughable):
+    def __init__(self, parent, trough_width, trough_height, handle_width, handle_height, scrollable_skin=None, **kwargs):
+        self.scrollwheel_speed = 10
         self.page_percent = .9
-        self._skin = None
+        self.init_delay = 400
+        self.delay = 100
+        super().__init__(parent, trough_width, trough_height, scrollable_skin.troughs, **kwargs)
 
-        super().__init__(parent, lambda: None, width=trough_width, height=trough_height, **kwargs)
-        self.trough = Troughable(self, trough_width, trough_height)
-        self.trough.place(x=0, y=0)
-        self.handle = Draggable(self.trough.inner, width=handle_width, height=handle_height)
+        if scrollable_skin is None: scrollable_skin = ScrollableSkin()
+        self.handle = Draggable(self.inner, skinnable=scrollable_skin.handles, width=handle_width, height=handle_height)
         self.handle.place(x=0, y=-0)
 
     def enable(self):
+        super().enable()
         if not self.enabled:
-            self.trough.enable()
             self.handle.enable()
             if self.linked: self._linkTo()
-            if self._skin is not None: self._skin.drawTo(self)
-        super().enable()
 
     def disable(self):
-        self.trough.disable()
         self.handle.disable()
         super().disable()
 
-    def setSkin(self, ScrollSkin): self._skin = ScrollSkin
+    def setSkin(self, scroll_skinnable):
+        super().setSkin(scroll_skinnable)
+        self.handle.setSkin(scroll_skinnable)
 
-    def linkTo(self, ScrollableCanvas, movement_modifier=-1, active_handle_xy=(True, True), canvas_offset=(0.0, 0.0)):
+    def linkTo(self, scrollablecanvas, movement_modifier=-1, active_handle_xy=(True, True), canvas_offset=(0.0, 0.0)):
         self.movement_modifier = movement_modifier
-        self._linked = ScrollableCanvas
-        self._linkedwidth = self._linked.inner.winfo_width()
-        self._linkedheight = self._linked.inner.winfo_height()
+        self._linked = scrollablecanvas
+        self._linkedwidth, self._linkedheight = self._linked.inner.winfo_width(), self._linked.inner.winfo_height()
         self.active_handle_x, self.active_handle_y = active_handle_xy
         self.x_offset, self.y_offset = canvas_offset
         self._linkTo()
@@ -311,37 +562,38 @@ class Scrollable(Holdable):
     def _linkTo(self):
         if self.active_handle_y:
             self.bind_all("<MouseWheel>", self.scroll, "+")
-        self.handle.bind("<Configure>", self._moveCanvas)
-        self.trough.inner.bind("<Button-1>", self.clicked)
-        self.trough.inner.bind("<ButtonRelease-1>", self.mouseUp)
+        self.handle.bind("<Configure>", self._moveCanvas, "+")
+        self.inner.bind("<Button-1>", self.clicked, "+")
+        self.inner.bind("<ButtonRelease-1>", self.mouseUp, "+")
         self._linked.inner.bind("<Configure>", self._resize_handle, "+")
         self.bind("<Configure>", self._resize_handle)
         self.linked = True
 
     def _resize_handle(self, event):
-        #self.update_idletasks()
-        #self._linked.update_idletasks()
         if self._linkedwidth != self._linked.inner.winfo_width() or self._linkedheight != self._linked.inner.winfo_height():
             self.resize_handle()
 
     def resize_handle(self):
         if not self.active_handle_x or self._linked.inner.winfo_width() < self._linked.inner_width:
-            self.handle.config(width=self.trough.winfo_width())
+            self.handle.config(width=self.winfo_width())
         else:
             self.enable()
             self.handle.config(width=self.winfo_width() / self._linked.inner.winfo_width() * self._linked.inner_width)
         if not self.active_handle_y or self._linked.inner.winfo_height() <= self._linked.inner_height:
-            self.handle.config(height=self.trough.winfo_height())
+            self.handle.config(height=self.winfo_height())
         else:
             self.enable()
             self.handle.config(height=self.winfo_height() / self._linked.inner.winfo_height() * self._linked.inner_height)
 
-        if self._skin is not None:
-            self._skin.drawTo(self)
-
-        if self.handle.winfo_width() == self.trough.winfo_width() and \
-                self.handle.winfo_height() == self.trough.winfo_height():
+        self.update_idletasks()
+        if self.handle.winfo_width() == self.winfo_width() and \
+                self.handle.winfo_height() == self.winfo_height():
             self.disable()
+
+        self.handle._skin.drawBars(self.handle.winfo_width(), self.handle.winfo_height())
+        updateHover(self.handle)
+        self._skin.drawBars(self.winfo_width(), self.winfo_height())
+        updateHover(self)
 
         self._linkedwidth = self._linked.inner.winfo_width()
         self._linkedheight = self._linked.inner.winfo_height()
@@ -349,25 +601,27 @@ class Scrollable(Holdable):
     def clicked(self, event):
         if self.active_handle_x:
             new_x = self._limitPage(event.x, self.handle.winfo_x(), self.handle.winfo_width(),
-                                    self.trough.winfo_width(), self.page_percent)
+                                    self.winfo_width(), self.page_percent)
             self.handle.place_configure(x=new_x)
         if self.active_handle_y:
             new_y = self._limitPage(event.y, self.handle.winfo_y(), self.handle.winfo_height(),
-                                    self.trough.winfo_height(), self.page_percent)
+                                    self.winfo_height(), self.page_percent)
             self.handle.place_configure(y=new_y)
 
         if not self._clicking:
             self.after(self.init_delay, self._keepClicking)
             self._clicking = True
 
+        super().clicked(event)
+
     def _keepClicking(self):
         if self._clicking:
-            event_x, event_y, mouse_in = _getLocalMouse(self.trough.inner)
-            self.trough.inner.event_generate("<Button-1>", x=event_x, y=event_y)
+            event_x, event_y, mouse_in = getLocalMouse(self.inner)
+            self.inner.event_generate("<Button-1>", x=event_x, y=event_y)
             self.after(self.delay, self._keepClicking)
 
     def scroll(self, event):
-        x, y, moused_over = _getLocalMouse(self._linked)
+        x, y, moused_over = getLocalMouse(self._linked)
         if moused_over and self.enabled:
             y = self.handle.winfo_y()
             speed = event.delta / self.scrollwheel_speed
@@ -375,7 +629,7 @@ class Scrollable(Holdable):
             if y - speed < 0:
                 self.handle.place_configure(y=0)
             else:
-                trough_height = self.trough.winfo_height()
+                trough_height = self.winfo_height()
                 handle_height = self.handle.winfo_height()
 
                 if trough_height < y + handle_height - speed:
@@ -388,46 +642,56 @@ class Scrollable(Holdable):
             return origin
         if event <= origin:
             size = -size
-        return _limitMove(origin + size * restrict, size, 0, max)
+        return limitMove(origin + size * restrict, size, 0, max)
 
     def _moveCanvas(self, event):
         if self.active_handle_x:
             if self.handle.winfo_width() < self._linked.inner_width:
                 x = event.x * ((self._linked.inner.winfo_width()-self._linked.inner_width) /
-                               (self.trough.winfo_width()-self.handle.winfo_width()) * self.movement_modifier)
+                               (self.winfo_width()-self.handle.winfo_width()) * self.movement_modifier)
             else: x = 0.0
             self._linked.inner.place_configure(x=x + self.x_offset)
 
         if self.active_handle_y:
             if self.handle.winfo_height() < self._linked.inner_height:
                 y = event.y * ((self._linked.inner.winfo_height()-self._linked.inner_height) /
-                               (self.trough.winfo_height()-self.handle.winfo_height()) * self.movement_modifier)
+                               (self.winfo_height()-self.handle.winfo_height()) * self.movement_modifier)
             else: y = 0.0
             self._linked.inner.place_configure(y=y + self.y_offset)
 
 
-class ScrollableCanvas(Troughable): pass
+class ScrollableCanvas(Backgroundable): pass
 
 
 class ScrollablePane(ScrollableCanvas):
-    def __init__(self, parent, width, height, bar_size, scrollbars=(False, False), auto=(False, False)):
+    def __init__(self, parent, width, height, bar_size=18, scrollable_pane_skin=None, scrollbars=(False, False),
+                 auto=(False, False)):
         super().__init__(parent, width=width, height=height)
         h_on, v_on = scrollbars
         self.h_auto, self.v_auto = auto
 
-        self._skin = None
-        if self.h_auto or self.v_auto:
-            self.inner.bind("<Configure>", self.showBars)
+        self._skin = scrollable_pane_skin if scrollable_pane_skin is not None else ScrollablePaneSkin()
+
         self.inner_width = width - bar_size * v_on * (not self.v_auto)
         self.inner_height = height - bar_size * h_on * (not self.h_auto)
 
-        self.v_scroll = Scrollable(self, bar_size, height, bar_size, bar_size)
+        self.v_scroll = Scrollable(self, bar_size, height, bar_size, bar_size, self._skin.v_skin)
+        self._skin.v_skin.bindScrollable(self.v_scroll)
         self.v_scroll.place(x=self.inner_width, y=0)
         self.v_scroll.linkTo(self, -1, (False, True))
 
-        self.h_scroll = Scrollable(self, self.inner_width, bar_size, bar_size, bar_size)
+        self.h_scroll = Scrollable(self, self.inner_width, bar_size, bar_size, bar_size, self._skin.h_skin)
+        self._skin.h_skin.bindScrollable(self.h_scroll)
         self.h_scroll.place(x=0, y=self.inner_height)
         self.h_scroll.linkTo(self, -1, (True, False))
+
+        if self.h_auto or self.v_auto:
+            self.inner.bind("<Configure>", self.showBars)
+
+    def setSkin(self, scrollablepane_skin):
+        if scrollablepane_skin is not None:
+            scrollablepane_skin.v_skin.bindScrollable(self.v_scroll)
+            scrollablepane_skin.h_skin.bindScrollable(self.h_scroll)
 
     def showBars(self, event):
         changed = False
@@ -449,94 +713,96 @@ class ScrollablePane(ScrollableCanvas):
 
         if changed:
             if self.v_auto:
-                self.h_scroll.trough.configure(width=self.inner_width)
+                self.h_scroll.configure(width=self.inner_width)
                 self.h_scroll.place_configure(width=self.inner_width)
                 self.v_scroll.place_configure(x=self.inner_width)
                 self.v_scroll.resize_handle()
             if self.h_auto:
                 self.h_scroll.place_configure(y=self.inner_height, width=self.inner_width)
-                self.h_scroll.trough.configure(width=self.inner_width)
+                self.h_scroll.configure(width=self.inner_width)
                 self.h_scroll.resize_handle()
-
-    def setSkin(self, ScrollSkin):
-        self.v_scroll._skin = ScrollSkin
-        self.h_scroll._skin = ScrollSkin
 
     def disable(self):
         self.v_scroll.disable()
         self.h_scroll.disable()
-        super().disable()
 
     def enable(self):
         self.v_scroll.enable()
         self.h_scroll.enable()
-        super().enable()
 
 
-class ScrollSkin:
-    def __init__(self, trough_paths, handle_paths, linkTo=None):
-        self._trough_paths = self._conform_pairs(trough_paths)
-        self._handle_paths = self._conform_pairs(handle_paths)
-        if linkTo is not None:
-            self.linkTo(linkTo)
+class BarSkin(Skinnable):
+    def __init__(self, mids_skinnable=None, ends_skinnable=None, width=20, height=20, horizontal=False):
+        super().__init__()
+        if mids_skinnable is None:
+            mids_skinnable = Skinnable()
+        if ends_skinnable is None:
+            ends_skinnable = Skinnable()
+        self.changeSkins(mids_skinnable, ends_skinnable)
 
-    def linkTo(self, Scrollable): Scrollable.setSkin(self)
+    def drawBars(self, width, height, horizontal=False):
+        images = []
+        for n in range(4):
+            images.append(drawBar(self.mids.images()[n], self.ends.images()[n], width, height, horizontal))
+        self.directSetImages(images[0], images[1], images[2], images[3])
 
-    def drawTo(self, Scrollable, horizontal=False):
-        trough_sprites = [tk.PhotoImage(file=n) for n in self._trough_paths]
-        handle_sprites = [tk.PhotoImage(file=n) for n in self._handle_paths]
+    def changeSkins(self, mids_skinnable, ends_skinnable):
+        self.mids, self.ends = mids_skinnable, ends_skinnable
 
-        troughs, handles = ([], [])
-        Scrollable.update_idletasks()
-        for pair in range(0, 8, 2):
-            self._drawPairs(self._trough_paths, trough_sprites, pair, troughs, Scrollable.trough, horizontal)
-            self._drawPairs(self._handle_paths, handle_sprites, pair, handles, Scrollable.handle, horizontal)
-        Scrollable.trough.setImage(troughs)
-        Scrollable.handle.images = handles
-        updateHover(Scrollable.trough)
-        updateHover(Scrollable.handle)
 
-    def _drawPairs(self, in_paths, in_images, pair, out_imgs, widget, override=False):
-        if len(in_paths) > pair:
-            out_imgs.append(self.drawBar(in_images[pair:pair+2], widget.winfo_width(), widget.winfo_height(), override))
-        else:
-            out_imgs.append(out_imgs[0])
+class ScrollableSkin:
+    def __init__(self, trough_mids=None, trough_caps=None, handle_mids=None, handle_caps=None):
+        self.troughs = BarSkin(trough_mids, trough_caps, 0, 0)
+        self.handles = BarSkin(handle_mids, handle_caps, 0, 0)
+        self._recipients = []
 
-    def drawBar(self, images, width, height, horizontal):
-        newimg = tk.PhotoImage(width=width, height=height)
-        cap_w, cap_h = (images[1].width(), images[1].height())
+    def redraw(self, width, height, horizontal):
+        self.troughs.drawBars(width, height, horizontal)
+        self.handles.drawBars(width, height, horizontal)
 
-        if horizontal or width > height:
-            pass
-            self._putToImage(images[1], newimg, (0, 0, cap_h, cap_w), rotate=True)
-            self._putToImage(images[0], newimg, (cap_h, 0, width-cap_h, height), rotate=True)
-            self._putToImage(images[1], newimg, (width-cap_h, 0, width, height), mirror_x=True, rotate=True)
-        else:
-            cap_h = images[1].height()
-            self._putToImage(images[1], newimg, (0, 0, cap_w, cap_h))
-            self._putToImage(images[0], newimg, (0, cap_h, width, height-cap_h))
-            self._putToImage(images[1], newimg, (0, height-cap_h, width, height), mirror_y=True)
-        return newimg
+    def bindScrollable(self, scrollable):
+        scrollable.setSkin(self.troughs)
+        scrollable.handle.setSkin(self.handles)
 
-    def _conform_pairs(self, pairs_list):
-        # If 2nd position in [mid, cap] pair is None, set to [mid, mid]
-        for n in range(0, len(pairs_list), 2):
-            if len(pairs_list) == n+1:
-                pairs_list.append(pairs_list[n])
-            elif pairs_list[n+1] is None:
-                pairs_list[n+1] = pairs_list[n]
-        return pairs_list
+    def bindWidget(self, widget):
+        self._recipients.append(widget)
 
-    def _putToImage(self, brush, canvas, bbox, mirror_x=False, mirror_y=False, rotate=False):
-        value1 = brush.height() if rotate else brush.width()
-        value2 = brush.width() if rotate else brush.height()
-        start1, end1, increment1 = (value1-1, -1, -1) if mirror_x else (0, value1, 1)
-        start2, end2, increment2 = (value2-1, -1, -1) if mirror_y else (0, value2, 1)
+    def unbindWidget(self, widget):
+        if widget in self._recipients: self._recipients.remove(widget)
 
-        data = ""
-        for col in range(start2, end2, increment2):
-            data = data + "{"
-            for row in range(start1, end1, increment1):
-                data = data + "#%02x%02x%02x " % brush.get(col if rotate else row, row if rotate else col)
-            data = data + "} "
-        canvas.put(data, to=bbox)
+    def updateRecipients(self):
+        [updateHover(recipient) for recipient in self._recipients]
+
+    def changeSkins(self, trough_mids, trough_caps, handle_mids, handle_caps):
+        self.troughs.changeSkins(trough_mids, trough_caps)
+        self.handles.changeSkins(handle_mids, handle_caps)
+
+
+class ScrollablePaneSkin:
+    def __init__(self, trough_mids=None, trough_caps=None, handle_mids=None, handle_caps=None):
+        self.v_skin = ScrollableSkin(trough_mids, trough_caps, handle_mids, handle_caps)
+        self.h_skin = ScrollableSkin(trough_mids, trough_caps, handle_mids, handle_caps)
+
+    def redraw(self, width, height, horizontal):
+        self.v_skin.redraw(width, height, horizontal)
+        self.h_skin.redraw(width, height, horizontal)
+
+    def bindScrollables(self, scrollable):
+        self.v_skin.bindScrollable(scrollable)
+        self.h_skin.bindScrollable(scrollable)
+
+    def bindWidget(self, widget):
+        self.v_skin.bindWidget(widget)
+        self.h_skin.bindWidget(widget)
+
+    def unbindWidget(self, widget):
+        self.v_skin.unbindWidget(widget)
+        self.h_skin.unbindWidget(widget)
+
+    def updateRecipients(self):
+        self.v_skin.updateRecipients()
+        self.h_skin.updateRecipients()
+
+    def changeSkins(self, trough_mids, trough_caps, handle_mids, handle_caps):
+        self.v_skin.changeSkins(trough_mids, trough_caps, handle_mids, handle_caps)
+        self.h_skin.changeSkins(trough_mids, trough_caps, handle_mids, handle_caps)
