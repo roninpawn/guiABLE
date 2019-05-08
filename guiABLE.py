@@ -159,11 +159,11 @@ class Windowable(tk.Tk):
 
 
 class ChildableWindow(tk.Toplevel):
-    def __init__(self, parent, position=(100, 100), visible=False):
+    def __init__(self, parent, position=(100, 100), visible=False, **kwargs):
         parent.bindChild(self)
         self._visible = visible
 
-        super().__init__(parent)
+        super().__init__(parent, **kwargs)
         self.overrideredirect(True)
         self.geometry(f"+{self.master.winfo_rootx() + position[0]}+{self.master.winfo_rooty() + position[1]}")
         self.update_idletasks()
@@ -181,7 +181,10 @@ class ChildableWindow(tk.Toplevel):
             super().deiconify()
 
     def visible(self, bool=None):
-        self._visible = bool if bool is not None else not self._visible
+        if bool is not None:
+            self._visible = bool
+        else:
+            return self._visible
         self.deiconify() if self._visible else self.withdraw()
 
 
@@ -360,33 +363,18 @@ class Clickable(Hoverable):
         self.unbind("<ButtonRelease-1>")
 
 
-class Rollable(Clickable):
+class Pushable(Clickable):
     def __init__(self, parent, function=lambda: None, skinnable=None, **kwargs):
         self._clicking = False
         super().__init__(parent, function, skinnable, **kwargs)
 
-    def mouseIn(self, event):
-        self.moused_over = True
-        if self._clicking:
-            self.clicked(event)
-        else:
-            super().mouseIn(event)
-
-    def clicked(self, event):
-        self._clicking = True
-        self.configure(bg="red")
-        self.create_image(0, 0, image=self._skin.images()[2], anchor=tk.NW)
-        self.function()
-
-
-class Pushable(Rollable):
     def clicked(self, event):
         self._clicking = True
         self.configure(bg="red")
         self.create_image(0, 0, image=self._skin.images()[2], anchor=tk.NW)
 
     def mouseUp(self, event):
-        self._clicking = False
+        super().mouseUp(event)
         if self.moused_over:
             self.function()
             updateHover(self)
@@ -420,7 +408,9 @@ class Toggleable(Pushable):
             self.state = not self.state
             self._skin = self._skins[not self.state]
             self.function()
-            updateHover(self)
+            self.configure(bg="gray")
+            self.create_image(0, 0, image=self._skin.images()[0], anchor=tk.NW)
+
 
 
 class Holdable(Pushable):
