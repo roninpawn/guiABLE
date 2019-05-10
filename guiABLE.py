@@ -379,6 +379,14 @@ class Pushable(Clickable):
             self.function()
             updateHover(self)
 
+    def mouseIn(self, event):
+        if not self._clicking:
+            super().mouseIn(event)
+        else:
+            self.moused_over = True
+            self.configure(bg="red")
+            self.create_image(0, 0, image=self._skin.images()[2], anchor=tk.NW)
+
 
 class Toggleable(Pushable):
     def __init__(self, parent, state=False, function=lambda: None, skinnable_1=None, skinnable_2=None, **kwargs):
