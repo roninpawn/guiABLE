@@ -1,6 +1,4 @@
 import tkinter as tk
-from time import time
-from warnings import warn
 
 
 # ---------- Utility Functions ----------
@@ -59,3 +57,13 @@ def putToImage(brush, canvas, bbox, mirror_x=False, mirror_y=False, rotate=False
     ]
 
     canvas.put(" ".join(data), to=bbox)
+
+
+def warn_print(message, *, level="warning"):
+    COLORS = {
+        "info": "\033[96m",
+        "warning": "\033[93m",
+        "error": "\033[91m"
+    }
+    color = COLORS.get(level.lower(), "\033[93m")
+    print(f"{color}[guiABLE {level.upper()}]\033[0m {message}")

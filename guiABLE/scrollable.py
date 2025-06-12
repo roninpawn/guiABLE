@@ -1,8 +1,8 @@
 import tkinter as tk
 
-from utilities import limitMove, getLocalMouse, updateHover, drawBar
-from windowing import Backgroundable
-from widgets import Skinnable, Draggable
+from .utilities import limitMove, getLocalMouse, updateHover, drawBar
+from .windowing import Backgroundable
+from .widgets import Skinnable, Draggable
 
 
 class Troughable(Backgroundable):

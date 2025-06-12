@@ -1,6 +1,5 @@
 import tkinter as tk
-from warnings import warn
-from utilities import *
+from .utilities import *
 
 
 class Skinnable():
@@ -66,7 +65,7 @@ class Skinnable():
             try:
                 self._images[index] = tk.PhotoImage(file=img_path)
             except tk.TclError:
-                warn(f"guiABLE: Image not found: {img_path}", RuntimeWarning)
+                warn_print(f"Image not found: {img_path}")
 
 
 class Imageable(tk.Canvas):
