@@ -8,6 +8,7 @@ class Skinnable():
     def __init__(self, *paths:str):
         self._recipients, self._paths, self._images = [], [] ,[]
         self._empty_image = tk.PhotoImage(width=0, height=0)
+        self._bg_colors = ['gray', 'white', 'red', 'gray25']
         if paths:
             self._expand(len(paths))
             self._byPaths(paths)
@@ -68,13 +69,34 @@ class Skinnable():
         if path is not None:
             self._paths, self._images = [], []
             self._bySprite(sheet, path, width, rows, margins)
+        self.updateRecipients()
 
-    def paths(self): return self._paths
-    def image(self, index):
-        if len(self._images):
-            return self._images[-1] if index >= len(self._images) else self._images[index]
+    def setBGColors(self, *colors: str):
+        if colors and any(colors):  self._bg_colors = self._fillList([*colors])
+        else: warnPrint(f"Skinnable passed list of empty BG colors\n{colors}\nExisting colors retained.")
+    def setBGColor(self, color:str, index:int):
+        # If index is out of range, extend bg_color list with itself until index is valid
+        if color:
+            while index < -len(self._bg_colors) or index >= len(self._bg_colors): self._bg_colors.extend(self._bg_colors)
+            self._bg_colors[index] = color
+        else: warnPrint(f"Skinnable passed empty BG color '{color}' for index {index}; Existing color retained.")
+    def appendBGColors(self, *colors: str):
+        if colors and any(colors):  self._bg_colors.extend(self._fillList([*colors]))
+        else: warnPrint(f"Skinnable passed list of empty BG colors\n{colors}\nExisting colors retained.")
+
+    def path(self, index:int) -> Optional[str]:
+        if len(self._paths): return self._paths[index % len(self._paths)]
+        return None
+    def image(self, index:int) -> tk.PhotoImage:
+        if len(self._images): return self._images[index % len(self._images)]
         return self._empty_image
-    def images(self): return self._images
+    def bg(self, index: int) -> str:
+        if len(self._bg_colors): return self._bg_colors[index % len(self._bg_colors)]
+        return 'gray'
+
+    def images(self) -> list[tk.PhotoImage]: return self._images
+    def paths(self) -> list[str]: return self._paths
+    def bg_colors(self) -> list[str]: return self._bg_colors
 
     def numStates(self): return len(self._images)
     def reset(self): self._recipients, self._paths, self._images = [], [], []
@@ -105,7 +127,7 @@ class Skinnable():
                     warnPrint(f"Image not found: {r_path}")
                     self._images[i] = self._empty_image
 
-        self._fillGaps()
+        self._fillImages()
 
     def _byPhotoImages(self, images:tuple[tk.PhotoImage, ...], skip_falsy=False, index_offset:int = 0):
         for i, img in enumerate(images):
@@ -119,7 +141,7 @@ class Skinnable():
                 self._images[i] = self._empty_image
                 self._paths[i] = None
 
-        self._fillGaps()
+        self._fillImages()
 
     def _bySprite(self, sheet:tk.PhotoImage, path:str, width:int, rows:int = 1, margins:tuple = (0,0)):
         # Ensure row sanity and collect geometry.
@@ -136,7 +158,7 @@ class Skinnable():
                 self._images.append(sprite)
                 self._paths.append(f"{x1},{y1},{width},{height} from {path}")
 
-        self._fillGaps()
+        self._fillImages()
 
     def _pathOrImage(self, path_or_image:Optional[str|tk.PhotoImage]) -> tuple[tk.PhotoImage, Optional[str]]:
         # Conform either input type to PhotoImage and path
@@ -166,113 +188,105 @@ class Skinnable():
             if self._images[i] and self._paths[i] == path: return i
         return None
 
-    def _fillGaps(self):
-        # Handle case where 0 index is not populated, by setting it to the first real image found.
-        if self._images[0] == self._empty_image:
-            for img in self._images:
-                if img != self._empty_image:
-                    master = img
-                    break
-            else: return    # If entire list is nothing but empty images, give up and go home.
-            self._images[0] = master
-        else:
-            master = self._images[0]
+    @staticmethod
+    def _fillList(in_list:list) -> list:
+        fallback = next(l for l in in_list if l)     # Find first non-Falsy entry
 
-        # Populate any empty images with the last real image found, in ascending order.
-        for i in range(1, len(self._images)):
-            if self._images[i] == self._empty_image: self._images[i] = master
-            else: master = self._images[i]
+        for i, l in enumerate(in_list):      # Fill in any gaps by propagating the most recent valid data forward.
+            if l: fallback = l
+            else: in_list[i] = fallback
+
+        return in_list
+
+    def _fillImages(self):
+        fallback = next((i for i in self._images if i != self._empty_image), None)  # Find first real image.
+        if fallback is None: return
+
+        for i in range(len(self._images)):      # Fill in any gaps by propagating the most recent valid image forward.
+            if self._images[i] == self._empty_image: self._images[i] = fallback
+            else: fallback = self._images[i]
 
 
-class Imageable(tk.Canvas):
+class Baseable(tk.Canvas):
     def __init__(self, parent, skinnable=None, **kwargs):
         super().__init__(parent, highlightthickness=0, **kwargs)
-        self.enabled = True
+
+        self._enabled, self._toggle_state = None, None
 
         if skinnable is not None:
             self._skin = None
             self.setSkin(skinnable)
         else:
             self._skin = Skinnable()
-        self.current_image = 0
+
         self.enable()
 
-    def setSkin(self, skinnable):
+    @property
+    def enabled(self): return self._enabled
+    def enable(self): self._enabled = True
+    def disable(self): self._enabled = False
+    # def redraw(self): self.setState(self._state)
+
+    def setSkin(self, skinnable:Skinnable):
         if self._skin is not None:
             self._skin.unbindWidget(self)
         skinnable.bindWidget(self)
         self._skin = skinnable
-
-    def clearSkin(self):
-        if self._skin is not None:
-            self._skin.unbindWidget(self)
-        self._skin = Skinnable()
-        updateHover(self)
-
-    def changeImage(self, img_number):
-        self.current_image = img_number
-        self.delete("all")
-        self.create_image(0, 0, image=self._skin.image(img_number), anchor=tk.NW)
-
-    def enable(self):
-        self.delete("all")
-        self.create_image(0, 0, image=self._skin.image(self.current_image), anchor=tk.NW)
-        self.enabled = True
-
-    def disable(self):
-        self.delete("all")
-        self.create_image(0, 0, image=self._skin.image(3), anchor=tk.NW)
-        self.enabled = False
-
-
-class Hoverable(tk.Canvas):
-    def __init__(self, parent, skinnable=None, **kwargs):
-        super().__init__(parent, highlightthickness=0, **kwargs)
-
-        self.enabled = True
-        self.moused_over = False
-
-        if skinnable is not None:
-            self._skin = None
-            self.setSkin(skinnable)
-        else:
-            self._skin = Skinnable()
-        self.enable()
-
-    def setSkin(self, skinnable):
-        if self._skin is not None:
-            self._skin.unbindWidget(self)
-        skinnable.bindWidget(self)
-        self._skin = skinnable
-        updateHover(self)
 
     def dropSkin(self):
         if self._skin is not None: self._skin.unbindWidget(self)
+        self._skin = Skinnable()
+
+    def setState(self, state_index:int = 0):
+        self.configure(bg=self._skin.bg(state_index))
+        self.delete("all")
+        self.create_image(0, 0, image=self._skin.image(state_index), anchor=tk.NW)
+        self._toggle_state = state_index
+
+
+class Imageable(BaseAble):
+    def __init__(self, parent, skinnable=None, **kwargs):
+        super().__init__(parent, skinnable, **kwargs)
+        self._skin.setBGColors('gray')      # Eliminate interactive colors for simple image.
+
+    def changeImage(self, img_number): self.setState(img_number)
+    def enable(self):
+        super().enable()
+        self.setState(self._toggle_state)
+
+    def disable(self):
+        super().disable()
+        self.setState(3)
+
+
+class Hoverable(BaseAble):
+    def __init__(self, parent, skinnable=None, **kwargs):
+        self.moused_over = False
+        super().__init__(parent, skinnable, **kwargs)
+
+    def setSkin(self, skinnable):
+        super().setSkin(skinnable)
+        updateHover(self)
 
     def mouseIn(self, event):
         self.moused_over = True
-        self.configure(bg="white")
-        self.delete("all")
-        self.create_image(0, 0, image=self._skin.image(1), anchor=tk.NW)
+        self.setState(1)
 
     def mouseOut(self, event):
         self.moused_over = False
-        self.configure(bg="gray")
-        self.delete("all")
-        self.create_image(0, 0, image=self._skin.image(0), anchor=tk.NW)
+        self.setState(0)
 
     def enable(self):
+        super().enable()
         self.bind("<Enter>", self.mouseIn)
         self.bind("<Leave>", self.mouseOut)
-        self.enabled = True
         updateHover(self)
 
     def disable(self):
+        super().disable()
         self.unbind("<Enter>")
         self.unbind("<Leave>")
-        self.delete("all")
-        self.create_image(0, 0, image=self._skin.image(3), anchor=tk.NW)
-        self.enabled = False
+        self.setState(3)
 
 
 class Clickable(Hoverable):
@@ -281,9 +295,7 @@ class Clickable(Hoverable):
         super().__init__(parent, skinnable, **kwargs)
 
     def clicked(self, event):
-        self.configure(bg="red")
-        self.delete("all")
-        self.create_image(0, 0, image=self._skin.image(2), anchor=tk.NW)
+        self.setState(2)
         self.function()
         updateHover(self)
 
@@ -308,9 +320,7 @@ class Pushable(Clickable):
 
     def clicked(self, event):
         self._clicking = True
-        self.configure(bg="red")
-        self.delete("all")
-        self.create_image(0, 0, image=self._skin.image(2), anchor=tk.NW)
+        self.setState(2)
 
     def mouseUp(self, event):
         self._clicking = False
@@ -324,9 +334,7 @@ class Pushable(Clickable):
             super().mouseIn(event)
         else:
             self.moused_over = True
-            self.configure(bg="red")
-            self.delete("all")
-            self.create_image(0, 0, image=self._skin.image(2), anchor=tk.NW)
+            self.setState(2)
 
 
 class Labelable(Pushable):
@@ -361,7 +369,7 @@ class Labelable(Pushable):
 
 class Toggleable(Pushable):
     def __init__(self, parent, state=None, function=lambda: None, skinnable_1=None, skinnable_2=None, **kwargs):
-        self._state = state
+        self._toggle_state = state
         super().__init__(parent, function, skinnable_1, **kwargs)
         if skinnable_1 is None and skinnable_2 is None:
             self._skins = [[[],[],[],[]], [[],[],[],[]]]
@@ -377,26 +385,24 @@ class Toggleable(Pushable):
                 skinnable_2.bindWidget(self)
 
             self._skins = [skinnable_1, skinnable_2]
-            self._skin = self._skins[not self._state]
+            self._skin = self._skins[not self._toggle_state]
 
         updateHover(self)
 
     def mouseUp(self, event):
         self._clicking = False
         if self.moused_over:
-            self._state = not self._state
-            self._skin = self._skins[not self._state]
+            self._toggle_state = not self._toggle_state
+            self._skin = self._skins[not self._toggle_state]
             self.function()
-            self.configure(bg="gray")
-            self.delete("all")
-            self.create_image(0, 0, image=self._skin.image(0), anchor=tk.NW)
+            self.setState(0)
 
     def state(self, state=None):
         if state is None:
-            return self._state
+            return self._toggle_state
         else:
-            self._state = state
-            self._skin = self._skins[not self._state]
+            self._toggle_state = state
+            self._skin = self._skins[not self._toggle_state]
             updateHover(self)
 
 
