@@ -244,7 +244,7 @@ class Baseable(tk.Canvas):
         self._toggle_state = state_index
 
 
-class Imageable(BaseAble):
+class Imageable(Baseable):
     def __init__(self, parent, skinnable=None, **kwargs):
         super().__init__(parent, skinnable, **kwargs)
         self._skin.setBGColors('gray')      # Eliminate interactive colors for simple image.
@@ -259,7 +259,7 @@ class Imageable(BaseAble):
         self.setState(3)
 
 
-class Hoverable(BaseAble):
+class Hoverable(Baseable):
     def __init__(self, parent, skinnable=None, **kwargs):
         self.moused_over = False
         super().__init__(parent, skinnable, **kwargs)
