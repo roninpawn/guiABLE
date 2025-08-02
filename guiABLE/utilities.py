@@ -1,4 +1,24 @@
-import tkinter as tk
+from tkinter import PhotoImage
+import os
+import sys
+from typing import Optional
+
+
+# ---------- Path Functions ----------
+def isAbsolute(path): return os.path.isabs(path)
+def appRootDir(): return os.path.dirname(os.path.abspath(sys.argv[0]))    # Return the directory of the app/entrypoint
+
+def resolvePath(path, default_root=None) -> Optional[str]:
+    if not path: return None
+    path = os.path.normpath(path)           # Normalize slashes, strip weirdness
+    if os.path.exists(path) or os.path.isabs(path):     # If it exists of its absolute (but wrong) return unchanged.
+        return path
+
+    alt_path = os.path.join(appRootDir() if default_root is None else default_root, path)
+    if os.path.exists(alt_path): return alt_path
+
+    warnPrint(f"Resource not found: '{path}'")
+    return path
 
 
 # ---------- Utility Functions ----------
@@ -26,7 +46,7 @@ def updateHover(widget):
 
 def drawBar(trough_image, cap_image, width, height, horizontal=False):
     """Constructs a full-width or full-height scrollbar image from caps and a tileable mid-section."""
-    newimg = tk.PhotoImage(width=width, height=height)
+    newimg = PhotoImage(width=width, height=height)
     cap_w, cap_h = cap_image.width(), cap_image.height()
 
     if horizontal or width > height:
@@ -59,7 +79,30 @@ def putToImage(brush, canvas, bbox, mirror_x=False, mirror_y=False, rotate=False
     canvas.put(" ".join(data), to=bbox)
 
 
-def warn_print(message, *, level="warning"):
+def cropImage(image:PhotoImage, x, y, width, height):
+    # Conform geometry to image area.
+    x1 = max(0, min(x, image.width() - width))
+    y1 = max(0, min(y, image.height() - height))
+    w = min(width, image.width() - x1)
+    h = min(height, image.height() - y1)
+
+    # Warn if adjustments/corrections were made.
+    if w != width or h != height or x1 != x or y1 != y:
+        warnPrint(f"Image crop exceeded bounds and was modified:\r"
+                  f"x: {x} -> {x1}\r"
+                  f"y: {y} -> {y1}\r"
+                  f"width: {width} -> {w}\r"
+                  f"height: {height} -> {h}")
+
+    # Crop the image and return
+    cropped = PhotoImage(width=width, height=height)
+    cropped.tk.call(cropped, 'copy', image,
+                    '-from', x, y, x + width, y + height,
+                    '-to', 0, 0)
+    return cropped
+
+
+def warnPrint(message, *, level="warning"):
     COLORS = {
         "info": "\033[96m",
         "warning": "\033[93m",

@@ -1,6 +1,6 @@
 import tkinter as tk
 from time import time
-from .utilities import warn_print
+from .utilities import warnPrint
 
 
 class Windowable(tk.Tk):
@@ -165,7 +165,7 @@ class Backgroundable(tk.Frame):
         try:
             self.directSetImage(tk.PhotoImage(file=image_path))
         except tk.TclError:
-            warn_print(f"Image not found: {image_path}")
+            warnPrint(f"Image not found: {image_path}")
 
     def directSetImage(self, image):
         self.inner.configure(state=tk.NORMAL)

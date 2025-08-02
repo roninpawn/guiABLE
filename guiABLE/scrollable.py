@@ -22,18 +22,18 @@ class Troughable(Backgroundable):
 
     def mouseOut(self, event):
         if not self._clicking:
-            self.directSetImage(self._skin.images()[0])
+            self.directSetImage(self._skin.image(0))
             self.inner.configure(bg="darkgray")
         self.moused_over = False
 
     def mouseIn(self, event):
         if not self._clicking:
-            self.directSetImage(self._skin.images()[1])
+            self.directSetImage(self._skin.image(1))
             self.inner.configure(bg="lightgray")
         self.moused_over = True
 
     def clicked(self, event):
-        self.directSetImage(self._skin.images()[2])
+        self.directSetImage(self._skin.image(2))
         self.inner.configure(bg="red")
         self._clicking = True
 
@@ -54,7 +54,7 @@ class Troughable(Backgroundable):
         self.inner.unbind("<Leave>")
         self.inner.unbind("<Button-1>")
         self.inner.unbind("<ButtonRelease-1>")
-        self.directSetImage(self._skin.images()[3])
+        self.directSetImage(self._skin.image(3))
         self.enabled = False
 
 
@@ -299,10 +299,10 @@ class BarSkin(Skinnable):
 
     def drawBars(self, width, height, horizontal=False):
         images = [
-            drawBar(self.mids.images()[n], self.ends.images()[n], width, height, horizontal)
+            drawBar(self.mids.image(n), self.ends.image(n), width, height, horizontal)
             for n in range(4)
         ]
-        self.directSetImages(*images)
+        self.setImages(*images)
 
     def changeSkins(self, mids_skinnable, ends_skinnable):
         self.mids, self.ends = mids_skinnable, ends_skinnable
