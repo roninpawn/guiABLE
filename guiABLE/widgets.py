@@ -4,7 +4,7 @@ from typing import Optional
 from .utilities import updateHover, warnPrint, limitMove, resolvePath, cropImage
 
 
-class Skinnable():
+class Skinnable:
     def __init__(self, *paths:str):
         self._recipients, self._paths, self._images = [], [] ,[]
         self._empty_image = tk.PhotoImage(width=0, height=0)
@@ -211,7 +211,7 @@ class Baseable(tk.Canvas):
     def __init__(self, parent, skinnable=None, **kwargs):
         super().__init__(parent, highlightthickness=0, **kwargs)
 
-        self._enabled, self._toggle_state = None, None
+        self._enabled, self._img_state = None, None
 
         if skinnable is not None:
             self._skin = None
@@ -222,10 +222,9 @@ class Baseable(tk.Canvas):
         self.enable()
 
     @property
-    def enabled(self): return self._enabled
+    def enabled(self) -> bool : return self._enabled
     def enable(self): self._enabled = True
     def disable(self): self._enabled = False
-    # def redraw(self): self.setState(self._state)
 
     def setSkin(self, skinnable:Skinnable):
         if self._skin is not None:
@@ -241,7 +240,7 @@ class Baseable(tk.Canvas):
         self.configure(bg=self._skin.bg(state_index))
         self.delete("all")
         self.create_image(0, 0, image=self._skin.image(state_index), anchor=tk.NW)
-        self._toggle_state = state_index
+        self._img_state = state_index
 
 
 class Imageable(Baseable):
@@ -252,7 +251,7 @@ class Imageable(Baseable):
     def changeImage(self, img_number): self.setState(img_number)
     def enable(self):
         super().enable()
-        self.setState(self._toggle_state)
+        self.setState(self._img_state)
 
     def disable(self):
         super().disable()
@@ -368,42 +367,27 @@ class Labelable(Pushable):
 
 
 class Toggleable(Pushable):
-    def __init__(self, parent, state=None, function=lambda: None, skinnable_1=None, skinnable_2=None, **kwargs):
+    def __init__(self, parent, state:bool=False, function=lambda: None, skinnable:Skinnable = None, **kwargs):
         self._toggle_state = state
-        super().__init__(parent, function, skinnable_1, **kwargs)
-        if skinnable_1 is None and skinnable_2 is None:
-            self._skins = [[[],[],[],[]], [[],[],[],[]]]
-        else:
-            if skinnable_2 is None:
-                skinnable_1.bindWidget(self)
-                skinnable_2 = skinnable_1
-            elif skinnable_1 is None:
-                skinnable_2.bindWidget(self)
-                skinnable_1 = skinnable_2
-            else:
-                skinnable_1.bindWidget(self)
-                skinnable_2.bindWidget(self)
-
-            self._skins = [skinnable_1, skinnable_2]
-            self._skin = self._skins[not self._toggle_state]
-
-        updateHover(self)
+        self._state_offset = 0
+        super().__init__(parent, function, skinnable, **kwargs)
 
     def mouseUp(self, event):
         self._clicking = False
         if self.moused_over:
-            self._toggle_state = not self._toggle_state
-            self._skin = self._skins[not self._toggle_state]
+            self.state(not self._toggle_state)
             self.function()
-            self.setState(0)
 
-    def state(self, state=None):
-        if state is None:
-            return self._toggle_state
-        else:
+    def state(self, state:bool=None) -> Optional[bool]:
+        if isinstance(state, bool):
             self._toggle_state = state
-            self._skin = self._skins[not self._toggle_state]
-            updateHover(self)
+            self._state_offset = self._toggle_state * 4
+            self.setState(1)
+        return self._toggle_state
+
+    def setState(self, state_index:int = 0):
+        state_index += self._state_offset
+        super().setState(state_index)
 
 
 class Holdable(Pushable):

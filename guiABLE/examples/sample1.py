@@ -14,16 +14,17 @@ def test_gui():
     test_btn.place(x=20, y=20)
 
     # Create a Toggleable checkbox
-    toggle_skin1 = Skinnable("../skins/default/checkbox-64.png")
-    toggle_skin2 = Skinnable("../skins/default/radiobox-64.png")
-    test_toggle = Toggleable(bg, function=lambda: print("Toggle state:", test_toggle.state()),
-                             skinnable_1=toggle_skin1, skinnable_2=toggle_skin2, width=40, height=40)
-    test_toggle.place(x=140, y=20)
+    toggle_skin = Skinnable.fromSpriteSheet("../skins/default/checkbox-64.png", 64)
+    toggle_skin.setBGColors("gray30")
+    test_toggle = Toggleable(bg, function=lambda: print("Toggle state:", test_toggle.state()), skinnable=toggle_skin,
+                             width=64, height=64)
+    test_toggle.place(x=160, y=20)
 
     # Create a draggable object
-    drag_skin = Skinnable("../skins/default/drag_normal.png", "../skins/default/drag_hover.png", "../skins/default/drag_active.png")
-    test_drag = Draggable(bg, skinnable=drag_skin, width=50, height=50)
-    test_drag.place(x=200, y=20)
+    drag_skin = Skinnable.fromSpriteSheet("../skins/default/radiobox-64.png", 64)
+    drag_skin.setBGColors("gray30")
+    test_drag = Draggable(bg, skinnable=drag_skin, width=64, height=64)
+    test_drag.place(x=260, y=20)
 
     # Create a Labelable (button with text overlay)
     label_skin = Skinnable("../skins/default/label_normal.png", "../skins/default/label_hover.png", "../skins/default/label_active.png")
@@ -31,7 +32,7 @@ def test_gui():
                            text="Hello", text_pos=(10, 5), font=("Arial", 12, "bold"), color="white",
                            width=100, height=40)
 
-    test_label.place(x=280, y=20)
+    test_label.place(x=360, y=20)
 
     # Create an EXIT button from a Labelable
     exit_skin = Skinnable('../skins/default/window-glyphs-40.png')
