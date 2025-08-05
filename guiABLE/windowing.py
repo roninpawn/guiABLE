@@ -1,5 +1,7 @@
 import tkinter as tk
 from time import time
+
+from .widgets import Skinnable
 from .utilities import warnPrint
 
 
@@ -141,7 +143,9 @@ class ChildableWindow(tk.Toplevel):
 class Canvasable(tk.Text):
     def __init__(self, parent, **kwargs):
         super().__init__(parent, bd=0, padx=0, pady=0, state=tk.DISABLED, cursor="arrow", **kwargs)
-        self.configure(selectbackground=self.cget("bg"))
+        self._skin = Skinnable()
+        self._skin.setBGColors(self.cget("bg"))
+        self.configure(selectbackground=self._skin.bg())
 
     def _configure(self, cmd, cnf, kw):
         if "bg" in kw:
@@ -150,29 +154,29 @@ class Canvasable(tk.Text):
             kw["selectbackground"] = kw["background"]
         super()._configure(cmd, cnf, kw)
 
+    def skin(self) -> Skinnable: return self._skin
+
 
 class Backgroundable(tk.Frame):
-    def __init__(self, parent, width, height, image_path=None, **kwargs):
+    def __init__(self, parent, width, height, image_path=None, bg='gray', **kwargs):
         super().__init__(parent, width=width, height=height)
         self.pack_propagate(tk.FALSE)
-        self.inner = Canvasable(self, **kwargs)
+        self.inner = Canvasable(self, bg=bg, **kwargs)
 
-        if image_path is not None:
-            self.setImage(image_path)
-        self.inner.pack(fill=tk.BOTH, expand=True)
+        self._skin = Skinnable(image_path)
+        self._skin.setBGColors(bg)
 
-    def setImage(self, image_path):
-        try:
-            self.directSetImage(tk.PhotoImage(file=image_path))
-        except tk.TclError:
-            warnPrint(f"Image not found: {image_path}")
+        self.directSetImage(self._skin.image())
+        self.inner.pack(fill="both", expand=True)
 
-    def directSetImage(self, image):
-        self.inner.configure(state=tk.NORMAL)
+    def skin(self) -> Skinnable: return self._skin
+
+    def directSetImage(self, image: tk.PhotoImage):
+        self.inner.configure(state="normal")
         self.inner.delete(1.0, tk.END)
-        self._img = image
-        self.inner.image_create(tk.END, image=self._img)
-        self.inner.configure(state=tk.DISABLED)
+        self._skin.fromImages(image)
+        self.inner.image_create(tk.END, image=self._skin.image())
+        self.inner.configure(state="disabled")
 
     def empty(self):
         for child in self.inner.winfo_children():

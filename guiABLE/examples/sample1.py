@@ -1,9 +1,10 @@
 from guiABLE import *
+from guiABLE.utilities import cropImage
 
 
 def test_gui():
     app = Windowable(geometry="600x400+100+100", title="guiABLE Testbed")
-    bg = Backgroundable(app, "600", "400", bg="gray30")
+    bg = Backgroundable(app, "600", "400", "../skins/default/bg-600x400.png", bg="gray30")
     bg.inner.configure(cursor="fleur")
     bg.place(x=0, y=0)
     app.bindDrag(bg.inner)
@@ -35,10 +36,10 @@ def test_gui():
     test_label.place(x=360, y=20)
 
     # Create an EXIT button from a Labelable
-    exit_skin = Skinnable('../skins/default/window-glyphs-40.png')
-    exit_button = Labelable(bg, function=app.quit, skinnable=exit_skin, text="✕", font=("Arial", 20, "bold"),
-                            color="black", text_pos=(1,0), width=30, height=30)
-    exit_button.place(x=560, y=10)
+    x_sprite = Skinnable.fromImages(cropImage(tk.PhotoImage(file='../skins/default/window-glyphs-40.png'), 80, 0, 40, 40))
+    x_sprite.useBgColors(True)
+    exit_button = Pushable(bg, function=app.quit, skinnable=x_sprite, width=40, height=40)
+    exit_button.place(x=550, y=10)
 
     # Create a scrollable pane with content
     pane_skin = ScrollablePaneSkin()

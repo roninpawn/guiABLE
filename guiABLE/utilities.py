@@ -44,6 +44,9 @@ def updateHover(widget):
         widget.disable()
 
 
+def getGeometry(widget): return widget.winfo_x(), widget.winfo_y(), widget.winfo_width(), widget.winfo_height()
+
+
 def drawBar(trough_image, cap_image, width, height, horizontal=False):
     """Constructs a full-width or full-height scrollbar image from caps and a tileable mid-section."""
     newimg = PhotoImage(width=width, height=height)
@@ -100,6 +103,23 @@ def cropImage(image:PhotoImage, x, y, width, height):
                     '-from', x, y, x + width, y + height,
                     '-to', 0, 0)
     return cropped
+
+
+def composeImages(base:PhotoImage, *overlays: PhotoImage) -> PhotoImage:
+    width, height = base.width(), base.height()
+    composed = PhotoImage(width=width, height=height)
+
+    # Copy base
+    composed.tk.call(composed, 'copy', base, '-from', 0, 0, width, height, '-to', 0, 0)
+
+    # Overlay each image in order
+    for overlay in overlays:
+        ow, oh = overlay.width(), overlay.height()
+        w = min(width, ow)
+        h = min(height, oh)
+        composed.tk.call(composed, 'copy', overlay, '-from', 0, 0, w, h, '-to', 0, 0)
+
+    return composed
 
 
 def warnPrint(message, *, level="warning"):
