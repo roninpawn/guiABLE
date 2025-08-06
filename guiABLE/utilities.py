@@ -1,15 +1,25 @@
-from tkinter import PhotoImage
+from tkinter import PhotoImage, TclError, Canvas
 import os
 import sys
 from typing import Optional
 
 
-# ---------- Path Functions ----------
-def isAbsolute(path): return os.path.isabs(path)
-def appRootDir(): return os.path.dirname(os.path.abspath(sys.argv[0]))    # Return the directory of the app/entrypoint
+def warnPrint(message:any, *, level:str = "warning"):
+    COLORS = {
+        "info": "\033[96m",
+        "warning": "\033[93m",
+        "error": "\033[91m"
+    }
+    color = COLORS.get(level.lower(), "\033[93m")
+    print(f"{color}[guiABLE {level.upper()}]\033[0m {message}")
 
-def resolvePath(path, default_root=None) -> Optional[str]:
-    if not path: return None
+
+# ---------- Path Functions ----------
+def isAbsolute(path:str) -> bool: return os.path.isabs(path)
+def appRootDir() -> str: return os.path.dirname(os.path.abspath(sys.argv[0]))    # Return directory of app/entrypoint
+
+def resolvePath(path:str, default_root:str=None) -> Optional[str]:
+    if not path or not isinstance(path, str): return None
     path = os.path.normpath(path)           # Normalize slashes, strip weirdness
     if os.path.exists(path) or os.path.isabs(path):     # If it exists of its absolute (but wrong) return unchanged.
         return path
@@ -21,33 +31,16 @@ def resolvePath(path, default_root=None) -> Optional[str]:
     return path
 
 
-# ---------- Utility Functions ----------
-def limitMove(pos, extent, min_val, max_val):
-    if pos < min_val: return min_val
-    elif pos + extent > max_val: return max_val - extent
-    return pos
+# ---------- Image Functions ----------
+def loadImage(image_path:str) -> PhotoImage:
+    try:
+        return PhotoImage(file=image_path)
+    except TclError:
+        warnPrint(f"Image not found: {image_path}")
+    return PhotoImage(width=0, height=0)
 
 
-def getLocalMouse(widget):
-    x = widget.winfo_pointerx() - widget.winfo_rootx()
-    y = widget.winfo_pointery() - widget.winfo_rooty()
-    if x < 0 or x > widget.winfo_width(): return x, y, False
-    if y < 0 or y > widget.winfo_height(): return x, y, False
-    return x, y, True
-
-
-def updateHover(widget):
-    x, y, mouse_in = getLocalMouse(widget)
-    if widget.enabled:
-        widget.mouseIn(None) if mouse_in else widget.mouseOut(None)
-    else:
-        widget.disable()
-
-
-def getGeometry(widget): return widget.winfo_x(), widget.winfo_y(), widget.winfo_width(), widget.winfo_height()
-
-
-def drawBar(trough_image, cap_image, width, height, horizontal=False):
+def drawBar(trough_image:PhotoImage, cap_image:PhotoImage, width:int, height:int, horizontal:bool = False) -> PhotoImage:
     """Constructs a full-width or full-height scrollbar image from caps and a tileable mid-section."""
     newimg = PhotoImage(width=width, height=height)
     cap_w, cap_h = cap_image.width(), cap_image.height()
@@ -64,7 +57,8 @@ def drawBar(trough_image, cap_image, width, height, horizontal=False):
     return newimg
 
 
-def putToImage(brush, canvas, bbox, mirror_x=False, mirror_y=False, rotate=False):
+def putToImage(brush:PhotoImage, canvas:PhotoImage, bbox:tuple[int,int,int,int],
+               mirror_x:bool = False, mirror_y:bool = False, rotate:bool = False):
     value1 = brush.height() if rotate else brush.width()
     value2 = brush.width() if rotate else brush.height()
     start1, end1, step1 = (value1-1, -1, -1) if mirror_x else (0, value1, 1)
@@ -82,7 +76,7 @@ def putToImage(brush, canvas, bbox, mirror_x=False, mirror_y=False, rotate=False
     canvas.put(" ".join(data), to=bbox)
 
 
-def cropImage(image:PhotoImage, x, y, width, height):
+def cropImage(image:PhotoImage, x:int, y:int, width:int, height:int) -> PhotoImage:
     # Conform geometry to image area.
     x1 = max(0, min(x, image.width() - width))
     y1 = max(0, min(y, image.height() - height))
@@ -122,11 +116,42 @@ def composeImages(base:PhotoImage, *overlays: PhotoImage) -> PhotoImage:
     return composed
 
 
-def warnPrint(message, *, level="warning"):
-    COLORS = {
-        "info": "\033[96m",
-        "warning": "\033[93m",
-        "error": "\033[91m"
-    }
-    color = COLORS.get(level.lower(), "\033[93m")
-    print(f"{color}[guiABLE {level.upper()}]\033[0m {message}")
+# ---------- Widget Utility Functions ----------
+def getGeometry(widget:Canvas) -> (int, int, int, int):
+    return widget.winfo_x(), widget.winfo_y(), widget.winfo_width(), widget.winfo_height()
+
+
+def geometryFromString(geometry:str) -> tuple[int, int, int, int]:
+    try:
+        parts = geometry.split("+", 1)
+        w, h = [int(n) for n in parts[0].split("x")]
+        if len(parts) == 2:
+            x, y = [int(n) for n in parts[1].split("+")]
+        else: x, y = 0, 0
+
+        return x, y, w, h
+    except Exception:
+        raise ValueError(f"Invalid geometry string: '{geometry}'")
+
+
+def limitMove(pos:int, extent:int, min_val:int, max_val:int) -> int:
+    if pos < min_val: return min_val
+    elif pos + extent > max_val: return max_val - extent
+    return pos
+
+
+def getLocalMouse(widget:Canvas) -> (int, int, bool):
+    x = widget.winfo_pointerx() - widget.winfo_rootx()
+    y = widget.winfo_pointery() - widget.winfo_rooty()
+    if x < 0 or x > widget.winfo_width(): return x, y, False
+    if y < 0 or y > widget.winfo_height(): return x, y, False
+    return x, y, True
+
+
+def updateHover(widget):
+    if isinstance(widget, Canvas):
+        x, y, mouse_in = getLocalMouse(widget)
+        if widget.enabled:
+            widget.mouseIn(None) if mouse_in else widget.mouseOut(None)
+        else:
+            widget.disable()

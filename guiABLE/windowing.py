@@ -1,113 +1,16 @@
 import tkinter as tk
 from time import time
 
-from .widgets import Skinnable
-from .utilities import warnPrint
+from .skinnable import Skinnable
+from .utilities import resolvePath, loadImage, geometryFromString
+from .widgets import Skin
 
 
-class Windowable(tk.Tk):
-    def __init__(self, geometry="200x200", title=""):
-        self._mid_width = 0
-        self._mid_height = 0
-        self._lost_focus = time()
-        self.child_list = []
-        self.drag_locked = True
-
-        super().__init__()
-        self.overrideredirect(True)
-        self.title(title)
-        self.geometry(geometry)
-
-        self.taskbar_handle = tk.Toplevel(self)
-        self.taskbar_handle.title(title)
-
-        taskbar_geometry = self.geometry()
-        self.taskbar_handle.geometry(f"0x0+{taskbar_geometry.split('+', 1)[1]}")
-        self.taskbar_handle.wm_attributes('-alpha', 0.0)
-        self.taskbar_handle.wait_visibility()
-        self.taskbar_handle.wm_attributes('-alpha', 0.0)
-        self.taskbar_handle.iconify()
-
-        self.bind("<ButtonRelease-1>", self.mouseUp)
-        self.bind("<FocusIn>", self.tookFocus)
-        self.bind("<FocusOut>", self.lostFocus)
-        self.taskbar_handle.bind("<Map>", self.deiconify)
-
-        self.update_idletasks()
-
-    def bindDrag(self, widget):
-        if widget is None:
-            widget.unbind("<B1-Motion>")
-        else:
-            widget.bind("<B1-Motion>", self.mouseDrag)
-
-    def bindChild(self, ChildableWindow):
-        self.child_list.append(ChildableWindow)
-
-    def loadTabImage(self, image_path):
-        img = tk.PhotoImage(file=image_path)
-        img_w, img_h = img.width(), img.height()
-        self._mid_width = int((img_w - self.winfo_width()) / 2)
-        self._mid_height = int((img_h - self.winfo_height()) / 2)
-
-        self.drag_locked = False
-        self.taskbar_handle.deiconify()
-        self.taskbar_handle.geometry(f"{img_w}x{img_h}+{self.winfo_rootx() - self._mid_width}+{self.winfo_rooty() - self._mid_height}")
-        tab_image = Backgroundable(self.taskbar_handle, img_w, img_h)
-        tab_image.directSetImage(img)
-        tab_image.place(x=0, y=0)
-        self.taskbar_handle.update()
-        self.taskbar_handle.iconify()
-        self.drag_locked = True
-
-    def mouseDrag(self, event):
-        if self.drag_locked:
-            self.x = event.x
-            self.y = event.y
-            self.drag_locked = False
-            self.taskbar_handle.deiconify()
-            self.focus_force()
-            self.active_children = [child for child in self.child_list if child.visible]
-
-        x = self.winfo_x() + event.x - self.x
-        y = self.winfo_y() + event.y - self.y
-        self.taskbar_handle.geometry(f"+{x - self._mid_width}+{y - self._mid_height}")
-        self.geometry(f"+{x}+{y}")
-
-        for child in self.active_children:
-            child.geometry(f"+{x + child.relative_x()}+{y + child.relative_y()}")
-
-    def mouseUp(self, event):
-        if not self.drag_locked:
-            self.taskbar_handle.wm_iconify()
-            self.focus_force()
-            self.drag_locked = True
-
-    def tookFocus(self, event):
-        for child in self.child_list:
-            child.lift()
-
-    def lostFocus(self, event):
-        self._lost_focus = time() + .4
-
-    def iconify(self, event=None):
-        for child in self.child_list:
-            child.withdraw()
-        self.withdraw()
-        self.taskbar_handle.iconify()
-
-    def deiconify(self, event=None):
-        if self.drag_locked:
-            if self.wm_state() == tk.NORMAL and time() < self._lost_focus:
-                self.iconify()
-            else:
-                super().deiconify()
-                for child in self.child_list:
-                    child.deiconify()
-                self.focus_force()
-            self.taskbar_handle.wm_iconify()
-
-
+"""
+A ChildableWindow() is an OS-ignored window that is positioned relative to its parent window, and will travel with that
+window, if it is moved. It does not appear in the taskbar, or in alt+tab overlays. It serves as the basis for a pop-up 
+window, a configuration window, or even a persistent, detached floating interface.
+"""
 class ChildableWindow(tk.Toplevel):
     def __init__(self, parent, position=(100, 100), visible=False, **kwargs):
         parent.bindChild(self)
@@ -127,6 +30,8 @@ class ChildableWindow(tk.Toplevel):
     def relative_y(self):
         return self.winfo_rooty() - self.master.winfo_rooty()
 
+    def minimize(self): self.iconify()
+    def restore(self): self.deiconify()
     def deiconify(self):
         if self._visible:
             self.geometry(f"+{self.master.winfo_rootx() + self.relative_x()}+{self.master.winfo_rooty() + self.relative_y()}")
@@ -140,41 +45,184 @@ class ChildableWindow(tk.Toplevel):
         self.deiconify() if self._visible else self.withdraw()
 
 
-class Canvasable(tk.Text):
+"""
+A Windowable is a primary/parent window without a top bar or any controls. This is accomplished be telling the OS' 
+window manager to it. Which means that its taskbar presence and alt+tab functionality must be faked back into place. 
+So a 2nd, invisible, window is spawned and maintained to serve as the OS-tracked window.
+
+Use loadTabImage() to populate the alt+tab overlay with a custom logo/image.
+"""
+class Windowable(tk.Tk):
+    def __init__(self, geometry="200x200", title=""):
+        x, y, w, h = geometryFromString(geometry)
+        self._offset_w, self._offset_h = w // 2, h // 2
+        self.child_list = []
+        self.drag_locked = True
+        self._lost_focus = time()
+        self._drag_widget = None
+
+        super().__init__()
+        self.overrideredirect(True)
+        self.title(title)
+        self.geometry(geometry)
+
+        # overrideredirect() causes the OS to ignore the window. So a taskbar/tab presence is manufactured and managed.
+        self.taskbar_handle = tk.Toplevel(self)
+        self.taskbar_handle.title(title)
+
+        self.taskbar_handle.geometry(f"0x0+{x + self._offset_w}+{y + self._offset_h}")
+        self.taskbar_handle.wm_attributes('-alpha', 0.0)
+        self.taskbar_handle.wait_visibility()
+        self.taskbar_handle.wm_attributes('-alpha', 0.0)
+        self.taskbar_handle.iconify()
+
+        # Establish default bindings
+        self.bind("<ButtonRelease-1>", self.mouseUp)
+        self.bind("<FocusIn>", self.tookFocus)
+        self.bind("<FocusOut>", self.lostFocus)
+        self.taskbar_handle.bind("<Map>", self.deiconify)
+
+        self.update_idletasks()
+
+    def bindDrag(self, widget:tk.Canvas):
+        if widget is not None:
+            if self._drag_widget is not None: self._drag_widget.unbind("<B1-Motion>")
+            widget.bind("<B1-Motion>", self.mouseDrag)
+            self._drag_widget = widget
+
+    def bindChild(self, childable_window:ChildableWindow):
+        self.child_list.append(childable_window)
+
+    # loadTabImage() draws and fits a custom image to the invisible, OS-tracked window -- to be displayed on alt+tab.
+    def loadTabImage(self, image_path):
+        img = tk.PhotoImage(file=resolvePath(image_path))
+        img_w, img_h = img.width(), img.height()
+        self._update_offsets()
+
+        self.drag_locked = False
+        self.taskbar_handle.deiconify()
+        self.taskbar_handle.geometry(f"{img_w}x{img_h}+"
+                                     f"{self.winfo_rootx() + self._offset_w}+"
+                                     f"{self.winfo_rooty() + self._offset_h}")
+        tab_image = Backgroundable(self.taskbar_handle, img_w, img_h)
+        tab_image.setImage(img)
+        tab_image.place(x=0, y=0)
+        self.taskbar_handle.update()
+        self.taskbar_handle.iconify()
+        self.drag_locked = True
+
+    def mouseDrag(self, event):
+        if self.drag_locked:
+            self.x = event.x
+            self.y = event.y
+            self._update_offsets()
+            self.drag_locked = False
+            self.taskbar_handle.deiconify()
+            self.focus_force()
+            self.active_children = [child for child in self.child_list if child.visible]
+
+        x = self.winfo_x() + event.x - self.x
+        y = self.winfo_y() + event.y - self.y
+        self.taskbar_handle.geometry(f"+{x + self._offset_w}+{y + self._offset_h}")
+        self.geometry(f"+{x}+{y}")
+
+        for child in self.active_children:
+            child.geometry(f"+{x + child.relative_x()}+{y + child.relative_y()}")
+
+    def mouseUp(self, event):
+        if not self.drag_locked:
+            self.taskbar_handle.wm_iconify()
+            self.focus_force()
+            self.drag_locked = True
+
+    def tookFocus(self, event):
+        for child in self.child_list:
+            child.lift()
+
+    def lostFocus(self, event):
+        self._lost_focus = time() + .4
+
+    def minimize(self): self.iconify()
+    def iconify(self, event=None):
+        for child in self.child_list:
+            child.withdraw()
+        self.withdraw()
+        self.taskbar_handle.iconify()
+
+    def restore(self): self.deiconify()
+    def deiconify(self, event=None):
+        if self.drag_locked:
+            if self.wm_state() == tk.NORMAL and time() < self._lost_focus:
+                self.iconify()
+            else:
+                super().deiconify()
+                for child in self.child_list:
+                    child.deiconify()
+                self.focus_force()
+            self.taskbar_handle.wm_iconify()
+
+    def _update_offsets(self):
+        self._offset_w = (self.winfo_width() - self.taskbar_handle.winfo_width()) // 2
+        self._offset_h = (self.winfo_height() - self.taskbar_handle.winfo_height()) // 2
+
+"""
+A Canvasable is a tk.Text window configured to eliminate all of its text-features and provide us with a clean canvas. 
+This is necessary because tkinter's tk.Canvas does not track and update its 'dirty' redraw rectangles correctly. The
+issue of slow/wrong redraws was solved in the tk.Text widget, but nowhere else. So we use tk.Text as the render canvas.
+"""
+class Canvasable(Skinnable, tk.Text):
     def __init__(self, parent, **kwargs):
-        super().__init__(parent, bd=0, padx=0, pady=0, state=tk.DISABLED, cursor="arrow", **kwargs)
-        self._skin = Skinnable()
+        Skinnable.__init__(self)
+        tk.Text.__init__(self, parent, bd=0, padx=0, pady=0, state="disabled", cursor="arrow", **kwargs)
+
         self._skin.setBGColors(self.cget("bg"))
         self.configure(selectbackground=self._skin.bg())
 
-    def _configure(self, cmd, cnf, kw):
+    def configure(self, **kw):
         if "bg" in kw:
             kw["selectbackground"] = kw["bg"]
         if "background" in kw:
             kw["selectbackground"] = kw["background"]
-        super()._configure(cmd, cnf, kw)
+        super().configure(**kw)
 
-    def skin(self) -> Skinnable: return self._skin
-
-
-class Backgroundable(tk.Frame):
+"""
+A Backgroundable is a tk.Frame containing a .inner Canvasable() that serves as the canvas. It provides a more library-
+standard interface for handling the unique configuration calls required to conform the tk.Text widget. And it attempts 
+to abstract away the underlying duct-tape solution required to make tk.Canvas function. 
+"""
+class Backgroundable(Skinnable, tk.Frame):
     def __init__(self, parent, width, height, image_path=None, bg='gray', **kwargs):
-        super().__init__(parent, width=width, height=height)
-        self.pack_propagate(tk.FALSE)
-        self.inner = Canvasable(self, bg=bg, **kwargs)
+        Skinnable.__init__(self, Skin(image_path))
+        tk.Frame.__init__(self, parent, width=width, height=height)
 
-        self._skin = Skinnable(image_path)
-        self._skin.setBGColors(bg)
+        self._inner = Canvasable(self)
+        self.setBGColor(bg)
+        self.setImage(self._skin.image())
 
-        self.directSetImage(self._skin.image())
-        self.inner.pack(fill="both", expand=True)
+        self.pack_propagate(False)
+        self._inner.pack(fill="both", expand=True)
 
-    def skin(self) -> Skinnable: return self._skin
+    @property
+    def inner(self): return self._inner
 
-    def directSetImage(self, image: tk.PhotoImage):
+    def setBGColor(self, color:str = 'gray'):
+        self._skin.setBGColors(color)
+        self.inner.configure(bg=color)
+
+    @classmethod
+    def fromPath(cls, parent, width:int, height:int, image_path:str = None, bg:str = 'gray', **kwargs):
+        return cls(parent, width, height, image_path, bg, **kwargs)
+    @classmethod
+    def fromImage(cls, parent, width:int, height:int, image:tk.PhotoImage = None, bg:str ='gray', **kwargs):
+        bga = cls(parent, width, height, None, bg, **kwargs)
+        bga.setImage(image)
+        return bga
+
+    def setPath(self, image_path:str): self.setImage(loadImage(resolvePath(image_path)))
+    def setImage(self, image: tk.PhotoImage):
         self.inner.configure(state="normal")
         self.inner.delete(1.0, tk.END)
-        self._skin.fromImages(image)
+        self._skin.setImages(image)
         self.inner.image_create(tk.END, image=self._skin.image())
         self.inner.configure(state="disabled")
 

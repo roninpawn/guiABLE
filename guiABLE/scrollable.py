@@ -2,38 +2,38 @@ import tkinter as tk
 
 from .utilities import limitMove, getLocalMouse, updateHover, drawBar
 from .windowing import Backgroundable
-from .widgets import Skinnable, Draggable
+from .widgets import Skin, Draggable
 
 
 class Troughable(Backgroundable):
-    def __init__(self, parent, width, height, skinnable=None, **kwargs):
+    def __init__(self, parent, width, height, skin=None, **kwargs):
         super().__init__(parent, width=width, height=height, **kwargs)
 
         self.enabled = True
         self._clicking = False
-        self._skin = skinnable if skinnable is not None else Skinnable()
+        self._skin = skin if skin is not None else Skin()
         self.enable()
 
-    def setSkin(self, skinnable):
+    def setSkin(self, skin):
         if self._skin is not None:
             self._skin.unbindWidget(self)
-        skinnable.bindWidget(self)
-        self._skin = skinnable
+        skin.bindWidget(self)
+        self._skin = skin
 
     def mouseOut(self, event):
         if not self._clicking:
-            self.directSetImage(self._skin.image(0))
+            self.setImage(self._skin.image(0))
             self.inner.configure(bg="darkgray")
         self.moused_over = False
 
     def mouseIn(self, event):
         if not self._clicking:
-            self.directSetImage(self._skin.image(1))
+            self.setImage(self._skin.image(1))
             self.inner.configure(bg="lightgray")
         self.moused_over = True
 
     def clicked(self, event):
-        self.directSetImage(self._skin.image(2))
+        self.setImage(self._skin.image(2))
         self.inner.configure(bg="red")
         self._clicking = True
 
@@ -54,7 +54,7 @@ class Troughable(Backgroundable):
         self.inner.unbind("<Leave>")
         self.inner.unbind("<Button-1>")
         self.inner.unbind("<ButtonRelease-1>")
-        self.directSetImage(self._skin.image(3))
+        self.setImage(self._skin.image(3))
         self.enabled = False
 
 
@@ -73,7 +73,7 @@ class Scrollable(Troughable):
         if scrollable_skin is None:
             scrollable_skin = ScrollableSkin()
 
-        self.handle = Draggable(self.inner, skinnable=scrollable_skin.handles, width=handle_width, height=handle_height)
+        self.handle = Draggable(self.inner, skin=scrollable_skin.handles, width=handle_width, height=handle_height)
         self.handle.place(x=0, y=0)
 
     def enable(self):
@@ -87,9 +87,9 @@ class Scrollable(Troughable):
         self.handle.disable()
         super().disable()
 
-    def setSkin(self, scroll_skinnable):
-        super().setSkin(scroll_skinnable)
-        self.handle.setSkin(scroll_skinnable)
+    def setSkin(self, scroll_skin):
+        super().setSkin(scroll_skin)
+        self.handle.setSkin(scroll_skin)
 
     def linkTo(self, scrollablecanvas, movement_modifier=-1, active_handle_xy=(True, True), canvas_offset=(0.0, 0.0)):
         self.movement_modifier = movement_modifier
@@ -292,10 +292,10 @@ class ScrollablePane(ScrollableCanvas):
         self.h_scroll.enable()
 
 
-class BarSkin(Skinnable):
-    def __init__(self, mids_skinnable=None, ends_skinnable=None, width=20, height=20, horizontal=False):
+class BarSkin(Skin):
+    def __init__(self, mids_skin=None, ends_skin=None, width=20, height=20, horizontal=False):
         super().__init__()
-        self.changeSkins(mids_skinnable or Skinnable(), ends_skinnable or Skinnable())
+        self.changeSkins(mids_skin or Skin(), ends_skin or Skin())
 
     def drawBars(self, width, height, horizontal=False):
         images = [
@@ -304,8 +304,8 @@ class BarSkin(Skinnable):
         ]
         self.setImages(*images)
 
-    def changeSkins(self, mids_skinnable, ends_skinnable):
-        self.mids, self.ends = mids_skinnable, ends_skinnable
+    def changeSkins(self, mids_skin, ends_skin):
+        self.mids, self.ends = mids_skin, ends_skin
 
 
 class ScrollableSkin:

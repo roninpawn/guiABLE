@@ -1,10 +1,10 @@
 import tkinter as tk
 from typing import Optional
 
-from guiABLE.utilities import warnPrint, updateHover, resolvePath, cropImage
+from guiABLE.utilities import warnPrint, updateHover, resolvePath, cropImage, loadImage
 
 
-class Skinnable:
+class Skin:
     def __init__(self, *paths: str):
         self._recipients, self._paths, self._images = [], [] ,[]
         self._empty_image = tk.PhotoImage(width=0, height=0)
@@ -20,6 +20,7 @@ class Skinnable:
     """
     @classmethod
     def fromPaths(cls, *paths:str):
+        sk = cls()
         sk._expand(len(paths))
         sk._byPaths(paths)
         return sk
@@ -212,3 +213,25 @@ class Skinnable:
         for i in range(len(self._images)):      # Fill in any gaps by propagating the most recent valid image forward.
             if self._images[i] == self._empty_image: self._images[i] = fallback
             else: fallback = self._images[i]
+
+
+class Skinnable:
+    def __init__(self, skin:Skin = None):
+        if isinstance(skin, Skin):
+            skin.bindWidget(self)
+            self._skin = skin
+        else:
+            self._skin = Skin()
+
+    @property
+    def skin(self) -> Skin: return self._skin
+
+    def setSkin(self, skin:Skin):
+        if self._skin:
+            self._skin.unbindWidget(self)
+        skin.bindWidget(self)
+        self._skin = skin
+
+    def dropSkin(self):
+        if self._skin: self._skin.unbindWidget(self)
+        self._skin = Skin()

@@ -1,23 +1,17 @@
 import tkinter as tk
 from typing import Optional
 
-from guiABLE.skinnable import Skinnable
+from guiABLE.skinnable import Skin, Skinnable
 from guiABLE.utilities import updateHover, limitMove, composeImages, getGeometry, cropImage
 
 
-class Baseable(tk.Canvas):
-    def __init__(self, parent, skinnable=None, **kwargs):
-        super().__init__(parent, highlightthickness=0, **kwargs)
+class Baseable(Skinnable, tk.Canvas):
+    def __init__(self, parent, skin=None, **kwargs):
+        Skinnable.__init__(self, skin)
+        tk.Canvas.__init__(self, parent, highlightthickness=0, **kwargs)
 
         self._parent = parent
         self._enabled, self._img_state, self._img, self._bg, self._geometry = False, None, None, None, None
-
-        if skinnable is not None:
-            self._skin = None
-            self.setSkin(skinnable)
-        else:
-            self._skin = Skinnable()
-
         self.enable()
 
     @property
@@ -25,32 +19,20 @@ class Baseable(tk.Canvas):
     def enable(self): self._enabled = True
     def disable(self): self._enabled = False
 
-    def skin(self) -> Skinnable: return self._skin
-
-    def setSkin(self, skinnable:Skinnable):
-        if self._skin is not None:
-            self._skin.unbindWidget(self)
-        skinnable.bindWidget(self)
-        self._skin = skinnable
-
-    def dropSkin(self):
-        if self._skin is not None: self._skin.unbindWidget(self)
-        self._skin = Skinnable()
-
     def setState(self, state_index:int = 0):
-        # Fetch Skinnable() holdings for the new state.
+        # Fetch Skin() holdings for the new state.
         self._img, bg_color = self._skin.view(state_index)
 
-        # If Skinnable indicates transparency, use parent's background. [Color or Image]
+        # If Skin indicates transparency, use parent's background. [Color or Image]
         if bg_color is None:
-            if self._parent.skin().useBgColors():       # If parent uses a simple bg color (no image) just use the same.
-                bg_color = self._parent.skin().bg(state_index)
+            if self._parent.skin.useBgColors():       # If parent uses a simple bg color (no image) just use the same.
+                bg_color = self._parent.skin.bg(state_index)
                 if bg_color is None: bg_color = 'gray'  # Fallback to gray.
 
             else:       # If parent is using an image, crop widget's geometry from it, and composite.
                 self._geometry = getGeometry(self)
                 if self._geometry[2] <= 1 or self._geometry[3] <= 1: self.after_idle(lambda : self.setState(state_index))
-                self._bg = cropImage(self._parent.skin().image(state_index), *self._geometry)
+                self._bg = cropImage(self._parent.skin.image(state_index), *self._geometry)
                 self._img = composeImages(self._bg, self._img)
 
         # Render the state.
@@ -61,8 +43,8 @@ class Baseable(tk.Canvas):
 
 
 class Imageable(Baseable):
-    def __init__(self, parent, skinnable=None, **kwargs):
-        super().__init__(parent, skinnable, **kwargs)
+    def __init__(self, parent, skin=None, **kwargs):
+        super().__init__(parent, skin, **kwargs)
         self._skin.setBGColors('gray')      # Eliminate interactive colors for simple image.
 
     def changeImage(self, img_number): self.setState(img_number)
@@ -76,12 +58,12 @@ class Imageable(Baseable):
 
 
 class Hoverable(Baseable):
-    def __init__(self, parent, skinnable=None, **kwargs):
+    def __init__(self, parent, skin=None, **kwargs):
         self.moused_over = False
-        super().__init__(parent, skinnable, **kwargs)
+        super().__init__(parent, skin, **kwargs)
 
-    def setSkin(self, skinnable):
-        super().setSkin(skinnable)
+    def setSkin(self, skin):
+        super().setSkin(skin)
         updateHover(self)
 
     def mouseIn(self, event):
@@ -106,9 +88,9 @@ class Hoverable(Baseable):
 
 
 class Clickable(Hoverable):
-    def __init__(self, parent, function=lambda: None, skinnable=None, **kwargs):
+    def __init__(self, parent, function=lambda: None, skin=None, **kwargs):
         self.function = function
-        super().__init__(parent, skinnable, **kwargs)
+        super().__init__(parent, skin, **kwargs)
 
     def clicked(self, event):
         self.setState(2)
@@ -130,9 +112,9 @@ class Clickable(Hoverable):
 
 
 class Pushable(Clickable):
-    def __init__(self, parent, function=lambda: None, skinnable=None, **kwargs):
+    def __init__(self, parent, function=lambda: None, skin=None, **kwargs):
         self._clicking = False
-        super().__init__(parent, function, skinnable, **kwargs)
+        super().__init__(parent, function, skin, **kwargs)
 
     def clicked(self, event):
         self._clicking = True
@@ -154,11 +136,11 @@ class Pushable(Clickable):
 
 
 class Labelable(Pushable):
-    def __init__(self, parent, function=lambda: None, skinnable=None, text="", text_pos=(0,0), font="Times", color="gray",
+    def __init__(self, parent, function=lambda: None, skin=None, text="", text_pos=(0,0), font="Times", color="gray",
                  drop_pos=(0, 0), drop_color="black", **kwargs):
         self.text, self.text_pos, self.color, self.font = text, text_pos, color, font
         self.drop_pos, self.drop_color, = drop_pos, drop_color
-        super().__init__(parent, function, skinnable, **kwargs)
+        super().__init__(parent, function, skin, **kwargs)
 
     def drawText(self):
         x, y = self.text_pos
@@ -184,10 +166,10 @@ class Labelable(Pushable):
 
 
 class Toggleable(Pushable):
-    def __init__(self, parent, state:bool=False, function=lambda: None, skinnable:Skinnable = None, **kwargs):
+    def __init__(self, parent, state:bool=False, function=lambda: None, skin:Skin = None, **kwargs):
         self._toggle_state = state
         self._state_offset = 0
-        super().__init__(parent, function, skinnable, **kwargs)
+        super().__init__(parent, function, skin, **kwargs)
 
     def mouseUp(self, event):
         self._clicking = False
@@ -208,10 +190,10 @@ class Toggleable(Pushable):
 
 
 class Holdable(Pushable):
-    def __init__(self, parent, function=lambda: None, skinnable=None, delay=100, init_delay=400, **kwargs):
+    def __init__(self, parent, function=lambda: None, skin=None, delay=100, init_delay=400, **kwargs):
         self.delay = delay
         self.init_delay = init_delay
-        super().__init__(parent, function, skinnable, **kwargs)
+        super().__init__(parent, function, skin, **kwargs)
 
     def mouseOut(self, event):
         self.moused_over = False if self._clicking else super().mouseOut(None)
