@@ -1,7 +1,7 @@
 import tkinter as tk
 from typing import Optional
 
-from guiABLE.utilities import warnPrint, updateHover, resolvePath, cropImage, loadImage
+from guiABLE.utilities import warnPrint, updateHover, resolvePath, cropImage, loadImage, solidColorImage
 
 
 class Skin:
@@ -9,7 +9,7 @@ class Skin:
         self._recipients, self._paths, self._images = [], [] ,[]
         self._empty_image = tk.PhotoImage(width=0, height=0)
         self._bg_colors = ['gray', 'white', 'red', 'gray25']
-        self._use_bg_colors = True
+        self._use_bg_colors, self._has_images = True, False
 
         if paths:
             self._expand(len(paths))
@@ -27,11 +27,9 @@ class Skin:
     def setPaths(self, *paths:str):        # Supports insert-updating by list. ex: ["path", None, None, "path"]
         if len(paths) > len(self._paths): self._expand(len(paths))
         self._byPaths(paths, True)
-        self.updateRecipients()
     def setPath(self, path:str, index:int):
         if index >= len(self._images): self._expand(index + 1)
         self._byPaths((path, ), index_offset=index)
-        self.updateRecipients()
 
     """
     By PhotoImage references. ex: Skinnable.fromImages(checkbox0, checkbox1, checkbox2, ...)
@@ -47,11 +45,9 @@ class Skin:
     def setImages(self, *photoimages:tk.PhotoImage):
         if len(photoimages) > len(self._images): self._expand(len(photoimages))
         self._byPhotoImages(photoimages, True)
-        self.updateRecipients()
     def setImage(self, photoimage:tk.PhotoImage, index:int):
         if index >= len(self._images): self._expand(index + 1)
         self._byPhotoImages((photoimage, ), index_offset=index)
-        self.updateRecipients()
 
     """
     By Spritesheet -- A single image that contains all variants of a widget's state.
@@ -71,7 +67,6 @@ class Skin:
         if path is not None:
             self._paths, self._images = [], []
             self._bySprite(sheet, path, width, rows, margins)
-        self.updateRecipients()
 
     def setBGColors(self, *colors: str):
         if colors and any(colors):  self._bg_colors = self._fillList([*colors])
@@ -104,6 +99,7 @@ class Skin:
         if isinstance(use, bool): self._use_bg_colors = use
         return self._use_bg_colors
 
+    def hasImages(self): return self._has_images
     def view(self, index:int = 0) -> (tk.PhotoImage, str|None): return self.image(index), self.bg(index)
     def numStates(self): return len(self._images)
     def reset(self): self._recipients, self._paths, self._images = [], [], []
@@ -112,7 +108,10 @@ class Skin:
     def unbindWidget(self, widget):
         if widget in self._recipients: self._recipients.remove(widget)
 
-    def updateRecipients(self): [updateHover(recipient) for recipient in self._recipients]
+    def updateRecipients(self):
+        for recipient in self._recipients:
+            recipient.dirty = True
+            recipient.redraw()
 
     def _byPaths(self, paths:tuple[str, ...], skip_falsy:bool = False, index_offset:int = 0):
         for i, path in enumerate(paths):
@@ -208,13 +207,16 @@ class Skin:
     def _fillImages(self):
         fallback = next((i for i in self._images if i != self._empty_image), None)  # Find first real image.
         if fallback is None: return
-        self._use_bg_colors = False
 
+        self._has_images, self._use_bg_colors = True, False
         for i in range(len(self._images)):      # Fill in any gaps by propagating the most recent valid image forward.
             if self._images[i] == self._empty_image: self._images[i] = fallback
             else: fallback = self._images[i]
 
 
+"""
+Skinnable is a mixin that provides core Skin() functionality to tkinter widgets.
+"""
 class Skinnable:
     def __init__(self, skin:Skin = None):
         if isinstance(skin, Skin):
@@ -223,8 +225,20 @@ class Skinnable:
         else:
             self._skin = Skin()
 
+        self._bg, self._img, self._z_img = self._skin.image(), self._skin.image(), self._skin.image()
+        self.dirty = True
+
     @property
     def skin(self) -> Skin: return self._skin
+
+    @property
+    def zImage(self) -> tk.PhotoImage:
+        if not self._skin.hasImages():
+            w, h = self.winfo_width(), self.winfo_height()
+            self._z_img = tk.PhotoImage(width=w, height=h)
+            self._z_img.put(self._skin.bg(self._img_state), to=(0, 0, w, h))
+        else: self._z_img = self._img
+        return self._z_img
 
     def setSkin(self, skin:Skin):
         if self._skin:

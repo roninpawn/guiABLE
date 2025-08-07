@@ -40,6 +40,20 @@ def loadImage(image_path:str) -> PhotoImage:
     return PhotoImage(width=0, height=0)
 
 
+def solidColorImage(width: int, height: int, color: str) -> PhotoImage:
+    img = PhotoImage(width=width, height=height)
+    hex_color = color if color.startswith("#") else img.tk.call("winfo", "rgb", ".", color)
+
+    # If color is a named color like 'gray80', resolve it to #RRGGBB
+    # if isinstance(hex_color, tuple):
+        # Convert 16-bit tk color values to 8-bit hex
+    #    r, g, b = (v // 256 for v in hex_color)
+    #    hex_color = f"#{r:02x}{g:02x}{b:02x}"
+
+    img.put("{" + " ".join([hex_color] * width) + "}", to=(0, 0, width, height))
+    return img
+
+
 def drawBar(trough_image:PhotoImage, cap_image:PhotoImage, width:int, height:int, horizontal:bool = False) -> PhotoImage:
     """Constructs a full-width or full-height scrollbar image from caps and a tileable mid-section."""
     newimg = PhotoImage(width=width, height=height)
@@ -76,7 +90,7 @@ def putToImage(brush:PhotoImage, canvas:PhotoImage, bbox:tuple[int,int,int,int],
     canvas.put(" ".join(data), to=bbox)
 
 
-def cropImage(image:PhotoImage, x:int, y:int, width:int, height:int) -> PhotoImage:
+def cropImage(image:PhotoImage, x:int, y:int, width:int, height:int, warn:bool = True) -> PhotoImage:
     # Conform geometry to image area.
     x1 = max(0, min(x, image.width() - width))
     y1 = max(0, min(y, image.height() - height))
@@ -84,35 +98,34 @@ def cropImage(image:PhotoImage, x:int, y:int, width:int, height:int) -> PhotoIma
     h = min(height, image.height() - y1)
 
     # Warn if adjustments/corrections were made.
-    if w != width or h != height or x1 != x or y1 != y:
-        warnPrint(f"Image crop exceeded bounds and was modified:\r"
-                  f"x: {x} -> {x1}\r"
-                  f"y: {y} -> {y1}\r"
-                  f"width: {width} -> {w}\r"
-                  f"height: {height} -> {h}")
+    if warn and (w != width or h != height or x1 != x or y1 != y):
+            warnPrint(f"Image crop exceeded bounds and was modified:\n"
+                      f"x: {x} -> {x1}\n"
+                      f"y: {y} -> {y1}\n"
+                      f"w: {width} -> {w}\n"
+                      f"h: {height} -> {h}")
 
     # Crop the image and return
-    cropped = PhotoImage(width=width, height=height)
+    cropped = PhotoImage(width=w, height=h)
     cropped.tk.call(cropped, 'copy', image,
-                    '-from', x, y, x + width, y + height,
+                    '-from', x1, y1, x1 + w, y1 + h,
                     '-to', 0, 0)
     return cropped
 
 
-def composeImages(base:PhotoImage, *overlays: PhotoImage) -> PhotoImage:
+def composeImages(base: PhotoImage, *overlays: tuple[PhotoImage, int, int]) -> PhotoImage:
     width, height = base.width(), base.height()
     composed = PhotoImage(width=width, height=height)
-
-    # Copy base
     composed.tk.call(composed, 'copy', base, '-from', 0, 0, width, height, '-to', 0, 0)
 
-    # Overlay each image in order
-    for overlay in overlays:
+    for overlay, ox, oy in overlays:
         ow, oh = overlay.width(), overlay.height()
-        w = min(width, ow)
-        h = min(height, oh)
-        composed.tk.call(composed, 'copy', overlay, '-from', 0, 0, w, h, '-to', 0, 0)
+        x2, y2 = min(width, ox + ow), min(height, oy + oh)
+        if x2 <= ox or y2 <= oy: continue  # Nothing to draw
 
+        composed.tk.call(composed, 'copy', overlay,
+                         '-from', 0, 0, x2 - ox, y2 - oy,
+                         '-to', ox, oy)
     return composed
 
 
@@ -138,6 +151,39 @@ def limitMove(pos:int, extent:int, min_val:int, max_val:int) -> int:
     if pos < min_val: return min_val
     elif pos + extent > max_val: return max_val - extent
     return pos
+
+
+def widgetsOverlap(a, b) -> bool:
+    ax, ay, aw, ah = getGeometry(a)
+    bx, by, bw, bh = getGeometry(b)
+
+    return not (
+        ax + aw <= bx or  # a is left of b
+        ax >= bx + bw or  # a is right of b
+        ay + ah <= by or  # a is above b
+        ay >= by + bh     # a is below b
+    )
+
+
+""" 
+widgetOverlaps() tests whether a widget overlaps another. Passing order is important, as the return of this function
+provides instructions for cropping the overlapping area from 'other' and compositing them onto 'self'    
+Returns:    - crop_rect(x, y, w, h) relative to `other` & insert_pos(x, y) relative to `self`
+              Or None if no overlap.
+"""
+def widgetOverlaps(self, other) -> tuple[tuple[int, int, int, int], tuple[int, int]] | None:
+    sx, sy, sw, sh = getGeometry(self)
+    ox, oy, ow, oh = getGeometry(other)
+
+    ix, iy = max(sx, ox), max(sy, oy)
+    fx, fy = min(sx + sw, ox + ow), min(sy + sh, oy + oh)
+
+    if fx <= ix or fy <= iy: return None                    # No overlap
+
+    crop_rect = (ix - ox, iy - oy, fx - ix, fy - iy)        # Region to crop from 'other'
+    insert_pos = (ix - sx, iy - sy)                         # Where to draw it in 'self'
+
+    return crop_rect, insert_pos
 
 
 def getLocalMouse(widget:Canvas) -> (int, int, bool):

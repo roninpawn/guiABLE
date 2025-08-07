@@ -70,8 +70,7 @@ class Scrollable(Troughable):
 
         super().__init__(parent, trough_width, trough_height, skin_troughs, **kwargs)
 
-        if scrollable_skin is None:
-            scrollable_skin = ScrollableSkin()
+        if scrollable_skin is None: scrollable_skin = ScrollableSkin()
 
         self.handle = Draggable(self.inner, skin=scrollable_skin.handles, width=handle_width, height=handle_height)
         self.handle.place(x=0, y=0)
@@ -329,9 +328,7 @@ class ScrollableSkin:
         if widget in self._recipients:
             self._recipients.remove(widget)
 
-    def updateRecipients(self):
-        for r in self._recipients:
-            updateHover(r)
+    def updateRecipients(self): [recipient.redraw() for recipient in self._recipients]
 
     def changeSkins(self, trough_mids, trough_caps, handle_mids, handle_caps):
         self.troughs.changeSkins(trough_mids, trough_caps)

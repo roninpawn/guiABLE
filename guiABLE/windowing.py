@@ -204,6 +204,7 @@ class Backgroundable(Skinnable, tk.Frame):
 
     @property
     def inner(self): return self._inner
+    def redraw(self): self.setImage(self._skin.image())
 
     def setBGColor(self, color:str = 'gray'):
         self._skin.setBGColors(color)

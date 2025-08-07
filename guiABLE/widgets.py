@@ -2,7 +2,7 @@ import tkinter as tk
 from typing import Optional
 
 from guiABLE.skinnable import Skin, Skinnable
-from guiABLE.utilities import updateHover, limitMove, composeImages, getGeometry, cropImage
+from guiABLE.utilities import updateHover, limitMove, composeImages, getGeometry, cropImage, widgetOverlaps
 
 
 class Baseable(Skinnable, tk.Canvas):
@@ -11,7 +11,9 @@ class Baseable(Skinnable, tk.Canvas):
         tk.Canvas.__init__(self, parent, highlightthickness=0, **kwargs)
 
         self._parent = parent
-        self._enabled, self._img_state, self._img, self._bg, self._geometry = False, None, None, None, None
+        self._exiting_redraws = set()
+        self._enabled, self._img_state, self._geometry = False, None, None
+
         self.enable()
 
     @property
@@ -19,21 +21,45 @@ class Baseable(Skinnable, tk.Canvas):
     def enable(self): self._enabled = True
     def disable(self): self._enabled = False
 
+    def redraw(self): self.setState(self._img_state)
+
     def setState(self, state_index:int = 0):
         # Fetch Skin() holdings for the new state.
-        self._img, bg_color = self._skin.view(state_index)
+        skin_img, bg_color = self._skin.view(state_index)
 
         # If Skin indicates transparency, use parent's background. [Color or Image]
         if bg_color is None:
             if self._parent.skin.useBgColors():       # If parent uses a simple bg color (no image) just use the same.
                 bg_color = self._parent.skin.bg(state_index)
-                if bg_color is None: bg_color = 'gray'  # Fallback to gray.
 
             else:       # If parent is using an image, crop widget's geometry from it, and composite.
                 self._geometry = getGeometry(self)
                 if self._geometry[2] <= 1 or self._geometry[3] <= 1: self.after_idle(lambda : self.setState(state_index))
+                # TODO: Dirty tracking, don't regrab _bg if neither it, nor self has changed.
                 self._bg = cropImage(self._parent.skin.image(state_index), *self._geometry)
-                self._img = composeImages(self._bg, self._img)
+
+            # Ensure no lasting ghost image by redrawing any higher-z sibling, the frame after you exit it.
+            for higher_sibling in self._exiting_redraws: higher_sibling.redraw()
+
+            # TODO: Allow redraw() caller to skip full detection and just request redraw of _bg + caller + _img.
+            # Detect overlap with siblings and add to composite job.
+            siblings, layers, new_redraws, above = self._parent.winfo_children(), [], set(), True
+            for sibling in siblings:
+                if sibling is self: above = False
+                elif isinstance(sibling, Baseable):
+                    if instructions := widgetOverlaps(self, sibling):
+                        if above:
+                            layers.append((cropImage(sibling.zImage, *instructions[0]), *instructions[1]))
+                        else:
+                            # Only draw if not already drawn as an exiting redraw.
+                            if sibling not in self._exiting_redraws: sibling.redraw()
+                            new_redraws.add(sibling)
+
+            self._exiting_redraws = new_redraws     # Load next round of redraws.
+            layers.append((skin_img, 0, 0))          # Add own image to top of layer stack.
+
+            # Render final composite
+            self._img = composeImages(self._bg, *layers)
 
         # Render the state.
         self.delete("all")
@@ -64,7 +90,7 @@ class Hoverable(Baseable):
 
     def setSkin(self, skin):
         super().setSkin(skin)
-        updateHover(self)
+        #updateHover(self)
 
     def mouseIn(self, event):
         self.moused_over = True
@@ -95,7 +121,7 @@ class Clickable(Hoverable):
     def clicked(self, event):
         self.setState(2)
         self.function()
-        updateHover(self)
+        #updateHover(self)
 
     def mouseUp(self, event):
         self.mouseIn(event) if self.moused_over else self.mouseOut(event)
@@ -125,7 +151,7 @@ class Pushable(Clickable):
         super().mouseUp(event)
         if self.moused_over:
             self.function()
-            updateHover(self)
+            #updateHover(self)
 
     def mouseIn(self, event):
         if not self._clicking:
@@ -228,7 +254,8 @@ class Draggable(Holdable):
         y = limitMove(y, self.winfo_height(), 0, self.master.winfo_height())
 
         self.place_configure(x=x, y=y)
-        self.setState(2)    # Bodge to force compositing updates during drag.
+        self.update_idletasks()
+        self.redraw()
 
     def enable(self):
         self.bind("<B1-Motion>", self.mouseDrag)
