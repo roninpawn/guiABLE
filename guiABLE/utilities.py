@@ -1,7 +1,12 @@
 from tkinter import PhotoImage, TclError, Canvas
 import os
 import sys
-from typing import Optional
+from typing import NamedTuple
+
+
+class Overlap(NamedTuple):
+    crop: tuple[int,int,int,int]   # (x,y,w,h) of other's coords -- to crop from
+    insert: tuple[int,int]         # (x,y) in self coords -- position to composite to
 
 
 def warnPrint(message:any, *, level:str = "warning"):
@@ -18,7 +23,7 @@ def warnPrint(message:any, *, level:str = "warning"):
 def isAbsolute(path:str) -> bool: return os.path.isabs(path)
 def appRootDir() -> str: return os.path.dirname(os.path.abspath(sys.argv[0]))    # Return directory of app/entrypoint
 
-def resolvePath(path:str, default_root:str=None) -> Optional[str]:
+def resolvePath(path:str, default_root:str=None) -> str | None:
     if not path or not isinstance(path, str): return None
     path = os.path.normpath(path)           # Normalize slashes, strip weirdness
     if os.path.exists(path) or os.path.isabs(path):     # If it exists of its absolute (but wrong) return unchanged.
@@ -32,7 +37,7 @@ def resolvePath(path:str, default_root:str=None) -> Optional[str]:
 
 
 # ---------- Image Functions ----------
-def loadImageByPath(image_path:str) -> Optional[PhotoImage]:
+def loadImageByPath(image_path:str) -> PhotoImage | None:
     try:
         return PhotoImage(file=image_path)
     except TclError:
@@ -40,7 +45,7 @@ def loadImageByPath(image_path:str) -> Optional[PhotoImage]:
     return None
 
 
-def loadImage(path_or_image:Optional[str|PhotoImage]) -> tuple[Optional[PhotoImage], Optional[str]]:
+def loadImage(path_or_image:str | PhotoImage) -> tuple[PhotoImage | None, str | None]:
     # Conform either input type to PhotoImage and path (path used as 'source' in _bySprite())
     if isinstance(path_or_image, str):
         r_path = resolvePath(path_or_image)
@@ -135,34 +140,59 @@ def composeImages(base: PhotoImage, *overlays: tuple[PhotoImage, int, int]) -> P
     return composed
 
 
-# ---------- Widget Utility Functions ----------
-def getGeometry(widget:Canvas) -> (int, int, int, int):
-    return widget.winfo_x(), widget.winfo_y(), widget.winfo_width(), widget.winfo_height()
+"""
+---------- Widget Utility Functions ----------
+getGeometry() fetches Winfo_ geometry by string and parses the string into ints. This was found to be slightly faster
+than polling the 4x equivalent Winfo_ (x,y,width,height) access points. replace().split() was also found faster than
+regex, .partition(), and .find() with index slicing.
+"""
+def getGeometry(widget) -> (int, int, int, int):
+        w, h, x, y = widget.winfo_geometry().replace("x", "+", 1).split("+")
+        return int(x), int(y), int(w), int(h)
 
-
+# geometryFromString() is useful in parsing geometry passed as an argument, before its been handled or applied.
 def geometryFromString(geometry:str) -> tuple[int, int, int, int]:
     try:
         parts = geometry.split("+", 1)
-        w, h = [int(n) for n in parts[0].split("x")]
-        if len(parts) == 2:
-            x, y = [int(n) for n in parts[1].split("+")]
-        else: x, y = 0, 0
+        w, h = parts[0].split("x")
+        w, h = int(w), int(h)
 
+        if len(parts) == 2:
+            x, y = parts[1].split("+")
+            x, y = int(x), int(y)
+        else: x, y = 0, 0
         return x, y, w, h
+
     except Exception:
         raise ValueError(f"Invalid geometry string: '{geometry}'")
 
+""" 
+getOverlap() returns the overlapping area of 'other' along with the x, y point in self where the overlap begins.
+Passing order is important. The return of this function is used as 'instructions' for cropping the overlapping area from
+'other' and compositing them onto 'self' in sibling-transparency.    
+"""
+def getOverlap(self_xywh:tuple, other_xywh:tuple) -> Overlap | None:
+    sx, sy, sw, sh = self_xywh
+    ox, oy, ow, oh = other_xywh
 
-def limitMove(pos:int, extent:int, min_val:int, max_val:int) -> int:
-    if pos < min_val: return min_val
-    elif pos + extent > max_val: return max_val - extent
-    return pos
+    ix  = max(sx, ox)
+    iy  = max(sy, oy)
+    fx  = min(sx+sw, ox+ow)
+    fy  = min(sy+sh, oy+oh)
+    if fx <= ix or fy <= iy: return None
 
+    return Overlap(
+        crop=(ix-ox, iy-oy, fx-ix, fy-iy),
+        insert=(ix-sx, iy-sy),
+    )
 
-def widgetsOverlap(a, b) -> bool:
-    if not isinstance(a, Canvas) or not isinstance(b, Canvas): return False
-    ax, ay, aw, ah = getGeometry(a)
-    bx, by, bw, bh = getGeometry(b)
+"""
+rectsOverlap() was found to be the fastest method for finding whether two areas overlap each other. It is 2-3x faster
+than getOverlap, and therefore suitable as a pre-test to determine which areas need getOverlap().
+"""
+def rectsOverlap(a_xywh, b_xywh) -> bool:
+    ax, ay, aw, ah = a_xywh
+    bx, by, bw, bh = b_xywh
 
     return not (
         ax + aw <= bx or  # a is left of b
@@ -171,35 +201,17 @@ def widgetsOverlap(a, b) -> bool:
         ay >= by + bh     # a is below b
     )
 
-
-""" 
-widgetOverlaps() tests whether a widget overlaps another. Passing order is important, as the return of this function
-provides instructions for cropping the overlapping area from 'other' and compositing them onto 'self'    
-Returns:    - crop_rect(x, y, w, h) relative to `other` & insert_pos(x, y) relative to `self`
-              Or None if no overlap.
-"""
-def widgetOverlaps(self, other) -> tuple[tuple[int, int, int, int], tuple[int, int]] | None:
-    sx, sy, sw, sh = getGeometry(self)
-    ox, oy, ow, oh = getGeometry(other)
-
-    ix, iy = max(sx, ox), max(sy, oy)
-    fx, fy = min(sx + sw, ox + ow), min(sy + sh, oy + oh)
-
-    if fx <= ix or fy <= iy: return None                    # No overlap
-
-    crop_rect = (ix - ox, iy - oy, fx - ix, fy - iy)        # Region to crop from 'other'
-    insert_pos = (ix - sx, iy - sy)                         # Where to draw it in 'self'
-
-    return crop_rect, insert_pos
-
+# Below are old utility methods that could probably be rewritten or deprecated entirely.
+def limitMove(pos:int, extent:int, min_val:int, max_val:int) -> int:
+    return max(min_val, min(pos, max_val - extent))
 
 def getLocalMouse(widget:Canvas) -> (int, int, bool):
-    x = widget.winfo_pointerx() - widget.winfo_rootx()
-    y = widget.winfo_pointery() - widget.winfo_rooty()
+    px, py = widget.winfo_pointerxy()
+    x = px - widget.winfo_rootx()
+    y = py - widget.winfo_rooty()
     if x < 0 or x > widget.winfo_width(): return x, y, False
     if y < 0 or y > widget.winfo_height(): return x, y, False
     return x, y, True
-
 
 def updateHover(widget):
     if isinstance(widget, Canvas):

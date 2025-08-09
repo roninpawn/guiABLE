@@ -2,15 +2,14 @@ import tkinter as tk
 from typing import Optional
 
 from guiABLE.skinnable import Skin, Skinnable
-from guiABLE.utilities import updateHover, limitMove, composeImages, getGeometry, cropImage, widgetOverlaps, \
-    widgetsOverlap
+from guiABLE.utilities import updateHover, limitMove, composeImages, getGeometry, cropImage, rectsOverlap, getOverlap
 
 
 class Baseable(Skinnable, tk.Canvas):
     def __init__(self, parent, skin=None, **kwargs):
         Skinnable.__init__(self, skin)
         tk.Canvas.__init__(self, parent, highlightthickness=0, **kwargs)
-        self._enabled, self._geometry = False, None
+        self._enabled = False
 
         self.enable()
 
@@ -22,7 +21,9 @@ class Baseable(Skinnable, tk.Canvas):
     @property
     def parent(self): return self.master
 
-    def redraw(self,): self.setState(self._img_state)
+    def redraw(self,):
+        self._geometry = getGeometry(self)
+        self.setState(self._img_state)
 
     def zDraw(self, image:tk.PhotoImage, x:int = 0, y:int = 0):
         if self._skin.hasImages() or not self._skin.usesBgColors():
@@ -36,7 +37,7 @@ class Baseable(Skinnable, tk.Canvas):
 
     def setState(self, state_index:int = 0):
         # If widget lacks geometry (has not fully spawned) wait until it has.
-        x, y, w, h = getGeometry(self)
+        x, y, w, h = self.geometry
         if w <= 1 and h <= 1:
             self.after_idle(lambda : self.redraw())
             return
@@ -47,7 +48,7 @@ class Baseable(Skinnable, tk.Canvas):
             self.configure(bg=bg_color)
         else:
             layers, base = [], None
-            w, h = self.winfo_width(), self.winfo_height()
+            w, h = self.geometry[2:]
 
             # If skin has images but composites atop bg_colors. (no widget transparency)
             if self._skin.usesBgColors():
@@ -68,8 +69,8 @@ class Baseable(Skinnable, tk.Canvas):
             # Detect overlap with siblings and add to composite job.
                 drop_list = []
                 for sibling in self._siblings_beneath:
-                    if instructions := widgetOverlaps(self, sibling):
-                        layers.append((cropImage(sibling.zImage, *instructions[0]), *instructions[1]))
+                    if overlap := getOverlap(self.geometry, sibling.geometry):
+                        layers.append((cropImage(sibling.zImage, *overlap.crop), *overlap.insert))
                     else: drop_list.append(sibling)
                 for sibling in drop_list: self.dropSibling(sibling)
 
@@ -86,8 +87,8 @@ class Baseable(Skinnable, tk.Canvas):
 
         drop_list = []
         for sibling in self._siblings_atop:
-            if instructions := widgetOverlaps(sibling, self):
-                sibling.zDraw(cropImage(self.zImage, *instructions[0]), *instructions[1])
+            if overlap := getOverlap(sibling.geometry, self.geometry):
+                sibling.zDraw(cropImage(self.zImage, *overlap.crop), *overlap.insert)
             else: drop_list.append(sibling)
         for sibling in drop_list: self.dropSibling(sibling)
 
@@ -278,16 +279,18 @@ class Draggable(Holdable):
         super().clicked(event)
 
     def mouseDrag(self, event):
-        x, y, w, h = getGeometry(self)
+        x, y, w, h = self.geometry
+        _, _, mw, mh = self.master.geometry
+
         x = event.x - self.x + x
         y = event.y - self.y + y
-        x = limitMove(x, w, 0, self.master.winfo_width())
-        y = limitMove(y, h, 0, self.master.winfo_height())
+        x = limitMove(x, w, 0, mw)
+        y = limitMove(y, h, 0, mh)
 
         self.place_configure(x=x, y=y)
-        # Use the above x, y to avoid update_idletasks()
-        #self.update_idletasks()
+        # self.update_idletasks()
 
+        self._geometry = x, y, w, h
         self._populateOverlappingSiblings(self._siblings_atop, self._all_siblings_atop, False)
         self._populateOverlappingSiblings(self._siblings_beneath, self._all_siblings_beneath, True)
         self.after_idle(self.redraw)
@@ -303,7 +306,7 @@ class Draggable(Holdable):
     def _splitAllSiblings(self):
         atop = False
         self._all_siblings_atop, self._all_siblings_beneath = set(), set()
-        for sibling in self.master.winfo_children():
+        for sibling in self.master.getChildren():
             if sibling is self: atop = True
             else:
                 if atop: self._all_siblings_atop.add(sibling)
@@ -312,6 +315,6 @@ class Draggable(Holdable):
     def _populateOverlappingSiblings(self, output_set:set, source_set:set, atop:bool):
         output_set.clear()
         for sibling in source_set:
-            if widgetsOverlap(self, sibling):
+            if rectsOverlap(self.geometry, sibling.geometry):
                 output_set.add(sibling)
                 sibling.trackSibling(self, atop)

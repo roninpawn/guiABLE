@@ -67,7 +67,7 @@ def test_gui():
     trough.place(x=400, y=300)
 
     click_btn.lift(test_toggle)
-    exit_button.lift(test_drag)
+    #exit_button.lift(test_drag)
     app.mainloop()
 
 

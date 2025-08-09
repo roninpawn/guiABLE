@@ -2,8 +2,8 @@ import tkinter as tk
 from tkinter import PhotoImage
 from typing import Optional
 
-from guiABLE.utilities import warnPrint, resolvePath, cropImage, loadImage, widgetsOverlap, widgetOverlaps, \
-    composeImages, getGeometry
+from guiABLE.utilities import warnPrint, resolvePath, cropImage, loadImage, composeImages, getGeometry, getOverlap, \
+    rectsOverlap
 
 
 class Skin:
@@ -216,6 +216,8 @@ class Skinnable:
         self._z_dirty, self._z_state = True, None
         self._img, self._img_state = self._skin.image(0), 0
         self._siblings_atop, self._siblings_beneath = set(), set()     # Tracked siblings, separated by above/below self z-index
+        self._children = []
+        self._geometry = (0, 0, 0, 0)
 
     @property
     def skin(self) -> Skin: return self._skin
@@ -224,17 +226,17 @@ class Skinnable:
     def zImage(self) -> tk.PhotoImage:
         if not self._skin.hasImages():
             if self._img_state != self._z_state:
-                w, h = self.winfo_width(), self.winfo_height()
+                w, h = self.geometry[2:]
                 self._z_img = tk.PhotoImage(width=w, height=h)
                 self._z_img.put(self._skin.bg(self._img_state), to=(0, 0, w, h))
         else:
             if self._z_state != self._img_state:
                 layers = []
                 for sibling in self._siblings_beneath:
-                    instructions = widgetOverlaps(self, sibling)
-                    layers.append((cropImage(sibling.zImage, *instructions[0]), *instructions[1]))
+                    overlap = getOverlap(self.geometry, sibling.geometry)
+                    layers.append((cropImage(sibling.zImage, *overlap.crop), *overlap.insert))
                 layers.append((self._skin.image(self._img_state), 0, 0))
-                w, h = self.winfo_width(), self.winfo_height()
+                w, h = self.geometry[2:]
                 self._z_img = composeImages(PhotoImage(width=w, height=h), *layers)
 
         self._z_state = self._img_state
@@ -250,6 +252,15 @@ class Skinnable:
         if self._skin: self._skin.unbindWidget(self)
         self._skin = Skin()
 
+    @property
+    def geometry(self): return self._geometry
+
+    def getChildren(self): return self._children
+    def registerChild(self, child):
+        if child not in self._children: self._children.append(child)
+    def dropChild(self, child):
+        if child in self._children: self._children.remove(child)
+
     def trackSibling(self, sibling, z_above: bool):
         self._siblings_atop.add(sibling) if z_above else self._siblings_beneath.add(sibling)
     def dropSibling(self, sibling):
@@ -259,26 +270,57 @@ class Skinnable:
     # Override all attachment methods to track z-order trough parent and report overlap with any siblings.
     def place(self, **kwargs):
         super().place(**kwargs)
-        self.after_idle(self._detectOverlap)
+        self.after_idle(self._bond)
     def pack(self, **kwargs):
         super().pack(**kwargs)
-        self.after_idle(self._detectOverlap)
+        self.after_idle(self._bond)
     def grid(self, **kwargs):
         super().grid(**kwargs)
-        self.after_idle(self._detectOverlap)
+        self.after_idle(self._bond)
 
     def lift(self, above=None):
         tk.Misc.lift(self, above)
-        self.after_idle(self._detectOverlap)
+        self.master._raiseChildIndex(self, above)
+        self.after_idle(self._findOverlappingSiblings, self.master.getChildren())
+
     def lower(self, below=None):
         tk.Misc.lower(self, below)
-        self.after_idle(self._detectOverlap)
+        self.master._lowerChildIndex(self, below)
+        self.after_idle(self._findOverlappingSiblings, self.master.getChildren())
 
-    def _detectOverlap(self):
+    def configure(self, **kwargs):
+        super().configure(**kwargs)
+        self.after_idle(self._bond)
+
+    def _bond(self):        # Form lasting familial relationships with parent and siblings.
+        # Refresh stored geometry and register with parent.
+        self._geometry = getGeometry(self)
+        if isinstance(self, tk.Canvas): self.master.registerChild(self)
+        self._findOverlappingSiblings(self.master.children)
+
+    # Find overlapping siblings and store them / register with them, for future tracking.
+    def _findOverlappingSiblings(self, siblings_list):
         above = True        # z-order state of self in reference to sibling
-        for sibling in self.master.winfo_children():
+        for sibling in siblings_list:
             if sibling is self: above = False
-            elif widgetsOverlap(self, sibling):
-                sibling.trackSibling(sibling, above)
+            elif isinstance(sibling, tk.Canvas) and rectsOverlap(self.geometry, getGeometry(sibling)):
+                if sibling in self._siblings_atop or sibling in self._siblings_beneath: sibling.dropSibling(self)
+                sibling.trackSibling(self, above)
                 if above: self._siblings_beneath.add(sibling)
                 else: self._siblings_atop.add(sibling)
+
+    def _raiseChildIndex(self, child, above):
+        self.dropChild(child)
+        if above in self._children:
+            index = self._children.index(above) + 1
+            self._children.insert(index, child)
+        else:
+            self._children.append(child)
+
+    def _lowerChildIndex(self, child, below):
+        self.dropChild(child)
+        if below in self._children:
+            index = self._children.index(below)
+            self._children.insert(index, child)
+        else:
+            self._children.insert(0, child)
