@@ -38,7 +38,7 @@ def test_gui():
 
     # Create an EXIT button from a Labelable
     x_sprite = Skin.fromImages(cropImage(tk.PhotoImage(file='../skins/default/window-glyphs-40.png'), 80, 0, 40, 40))
-    x_sprite.useBgColors(True)
+    x_sprite.usesBgColors(True)
     exit_button = Pushable(bg, function=app.quit, skin=x_sprite, width=40, height=40)
     exit_button.place(x=550, y=10)
 
@@ -66,6 +66,8 @@ def test_gui():
     trough = Troughable(bg, width=150, height=30, skin=trough_skin)
     trough.place(x=400, y=300)
 
+    click_btn.lift(test_toggle)
+    exit_button.lift(test_drag)
     app.mainloop()
 
 

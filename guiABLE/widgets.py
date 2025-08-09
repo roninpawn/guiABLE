@@ -2,17 +2,15 @@ import tkinter as tk
 from typing import Optional
 
 from guiABLE.skinnable import Skin, Skinnable
-from guiABLE.utilities import updateHover, limitMove, composeImages, getGeometry, cropImage, widgetOverlaps
+from guiABLE.utilities import updateHover, limitMove, composeImages, getGeometry, cropImage, widgetOverlaps, \
+    widgetsOverlap
 
 
 class Baseable(Skinnable, tk.Canvas):
     def __init__(self, parent, skin=None, **kwargs):
         Skinnable.__init__(self, skin)
         tk.Canvas.__init__(self, parent, highlightthickness=0, **kwargs)
-
-        self._parent = parent
-        self._exiting_redraws = set()
-        self._enabled, self._img_state, self._geometry = False, None, None
+        self._enabled, self._geometry = False, None
 
         self.enable()
 
@@ -21,51 +19,77 @@ class Baseable(Skinnable, tk.Canvas):
     def enable(self): self._enabled = True
     def disable(self): self._enabled = False
 
-    def redraw(self): self.setState(self._img_state)
+    @property
+    def parent(self): return self.master
+
+    def redraw(self,): self.setState(self._img_state)
+
+    def zDraw(self, image:tk.PhotoImage, x:int = 0, y:int = 0):
+        if self._skin.hasImages() or not self._skin.usesBgColors():
+            self._geometry = getGeometry(self)
+            layers = [(image, x, y), (self._skin.image(self._img_state), 0, 0)]
+            base = cropImage(self.master.skin.image(), *self._geometry)
+
+            self.delete("all")
+            self._img = composeImages(base, *layers)
+            self.create_image(0, 0, image=self._img, anchor="nw")
 
     def setState(self, state_index:int = 0):
-        # Fetch Skin() holdings for the new state.
-        skin_img, bg_color = self._skin.view(state_index)
+        # If widget lacks geometry (has not fully spawned) wait until it has.
+        x, y, w, h = getGeometry(self)
+        if w <= 1 and h <= 1:
+            self.after_idle(lambda : self.redraw())
+            return
 
-        # If Skin indicates transparency, use parent's background. [Color or Image]
-        if bg_color is None:
-            if self._parent.skin.useBgColors():       # If parent uses a simple bg color (no image) just use the same.
-                bg_color = self._parent.skin.bg(state_index)
+        # If skin has no images. Only using bg_colors. (no widget transparency)
+        bg_color = self._skin.bg(state_index)
+        if not self._skin.hasImages():
+            self.configure(bg=bg_color)
+        else:
+            layers, base = [], None
+            w, h = self.winfo_width(), self.winfo_height()
 
-            else:       # If parent is using an image, crop widget's geometry from it, and composite.
-                self._geometry = getGeometry(self)
-                if self._geometry[2] <= 1 or self._geometry[3] <= 1: self.after_idle(lambda : self.setState(state_index))
-                # TODO: Dirty tracking, don't regrab _bg if neither it, nor self has changed.
-                self._bg = cropImage(self._parent.skin.image(state_index), *self._geometry)
+            # If skin has images but composites atop bg_colors. (no widget transparency)
+            if self._skin.usesBgColors():
+                base = tk.PhotoImage(width=w, height=h)
+                bg_color = self._skin.bg(state_index)
 
-            # Ensure no lasting ghost image by redrawing any higher-z sibling, the frame after you exit it.
-            for higher_sibling in self._exiting_redraws: higher_sibling.redraw()
+            # If skin has images and declares no background color use. (widget may have transparency)
+            else:
+                # If widget's parent has no images, simply use its background color for a base.
+                if not self.master.skin.hasImages():
+                    base = tk.PhotoImage(width=w, height=h)
+                    bg_color = self.master.skin.bg(state_index)
+                # If parent is using an image, crop widget's current geometry from it as the base for compositing.
+                else:
+                    base = cropImage(self.master.skin.image(), x, y, w, h)
 
-            # TODO: Allow redraw() caller to skip full detection and just request redraw of _bg + caller + _img.
+        # === UNDER HANDLING ===
             # Detect overlap with siblings and add to composite job.
-            siblings, layers, new_redraws, above = self._parent.winfo_children(), [], set(), True
-            for sibling in siblings:
-                if sibling is self: above = False
-                elif isinstance(sibling, Baseable):
+                drop_list = []
+                for sibling in self._siblings_beneath:
                     if instructions := widgetOverlaps(self, sibling):
-                        if above:
-                            layers.append((cropImage(sibling.zImage, *instructions[0]), *instructions[1]))
-                        else:
-                            # Only draw if not already drawn as an exiting redraw.
-                            if sibling not in self._exiting_redraws: sibling.redraw()
-                            new_redraws.add(sibling)
+                        layers.append((cropImage(sibling.zImage, *instructions[0]), *instructions[1]))
+                    else: drop_list.append(sibling)
+                for sibling in drop_list: self.dropSibling(sibling)
 
-            self._exiting_redraws = new_redraws     # Load next round of redraws.
-            layers.append((skin_img, 0, 0))          # Add own image to top of layer stack.
+            # Composite the final image.
+            layers.append((self._skin.image(state_index), 0, 0))
+            self._img = composeImages(base, *layers)
 
-            # Render final composite
-            self._img = composeImages(self._bg, *layers)
+            # Render the state.
+            self.delete("all")
+            self.configure(bg=bg_color)
+            self.create_image(0, 0, image=self._img, anchor="nw")
 
-        # Render the state.
-        self.delete("all")
-        self.configure(bg=bg_color)
-        self.create_image(0, 0, image=self._img, anchor="nw")
         self._img_state = state_index
+
+        drop_list = []
+        for sibling in self._siblings_atop:
+            if instructions := widgetOverlaps(sibling, self):
+                sibling.zDraw(cropImage(self.zImage, *instructions[0]), *instructions[1])
+            else: drop_list.append(sibling)
+        for sibling in drop_list: self.dropSibling(sibling)
 
 
 class Imageable(Baseable):
@@ -242,20 +266,31 @@ class Holdable(Pushable):
 
 
 class Draggable(Holdable):
+    def __init__(self, parent, function=lambda: None, skin=None, **kwargs):
+        super().__init__(parent, function, skin, **kwargs)
+        self._all_siblings_atop, self._all_siblings_beneath = set(), set()
+        self._last_siblings_atop, self._last_siblings_beneath = set(), set()
+
     def clicked(self, event):
         self.x = event.x
         self.y = event.y
+        self._splitAllSiblings()
         super().clicked(event)
 
     def mouseDrag(self, event):
-        x = event.x - self.x + self.winfo_x()
-        y = event.y - self.y + self.winfo_y()
-        x = limitMove(x, self.winfo_width(), 0, self.master.winfo_width())
-        y = limitMove(y, self.winfo_height(), 0, self.master.winfo_height())
+        x, y, w, h = getGeometry(self)
+        x = event.x - self.x + x
+        y = event.y - self.y + y
+        x = limitMove(x, w, 0, self.master.winfo_width())
+        y = limitMove(y, h, 0, self.master.winfo_height())
 
         self.place_configure(x=x, y=y)
-        self.update_idletasks()
-        self.redraw()
+        # Use the above x, y to avoid update_idletasks()
+        #self.update_idletasks()
+
+        self._populateOverlappingSiblings(self._siblings_atop, self._all_siblings_atop, False)
+        self._populateOverlappingSiblings(self._siblings_beneath, self._all_siblings_beneath, True)
+        self.after_idle(self.redraw)
 
     def enable(self):
         self.bind("<B1-Motion>", self.mouseDrag)
@@ -264,3 +299,19 @@ class Draggable(Holdable):
     def disable(self):
         self.unbind("<B1-Motion>")
         super().disable()
+
+    def _splitAllSiblings(self):
+        atop = False
+        self._all_siblings_atop, self._all_siblings_beneath = set(), set()
+        for sibling in self.master.winfo_children():
+            if sibling is self: atop = True
+            else:
+                if atop: self._all_siblings_atop.add(sibling)
+                else: self._all_siblings_beneath.add(sibling)
+
+    def _populateOverlappingSiblings(self, output_set:set, source_set:set, atop:bool):
+        output_set.clear()
+        for sibling in source_set:
+            if widgetsOverlap(self, sibling):
+                output_set.add(sibling)
+                sibling.trackSibling(self, atop)

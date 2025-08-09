@@ -1,7 +1,9 @@
 import tkinter as tk
+from tkinter import PhotoImage
 from typing import Optional
 
-from guiABLE.utilities import warnPrint, updateHover, resolvePath, cropImage, loadImage, solidColorImage
+from guiABLE.utilities import warnPrint, resolvePath, cropImage, loadImage, widgetsOverlap, widgetOverlaps, \
+    composeImages, getGeometry
 
 
 class Skin:
@@ -59,12 +61,12 @@ class Skin:
     @classmethod
     def fromSpriteSheet(cls, path_or_image:Optional[str | tk.PhotoImage], width:int, rows:int = 1, margins:tuple = (0,0)):
         sk = cls()
-        sheet, path = sk._pathOrImage(path_or_image)
-        if path is not None: sk._bySprite(sheet, path, width, rows, margins)
+        sheet, path = loadImage(path_or_image)
+        if sheet is not None: sk._bySprite(sheet, path, width, rows, margins)
         return sk
     def setSprites(self, path_or_image:Optional[str|tk.PhotoImage], width:int, rows:int = 1, margins:tuple = (0,0)):
-        sheet, path = self._pathOrImage(path_or_image)
-        if path is not None:
+        sheet, path = loadImage(path_or_image)
+        if sheet is not None:
             self._paths, self._images = [], []
             self._bySprite(sheet, path, width, rows, margins)
 
@@ -84,9 +86,13 @@ class Skin:
     def path(self, index:int) -> Optional[str]:
         if len(self._paths): return self._paths[index % len(self._paths)]
         return None
-    def image(self, index:int = 0) -> tk.PhotoImage:
-        if len(self._images): return self._images[index % len(self._images)]
+    def image(self, index: int = 0) -> tk.PhotoImage:
+        if self._images:
+            index %= len(self._images)
+            img = self._images[index]
+            if img is not None: return img
         return self._empty_image
+
     def bg(self, index: int = 0) -> Optional[str]:
         if self._use_bg_colors and len(self._bg_colors): return self._bg_colors[index % len(self._bg_colors)]
         return None     # Represents alpha
@@ -95,11 +101,11 @@ class Skin:
     def paths(self) -> list[str]: return self._paths
     def bg_colors(self) -> list[str]: return self._bg_colors
 
-    def useBgColors(self, use:bool = None) -> bool:
+    def usesBgColors(self, use:bool = None) -> bool:
         if isinstance(use, bool): self._use_bg_colors = use
         return self._use_bg_colors
 
-    def hasImages(self): return self._has_images
+    def hasImages(self): return any(self._images)
     def view(self, index:int = 0) -> (tk.PhotoImage, str|None): return self.image(index), self.bg(index)
     def numStates(self): return len(self._images)
     def reset(self): self._recipients, self._paths, self._images = [], [], []
@@ -131,7 +137,7 @@ class Skin:
                     self._images[i] = tk.PhotoImage(file=r_path)
                 except tk.TclError:
                     warnPrint(f"Image not found: {r_path}")
-                    self._images[i] = self._empty_image
+                    self._images[i] = None
 
         self._fillImages()
 
@@ -144,12 +150,12 @@ class Skin:
                 self._images[i] = img
                 self._paths[i] = "image loaded internally"
             else:
-                self._images[i] = self._empty_image
+                self._images[i] = None
                 self._paths[i] = None
 
         self._fillImages()
 
-    def _bySprite(self, sheet:tk.PhotoImage, path:str, width:int, rows:int = 1, margins:tuple = (0,0)):
+    def _bySprite(self, sheet:tk.PhotoImage, source:str, width:int, rows:int = 1, margins:tuple = (0, 0)):
         # Ensure row sanity and collect geometry.
         if rows < 1: rows = 1
         height = sheet.height() // rows
@@ -162,32 +168,14 @@ class Skin:
                 sprite = cropImage(sheet, x1, y1, width, height)
 
                 self._images.append(sprite)
-                self._paths.append(f"{x1},{y1},{width},{height} from {path}")
+                self._paths.append(f"{x1},{y1},{width},{height} from {source}")
 
         self._fillImages()
-
-    def _pathOrImage(self, path_or_image:Optional[str|tk.PhotoImage]) -> tuple[tk.PhotoImage, Optional[str]]:
-        # Conform either input type to PhotoImage and path
-        if isinstance(path_or_image, str):
-            r_path = resolvePath(path_or_image)
-            try:
-                image = tk.PhotoImage(file=r_path)
-            except tk.TclError:
-                warnPrint(f"Sprite sheet not found: {path_or_image}")
-                return self._empty_image, None
-        else:
-            r_path = "internal sheet"
-            if isinstance(path_or_image, tk.PhotoImage):
-                image = path_or_image
-            else:
-                warnPrint(f"Invalid sprite source: {path_or_image}")
-                return self._empty_image, None
-        return image, r_path
 
     def _expand(self, size:int):       # Expands path and image lists to new length.
         for n in range(min(size - len(self._images), 256)):
             self._paths.append(None)
-            self._images.append(self._empty_image)
+            self._images.append(None)
 
     def _existsAt(self, path:str) -> Optional[int]:
         for i in range(len(self._images)):
@@ -205,12 +193,12 @@ class Skin:
         return in_list
 
     def _fillImages(self):
-        fallback = next((i for i in self._images if i != self._empty_image), None)  # Find first real image.
+        fallback = next((i for i in self._images if i is not None), None)  # Find first real image.
         if fallback is None: return
 
-        self._has_images, self._use_bg_colors = True, False
+        self._use_bg_colors = False     # If images exist, default to transparent background.
         for i in range(len(self._images)):      # Fill in any gaps by propagating the most recent valid image forward.
-            if self._images[i] == self._empty_image: self._images[i] = fallback
+            if self._images[i] is None: self._images[i] = fallback
             else: fallback = self._images[i]
 
 
@@ -225,8 +213,9 @@ class Skinnable:
         else:
             self._skin = Skin()
 
-        self._bg, self._img, self._z_img = self._skin.image(), self._skin.image(), self._skin.image()
-        self.dirty = True
+        self._z_dirty, self._z_state = True, None
+        self._img, self._img_state = self._skin.image(0), 0
+        self._siblings_atop, self._siblings_beneath = set(), set()     # Tracked siblings, separated by above/below self z-index
 
     @property
     def skin(self) -> Skin: return self._skin
@@ -234,10 +223,21 @@ class Skinnable:
     @property
     def zImage(self) -> tk.PhotoImage:
         if not self._skin.hasImages():
-            w, h = self.winfo_width(), self.winfo_height()
-            self._z_img = tk.PhotoImage(width=w, height=h)
-            self._z_img.put(self._skin.bg(self._img_state), to=(0, 0, w, h))
-        else: self._z_img = self._img
+            if self._img_state != self._z_state:
+                w, h = self.winfo_width(), self.winfo_height()
+                self._z_img = tk.PhotoImage(width=w, height=h)
+                self._z_img.put(self._skin.bg(self._img_state), to=(0, 0, w, h))
+        else:
+            if self._z_state != self._img_state:
+                layers = []
+                for sibling in self._siblings_beneath:
+                    instructions = widgetOverlaps(self, sibling)
+                    layers.append((cropImage(sibling.zImage, *instructions[0]), *instructions[1]))
+                layers.append((self._skin.image(self._img_state), 0, 0))
+                w, h = self.winfo_width(), self.winfo_height()
+                self._z_img = composeImages(PhotoImage(width=w, height=h), *layers)
+
+        self._z_state = self._img_state
         return self._z_img
 
     def setSkin(self, skin:Skin):
@@ -249,3 +249,36 @@ class Skinnable:
     def dropSkin(self):
         if self._skin: self._skin.unbindWidget(self)
         self._skin = Skin()
+
+    def trackSibling(self, sibling, z_above: bool):
+        self._siblings_atop.add(sibling) if z_above else self._siblings_beneath.add(sibling)
+    def dropSibling(self, sibling):
+        if sibling in self._siblings_atop: self._siblings_atop.remove(sibling)
+        elif sibling in self._siblings_beneath: self._siblings_beneath.remove(sibling)
+
+    # Override all attachment methods to track z-order trough parent and report overlap with any siblings.
+    def place(self, **kwargs):
+        super().place(**kwargs)
+        self.after_idle(self._detectOverlap)
+    def pack(self, **kwargs):
+        super().pack(**kwargs)
+        self.after_idle(self._detectOverlap)
+    def grid(self, **kwargs):
+        super().grid(**kwargs)
+        self.after_idle(self._detectOverlap)
+
+    def lift(self, above=None):
+        tk.Misc.lift(self, above)
+        self.after_idle(self._detectOverlap)
+    def lower(self, below=None):
+        tk.Misc.lower(self, below)
+        self.after_idle(self._detectOverlap)
+
+    def _detectOverlap(self):
+        above = True        # z-order state of self in reference to sibling
+        for sibling in self.master.winfo_children():
+            if sibling is self: above = False
+            elif widgetsOverlap(self, sibling):
+                sibling.trackSibling(sibling, above)
+                if above: self._siblings_beneath.add(sibling)
+                else: self._siblings_atop.add(sibling)

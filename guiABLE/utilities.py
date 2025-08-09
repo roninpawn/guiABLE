@@ -32,24 +32,30 @@ def resolvePath(path:str, default_root:str=None) -> Optional[str]:
 
 
 # ---------- Image Functions ----------
-def loadImage(image_path:str) -> PhotoImage:
+def loadImageByPath(image_path:str) -> Optional[PhotoImage]:
     try:
         return PhotoImage(file=image_path)
     except TclError:
         warnPrint(f"Image not found: {image_path}")
-    return PhotoImage(width=0, height=0)
+    return None
+
+
+def loadImage(path_or_image:Optional[str|PhotoImage]) -> tuple[Optional[PhotoImage], Optional[str]]:
+    # Conform either input type to PhotoImage and path (path used as 'source' in _bySprite())
+    if isinstance(path_or_image, str):
+        r_path = resolvePath(path_or_image)
+        return loadImageByPath(r_path), r_path
+    else:
+        if isinstance(path_or_image, PhotoImage): image = path_or_image
+        else:
+            warnPrint(f"Invalid PhotoImage: {path_or_image}")
+            return None, None
+    return image, "passed internally"
 
 
 def solidColorImage(width: int, height: int, color: str) -> PhotoImage:
     img = PhotoImage(width=width, height=height)
     hex_color = color if color.startswith("#") else img.tk.call("winfo", "rgb", ".", color)
-
-    # If color is a named color like 'gray80', resolve it to #RRGGBB
-    # if isinstance(hex_color, tuple):
-        # Convert 16-bit tk color values to 8-bit hex
-    #    r, g, b = (v // 256 for v in hex_color)
-    #    hex_color = f"#{r:02x}{g:02x}{b:02x}"
-
     img.put("{" + " ".join([hex_color] * width) + "}", to=(0, 0, width, height))
     return img
 
@@ -154,6 +160,7 @@ def limitMove(pos:int, extent:int, min_val:int, max_val:int) -> int:
 
 
 def widgetsOverlap(a, b) -> bool:
+    if not isinstance(a, Canvas) or not isinstance(b, Canvas): return False
     ax, ay, aw, ah = getGeometry(a)
     bx, by, bw, bh = getGeometry(b)
 
