@@ -1,3 +1,5 @@
+from time import time, sleep
+
 from guiABLE import *
 from guiABLE.utilities import cropImage
 
@@ -34,9 +36,6 @@ def test_gui():
                            text="Hello", text_pos=(10, 5), font=("Arial", 12, "bold"), color="white",
                            width=100, height=40)
 
-    under_btn = Pushable(bg, lambda: print("This is IMPOSSIBLE!"), skin=btn_skin, width=80, height=40)
-    under_btn.place(x=420, y=35)
-
     test_label.place(x=360, y=20)
 
     # Create an EXIT button from a Labelable
@@ -69,10 +68,30 @@ def test_gui():
     trough = Troughable(bg, width=150, height=30, skin=trough_skin)
     trough.place(x=400, y=300)
 
+
     click_btn.lift(test_toggle)
     exit_button.lift(test_toggle)
-    app.mainloop()
 
+    fps_label = tk.Label(bg, text="FPS", anchor="w")
+    fps_label.place(x=518, y=10)
+
+    """
+    WOW! Having a live tick is CRUCIAL to getting good performance. mainloop() must throttle hard and need to kick up
+    to speed without something to keep it updating idletasks regularly. Damn!
+    """
+    app.fps = 0
+    def tick():
+        app.fps += 1
+        app.after(8, tick)
+    tick()
+
+    def update_fps():
+        fps_label.configure(text=app.fps)
+        app.fps = 0
+        app.after(1000, update_fps)
+    update_fps()
+
+    app.mainloop()
 
 if __name__ == "__main__":
     test_gui()
