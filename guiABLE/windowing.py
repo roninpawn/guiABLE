@@ -175,19 +175,27 @@ This is necessary because tkinter's tk.Canvas does not track and update its 'dir
 issue of slow/wrong redraws was solved in the tk.Text widget, but nowhere else. So we use tk.Text as the render canvas.
 """
 class Canvasable(Skinnable, tk.Text):
-    def __init__(self, parent, **kwargs):
-        Skinnable.__init__(self)
+    def __init__(self, parent, image_path, **kwargs):
+        Skinnable.__init__(self, Skin(image_path))
         tk.Text.__init__(self, parent, bd=0, padx=0, pady=0, state="disabled", cursor="arrow", **kwargs)
 
         self._skin.setBGColors(self.cget("bg"))
         self.configure(selectbackground=self._skin.bg())
+        self.redraw()
 
     def configure(self, **kw):
-        if "bg" in kw:
+        if "bg" in kw:      # Pass changes to bg through to the 'selectbackground' to maintain non-tk.Text() illusion.
             kw["selectbackground"] = kw["bg"]
         if "background" in kw:
             kw["selectbackground"] = kw["background"]
         super().configure(**kw)
+
+    def redraw(self):
+        if self.skin.hasImages():
+            self.configure(state="normal")
+            self.delete(1.0, tk.END)
+            self.image_create(tk.END, image=self._skin.image())
+            self.configure(state="disabled")
 
 """
 A Backgroundable is a tk.Frame containing a .inner Canvasable() that serves as the canvas. It provides a more library-
@@ -196,12 +204,10 @@ to abstract away the underlying duct-tape solution required to make tk.Canvas fu
 """
 class Backgroundable(Skinnable, tk.Frame):
     def __init__(self, parent, width, height, image_path=None, bg='gray', **kwargs):
-        Skinnable.__init__(self, Skin(image_path))
+        Skinnable.__init__(self)        # A Backgroundables skin() is its Canvasable/.inner's skin.
         tk.Frame.__init__(self, parent, width=width, height=height)
 
-        self._inner = Canvasable(self)
-        self.setBGColor(bg)
-        self.setImage(self._skin.image())
+        self._inner = Canvasable(self, Skin(image_path), bg=bg, **kwargs)
 
         self.pack_propagate(False)
         self._inner.pack(fill="both", expand=True)
@@ -210,9 +216,8 @@ class Backgroundable(Skinnable, tk.Frame):
     def inner(self): return self._inner
     def redraw(self): self.setImage(self._skin.image())
 
-    def setBGColor(self, color:str = 'gray'):
-        self._skin.setBGColors(color)
-        self.inner.configure(bg=color)
+    @property
+    def skin(self): return self._inner.skin
 
     @classmethod
     def fromPath(cls, parent, width:int, height:int, image_path:str = None, bg:str = 'gray', **kwargs):
@@ -220,16 +225,7 @@ class Backgroundable(Skinnable, tk.Frame):
     @classmethod
     def fromImage(cls, parent, width:int, height:int, image:tk.PhotoImage = None, bg:str ='gray', **kwargs):
         bga = cls(parent, width, height, None, bg, **kwargs)
-        bga.setImage(image)
         return bga
-
-    def setPath(self, image_path:str): self.setImage(loadImage(resolvePath(image_path)))
-    def setImage(self, image: tk.PhotoImage):
-        self.inner.configure(state="normal")
-        self.inner.delete(1.0, tk.END)
-        self._skin.setImages(image)
-        self.inner.image_create(tk.END, image=self._skin.image())
-        self.inner.configure(state="disabled")
 
     def empty(self):
         for child in self.inner.winfo_children():

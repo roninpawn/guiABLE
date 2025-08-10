@@ -8,7 +8,7 @@ def test_gui():
     app = Windowable(geometry="600x400+100+100", title="guiABLE Testbed")
     my_image = tk.PhotoImage(file="../skins/default/bg-600x400.png")
     bg = Backgroundable(app, "600", "400")
-    bg.setImage(my_image)
+    bg.skin.setImage(my_image)
     bg.inner.configure(cursor="fleur")
     bg.place(x=0, y=0)
     app.bindDrag(bg.inner)

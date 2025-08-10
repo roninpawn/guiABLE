@@ -11,6 +11,7 @@ class Baseable(Skinnable, tk.Canvas):
         Skinnable.__init__(self, skin)
         tk.Canvas.__init__(self, parent, highlightthickness=0, **kwargs)
         self._enabled = False
+        self._drop_list = set()
 
         self.enable()
 
@@ -37,54 +38,55 @@ class Baseable(Skinnable, tk.Canvas):
             self.after_idle(lambda : self.redraw())
             return
 
-        # If skin has no images. Only using bg_colors. (no widget transparency)
         bg_color = self._skin.bg(state_index)
-        if not self._skin.hasImages():
-            self.configure(bg=bg_color)
-        else:
+        # If skin has no images. Only using bg_colors. (no widget transparency)
+        if self._skin.hasImages():
             layers, base = [], None
             w, h = self.geometry[2:]
 
             # If skin has images but composites atop bg_colors. (no widget transparency)
             if self._skin.usesBgColors():
                 base = tk.PhotoImage(width=w, height=h)
-                bg_color = self._skin.bg(state_index)
 
             # If skin has images and declares no background color use. (widget may have transparency)
             else:
+                bg_color = self.master.skin.bg()
                 # If widget's parent has no images, simply use its background color for a base.
                 if not self.master.skin.hasImages():
                     base = tk.PhotoImage(width=w, height=h)
-                    bg_color = self.master.skin.bg(state_index)
                 # If parent is using an image, crop widget's current geometry from it as the base for compositing.
                 else:
                     base = cropImage(self.master.skin.image(), x, y, w, h)
 
-        # === UNDER HANDLING ===
+        # === SIBLINGS BENEATH ===
             # Detect overlap with siblings and add to composite job.
-                drop_list = []
                 for sibling in self._siblings_beneath:
                     if overlap := getOverlap(self.geometry, sibling.geometry):
                         layers.append((cropImage(sibling.zImage, *overlap.crop), *overlap.insert))
-                    else: drop_list.append(sibling)
-                for sibling in drop_list: self.dropSibling(sibling)
+                        if sibling in self._drop_list: self._drop_list.remove(sibling)
+                    else: self._drop_list.add(sibling)
 
             # Composite the final image.
             layers.append((self._skin.image(state_index), 0, 0))
             self._img = composeImages(base, *layers)
 
             # Render the state.
-            self.configure(bg=bg_color)
             self.render(self._img)
 
+        self.configure(bg=bg_color)
         self._img_state = state_index
 
-        drop_list = []
+        # === SIBLINGS ATOP ===
         for sibling in self._siblings_atop:
             if overlap := getOverlap(sibling.geometry, self.geometry):
                 sibling.zDraw(self, overlap)
-            else: drop_list.append(sibling)
-        for sibling in drop_list: self.dropSibling(sibling)
+                if sibling in self._drop_list: self._drop_list.remove(sibling)
+            elif sibling not in self._drop_list: self._drop_list.add(sibling)
+
+        for sibling in self._drop_list:
+            sibling.dropSibling(self)
+            self.dropSibling(sibling)
+        self._drop_list = set()
 
     def zDraw(self, widget, overlap:Overlap):
         if self.skin.hasImages() or not self.skin.usesBgColors():
