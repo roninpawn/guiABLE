@@ -83,6 +83,7 @@ class Windowable(tk.Tk):
         self.taskbar_handle.bind("<Map>", self.deiconify)
 
         self.update_idletasks()
+        self._heartbeat()
 
     def bindDrag(self, widget:tk.Canvas):
         if widget is not None:
@@ -160,6 +161,9 @@ class Windowable(tk.Tk):
                     child.deiconify()
                 self.focus_force()
             self.taskbar_handle.wm_iconify()
+
+    def _heartbeat(self):
+        self.after(8, self._heartbeat)
 
     def _update_offsets(self):
         self._offset_w = (self.winfo_width() - self.taskbar_handle.winfo_width()) // 2
