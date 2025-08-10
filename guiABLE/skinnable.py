@@ -213,8 +213,9 @@ class Skinnable:
         else:
             self._skin = Skin()
 
-        self._z_dirty, self._z_state = True, None
+        self._z_state = None
         self._img, self._img_state = self._skin.image(0), 0
+        self._z_img = self._img
         self._siblings_atop, self._siblings_beneath = set(), set()     # Tracked siblings, separated by above/below self z-index
         self._children = []
         self._geometry = (0, 0, 0, 0)
@@ -224,22 +225,13 @@ class Skinnable:
 
     @property
     def zImage(self) -> tk.PhotoImage:
-        if not self._skin.hasImages():
-            if self._img_state != self._z_state:
-                w, h = self.geometry[2:]
-                self._z_img = tk.PhotoImage(width=w, height=h)
+        if self._z_state != self._img_state:
+            w, h = self.geometry[2:]
+            self._z_img = tk.PhotoImage(width=w, height=h)
+            if not self._skin.hasImages() or self._skin.usesBgColors():
                 self._z_img.put(self._skin.bg(self._img_state), to=(0, 0, w, h))
-        else:
-            if self._z_state != self._img_state:
-                layers = []
-                for sibling in self._siblings_beneath:
-                    overlap = getOverlap(self.geometry, sibling.geometry)
-                    layers.append((cropImage(sibling.zImage, *overlap.crop), *overlap.insert))
-                layers.append((self._skin.image(self._img_state), 0, 0))
-                w, h = self.geometry[2:]
-                self._z_img = composeImages(PhotoImage(width=w, height=h), *layers)
-
-        self._z_state = self._img_state
+            self._z_img = composeImages(self._z_img, (self._skin.image(self._img_state), 0, 0))
+        self._z_state = self._img_state, False
         return self._z_img
 
     def setSkin(self, skin:Skin):

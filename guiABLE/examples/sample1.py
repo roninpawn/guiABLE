@@ -34,6 +34,9 @@ def test_gui():
                            text="Hello", text_pos=(10, 5), font=("Arial", 12, "bold"), color="white",
                            width=100, height=40)
 
+    under_btn = Pushable(bg, lambda: print("This is IMPOSSIBLE!"), skin=btn_skin, width=80, height=40)
+    under_btn.place(x=420, y=35)
+
     test_label.place(x=360, y=20)
 
     # Create an EXIT button from a Labelable
@@ -67,7 +70,7 @@ def test_gui():
     trough.place(x=400, y=300)
 
     click_btn.lift(test_toggle)
-    #exit_button.lift(test_drag)
+    exit_button.lift(test_toggle)
     app.mainloop()
 
 

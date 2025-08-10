@@ -2,7 +2,8 @@ import tkinter as tk
 from typing import Optional
 
 from guiABLE.skinnable import Skin, Skinnable
-from guiABLE.utilities import updateHover, limitMove, composeImages, getGeometry, cropImage, rectsOverlap, getOverlap
+from guiABLE.utilities import updateHover, limitMove, composeImages, getGeometry, cropImage, rectsOverlap, getOverlap, \
+    Overlap
 
 
 class Baseable(Skinnable, tk.Canvas):
@@ -20,20 +21,14 @@ class Baseable(Skinnable, tk.Canvas):
 
     @property
     def parent(self): return self.master
+    @property
+    def image(self): return self._img
+    @property
+    def state(self): return self._img_state
 
     def redraw(self,):
         self._geometry = getGeometry(self)
         self.setState(self._img_state)
-
-    def zDraw(self, image:tk.PhotoImage, x:int = 0, y:int = 0):
-        if self._skin.hasImages() or not self._skin.usesBgColors():
-            self._geometry = getGeometry(self)
-            layers = [(image, x, y), (self._skin.image(self._img_state), 0, 0)]
-            base = cropImage(self.master.skin.image(), *self._geometry)
-
-            self.delete("all")
-            self._img = composeImages(base, *layers)
-            self.create_image(0, 0, image=self._img, anchor="nw")
 
     def setState(self, state_index:int = 0):
         # If widget lacks geometry (has not fully spawned) wait until it has.
@@ -79,19 +74,31 @@ class Baseable(Skinnable, tk.Canvas):
             self._img = composeImages(base, *layers)
 
             # Render the state.
-            self.delete("all")
             self.configure(bg=bg_color)
-            self.create_image(0, 0, image=self._img, anchor="nw")
+            self.render(self._img)
 
         self._img_state = state_index
 
         drop_list = []
         for sibling in self._siblings_atop:
             if overlap := getOverlap(sibling.geometry, self.geometry):
-                sibling.zDraw(cropImage(self.zImage, *overlap.crop), *overlap.insert)
+                sibling.zDraw(self, overlap)
             else: drop_list.append(sibling)
         for sibling in drop_list: self.dropSibling(sibling)
 
+    def zDraw(self, widget, overlap:Overlap):
+        if self.skin.hasImages() or not self.skin.usesBgColors():
+            layers = ((cropImage(widget.zImage, *overlap.crop), *overlap.insert),
+                      (self.skin.image(self._img_state), 0, 0) )
+            base = cropImage(widget.master.skin.image(), *self.geometry)
+
+            self.delete("all")
+            self._img = composeImages(base, *layers)
+            self.create_image(0, 0, image=self._img, anchor="nw")
+
+    def render(self, image:tk.PhotoImage, x:int = 0, y:int = 0):
+        self.delete("all")
+        self.create_image(x, y, image=image, anchor="nw")
 
 class Imageable(Baseable):
     def __init__(self, parent, skin=None, **kwargs):

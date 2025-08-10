@@ -101,26 +101,14 @@ def putToImage(brush:PhotoImage, canvas:PhotoImage, bbox:tuple[int,int,int,int],
     canvas.put(" ".join(data), to=bbox)
 
 
-def cropImage(image:PhotoImage, x:int, y:int, width:int, height:int, warn:bool = True) -> PhotoImage:
-    # Conform geometry to image area.
-    x1 = max(0, min(x, image.width() - width))
-    y1 = max(0, min(y, image.height() - height))
-    w = min(width, image.width() - x1)
-    h = min(height, image.height() - y1)
-
-    # Warn if adjustments/corrections were made.
-    if warn and (w != width or h != height or x1 != x or y1 != y):
-            warnPrint(f"Image crop exceeded bounds and was modified:\n"
-                      f"x: {x} -> {x1}\n"
-                      f"y: {y} -> {y1}\n"
-                      f"w: {width} -> {w}\n"
-                      f"h: {height} -> {h}")
-
-    # Crop the image and return
-    cropped = PhotoImage(width=w, height=h)
-    cropped.tk.call(cropped, 'copy', image,
-                    '-from', x1, y1, x1 + w, y1 + h,
-                    '-to', 0, 0)
+def cropImage(image:PhotoImage, x:int, y:int, width:int, height:int) -> PhotoImage:
+    cropped = PhotoImage(width=width, height=height)
+    iw, ih = image.width(), image.height()
+    if x <= iw and y <= ih:
+        width, height = min(width, iw - x), min(height, ih - y)
+        cropped.tk.call(cropped, 'copy', image,
+                        '-from', x, y, x + width, y + height,
+                        '-to', 0, 0)
     return cropped
 
 
