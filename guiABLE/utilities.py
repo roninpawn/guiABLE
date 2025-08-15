@@ -189,6 +189,12 @@ def rectsOverlap(a_xywh, b_xywh) -> bool:
         ay >= by + bh     # a is below b
     )
 
+def rectUnion(a_xywh, b_xywh) -> tuple[int, int, int, int]:
+    ax, ay, aw, ah = a_xywh
+    bx, by, bw, bh = b_xywh
+    ox, oy = min(ax, bx), min(ay, by)
+    return ox, oy, max(ax+aw, bx+bw)-ox, max(ay+ah, by+bh)-oy
+
 # Below are old utility methods that could probably be rewritten or deprecated entirely.
 def limitMove(pos:int, extent:int, min_val:int, max_val:int) -> int:
     return max(min_val, min(pos, max_val - extent))

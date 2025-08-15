@@ -20,11 +20,11 @@ def test_gui():
 
     # Create a Toggleable checkbox
     toggle_skin = Skin.fromSpriteSheet("../skins/default/checkbox-64.png", 64)
-    test_toggle = Toggleable(bg, function=lambda: print("Toggle state:", test_toggle.state()), skin=toggle_skin,
+    test_toggle1 = Toggleable(bg, True, lambda: print("Toggle1 state:", test_toggle1.state()), skin=toggle_skin,
                              width=64, height=64)
-    test_toggle.place(x=80, y=20)
+    test_toggle1.place(x=80, y=20)
 
-    test_toggle2 = Toggleable(bg, function=lambda: print("Toggle state:", test_toggle.state()), skin=toggle_skin,
+    test_toggle2 = Toggleable(bg, function=lambda: print("Toggle2 state:", test_toggle2.state()), skin=toggle_skin,
                              width=64, height=64)
     test_toggle2.place(x=144, y=20)
 
@@ -39,12 +39,7 @@ def test_gui():
                            text="Hello", text_pos=(10, 5), font=("Arial", 12, "bold"), color="white",
                            width=100, height=40)
 
-    test_label.place(x=360, y=20)
-
-    test_label2 = Labelable(bg, function=lambda: print("Label clicked!"), skin=btn_skin,
-                           text="Hello", text_pos=(10, 5), font=("Arial", 12, "bold"), color="white",
-                           width=100, height=40)
-    test_label2.place(x=360, y=60)
+    test_label.place(x=360, y=120)
 
     # Create an EXIT button from a Labelable
     x_sprite = Skin.fromImages(cropImage(tk.PhotoImage(file='../skins/default/window-glyphs-40.png'), 80, 0, 40, 40))
@@ -76,9 +71,16 @@ def test_gui():
     trough = Troughable(bg, width=150, height=30, skin=trough_skin)
     trough.place(x=400, y=300)
 
+    test_toggle3 = Toggleable(bg, True, lambda: print("Toggle1 state:", test_toggle3.state()), skin=toggle_skin,
+                             width=64, height=64)
+    test_toggle3.place(x=380, y=20)
 
-    click_btn.lift(test_toggle)
-    exit_button.lift(test_toggle)
+    test_toggle4 = Toggleable(bg, function=lambda: print("Toggle2 state:", test_toggle4.state()), skin=toggle_skin,
+                             width=64, height=64)
+    test_toggle4.place(x=444, y=20)
+
+    click_btn.lift(test_toggle1)
+    exit_button.lift(test_toggle1)
 
     fps_label = tk.Label(bg, text="FPS", anchor="w")
     fps_label.place(x=518, y=10)
