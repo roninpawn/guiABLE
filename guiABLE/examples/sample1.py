@@ -15,15 +15,18 @@ def test_gui():
 
     # Create a test Pushable button
     btn_skin = Skin("../skins/default/cog.png", "../skins/default/cog_mo.png", "../skins/default/cog_red.png")
-    test_btn = Pushable(bg, lambda: print("Button clicked!"), skin=btn_skin, width=100, height=40)
+    test_btn = Pushable(bg, lambda: print("Button clicked!"), skin=btn_skin, width=40, height=40)
     test_btn.place(x=20, y=20)
 
     # Create a Toggleable checkbox
     toggle_skin = Skin.fromSpriteSheet("../skins/default/checkbox-64.png", 64)
-    toggle_skin.setBGColors("gray30")
     test_toggle = Toggleable(bg, function=lambda: print("Toggle state:", test_toggle.state()), skin=toggle_skin,
                              width=64, height=64)
-    test_toggle.place(x=160, y=20)
+    test_toggle.place(x=80, y=20)
+
+    test_toggle2 = Toggleable(bg, function=lambda: print("Toggle state:", test_toggle.state()), skin=toggle_skin,
+                             width=64, height=64)
+    test_toggle2.place(x=144, y=20)
 
     # Create a draggable object
     drag_skin = Skin.fromSpriteSheet("../skins/default/radiobox-64.png", 64)
