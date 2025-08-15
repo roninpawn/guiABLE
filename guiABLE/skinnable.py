@@ -231,12 +231,12 @@ class Skinnable:
     @property
     def zImage(self) -> tk.PhotoImage:
         if self._z_state != self._img_state:
-            x, y, w, h = self.geometry
+            _, _, w, h = self.geometry
             self._z_img = tk.PhotoImage(width=w, height=h)
             if not self._skin.hasImages() or self._skin.usesBgColors():
                 self._z_img.put(self._skin.bg(self._img_state), to=(0, 0, w, h))
             self._z_img = composeImages(self._z_img, (self._skin.image(self._img_state), 0, 0))
-            self._z_state = self._img_state, False
+            self._z_state = self._img_state
         return self._z_img
 
     def setSkin(self, skin:Skin):
