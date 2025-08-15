@@ -1,4 +1,5 @@
 import tkinter as tk
+from time import time
 from typing import Optional
 
 from guiABLE.skinnable import Skin, Skinnable
@@ -12,6 +13,7 @@ class Baseable(Skinnable, tk.Canvas):
         tk.Canvas.__init__(self, parent, highlightthickness=0, **kwargs)
         self._enabled = False
         self._drop_list = set()
+        self.bench, self.benches = 0, 0
 
         self.enable()
 
@@ -32,6 +34,7 @@ class Baseable(Skinnable, tk.Canvas):
         self.setState(self._img_state)
 
     def setState(self, state_index:int = 0):
+        start = time()
         # If widget lacks geometry (has not fully spawned) wait until it has.
         x, y, w, h = self.geometry
         if w <= 1 and h <= 1:
@@ -87,6 +90,12 @@ class Baseable(Skinnable, tk.Canvas):
             sibling.dropSibling(self)
             self.dropSibling(sibling)
         self._drop_list = set()
+
+        self.bench += time() - start
+        self.benches += 1
+        if self.benches >= 100:
+            print(self.bench)
+            self.bench, self.benches = 0, 0
 
     def zDraw(self, widget, overlap:Overlap):
         if self.skin.hasImages() or not self.skin.usesBgColors():
