@@ -99,7 +99,9 @@ class Baseable(Skinnable, tk.Canvas):
             sx, sy, sw, sh = sibling.geometry
             nx, ny = sx-x, sy-y
             fastComposite(base, w, h, sibling.zImage, nx, ny, sw, sh)
-            sibling.render(cropImage(base, nx, ny, sw, sh))
+            final = sibling.scratchImage()
+            fastCrop(final, base, w, h, nx, ny, sw, sh)
+            sibling.render(final)
 
     def render(self, image:tk.PhotoImage, x:int = 0, y:int = 0):
         self._img = image

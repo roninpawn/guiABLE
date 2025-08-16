@@ -1,7 +1,8 @@
 import tkinter as tk
 from typing import Optional
 
-from guiABLE.utilities import warnPrint, resolvePath, cropImage, loadImage, getGeometry, rectsOverlap, compositeImage
+from guiABLE.utilities import warnPrint, resolvePath, cropImage, loadImage, getGeometry, rectsOverlap, compositeImage, \
+    fastComposite, fastCrop
 
 
 class Skin:
@@ -221,6 +222,7 @@ class Skinnable:
         self._z_state = None
         self._img, self._img_state = self._skin.image(0), 0
         self._z_img = self._img
+        self._scratch = tk.PhotoImage()
         self._siblings_atop, self._siblings_beneath = set(), set()     # Tracked siblings, separated by above/below self z-index
         self._children = []
         self._geometry = (0, 0, 0, 0)
@@ -236,7 +238,11 @@ class Skinnable:
             self._z_img = tk.PhotoImage(width=w, height=h)
             if not self._skin.hasImages() or self._skin.usesBgColors():
                 self._z_img.put(self._skin.bg(self._img_state), to=(0, 0, w, h))
-            compositeImage(self._z_img, self._skin.image(self._img_state), 0, 0)
+            top_layer = self._skin.image(self._img_state)
+            #tw, th = top_layer.width(), top_layer.height()
+            #fastCrop(self._z_img, top_layer, tw, th, 0, 0, tw, th)
+            fastComposite(self._z_img, w, h, top_layer, 0, 0, top_layer.width(), top_layer.height())
+            #compositeImage(self._z_img, self._skin.image(self._img_state), 0, 0)
             self._z_state = self._img_state
         return self._z_img
 
@@ -252,6 +258,7 @@ class Skinnable:
 
     @property
     def geometry(self): return self._geometry
+    def scratchImage(self): return self._scratch
 
     def getChildren(self): return self._children
     def registerChild(self, child):
@@ -293,6 +300,7 @@ class Skinnable:
     def _bond(self):        # Form lasting familial relationships with parent and siblings.
         # Refresh stored geometry and register with parent.
         self._geometry = getGeometry(self)
+        self._scratch = tk.PhotoImage(width=self._geometry[2], height=self._geometry[3])
         if isinstance(self, tk.Canvas): self.master.registerChild(self)
         self._findOverlappingSiblings(self.master.children)
 
