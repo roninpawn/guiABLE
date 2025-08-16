@@ -4,7 +4,7 @@ from typing import Optional
 
 from guiABLE.skinnable import Skin, Skinnable
 from guiABLE.utilities import (updateHover, limitMove, getGeometry, cropImage, rectsOverlap, getOverlap, rectUnion,
-                               fastComposite, copySubRect)
+                               fastComposite)
 
 
 class Baseable(Skinnable, tk.Canvas):
@@ -72,14 +72,11 @@ class Baseable(Skinnable, tk.Canvas):
                 # Detect overlap with siblings and composite any to base. Drop siblings that are nolonger touching.
                     for sibling in self._siblings_beneath:
                         if overlap := getOverlap(self.geometry, sibling.geometry):
-                            ox, oy = overlap.insert
-                            ow, oh = overlap.crop[2:]
-                            fastComposite(base, w, h, cropImage(sibling.zImage, *overlap.crop), ox, oy, ow, oh)
+                            fastComposite(base, cropImage(sibling.zImage, *overlap.crop), *overlap.insert)
                             if sibling in self._drop_list: self._drop_list.remove(sibling)
                         else: self._drop_list.add(sibling)
                 # Finish the composite by adding self to the top.
-                new_top = self._skin.image(state_index)
-                fastComposite(base, w, h, new_top, 0, 0, new_top.width(), new_top.height())
+                fastComposite(base, self._skin.image(state_index), 0, 0)
 
                 # Render the state.
                 self.render(base)
@@ -110,7 +107,7 @@ class Baseable(Skinnable, tk.Canvas):
         for sibling in u_siblings:
             sx, sy, sw, sh = sibling.geometry
             nx, ny = sx-x, sy-y
-            fastComposite(base, w, h, sibling.zImage, nx, ny, sw, sh)
+            fastComposite(base, sibling.zImage, nx, ny)
             sibling.render(cropImage(base, nx, ny, sw, sh))
 
     def render(self, image:tk.PhotoImage, x:int = 0, y:int = 0):

@@ -237,8 +237,7 @@ class Skinnable:
             self._z_img = tk.PhotoImage(width=w, height=h)
             if not self._skin.hasImages() or self._skin.usesBgColors():
                 self._z_img.put(self._skin.bg(self._img_state), to=(0, 0, w, h))
-            new_top = self._skin.image(self._img_state)
-            fastComposite(self._z_img, w, h, new_top, 0, 0, new_top.width(), new_top.height())
+            fastComposite(self._z_img, self._skin.image(self._img_state), 0, 0)
             self._z_state = self._img_state
         return self._z_img
 
