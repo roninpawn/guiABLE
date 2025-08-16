@@ -42,7 +42,6 @@ class Baseable(Skinnable, tk.Canvas):
             return
 
         self._img_state = state_index
-        bg_color = self._skin.bg(self._img_state)
 
         # If any atop siblings are transparent, use unioned-composite method to render.
         for sibling in self._siblings_atop:
@@ -50,16 +49,17 @@ class Baseable(Skinnable, tk.Canvas):
                 self.compositeUnion()
                 break
         else:
-            base = tk.PhotoImage(width=w, height=h)
+            base = self.scratchImage()
 
             # If skin has images and declares no background color use. (widget may have transparency)
+            bg_color = self._skin.bg(self._img_state)
             if not self._skin.usesBgColors():
-                bg_color = self.master.skin.bg()
                 # If parent is using an image, crop widget's current geometry from it as the base for compositing.
                 if self.master.skin.hasImages():
                     bg = self.master.skin.image()
                     fastCrop(base, bg, bg.width(), bg.height(), x, y, w, h)
-            else: self.configure(bg=bg_color)
+                else: bg_color = self.master.skin.bg()
+            self.configure(bg=bg_color)
 
         # Detect overlap with siblings beneath and composite to base. Drop siblings that are nolonger touching.
             for sibling in self._siblings_beneath:

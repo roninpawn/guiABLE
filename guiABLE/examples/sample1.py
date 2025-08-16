@@ -15,7 +15,7 @@ def test_gui():
 
     # Create a test Pushable button
     btn_skin = Skin("../skins/default/cog.png", "../skins/default/cog_mo.png", "../skins/default/cog_red.png")
-    test_btn = Pushable(bg, lambda: print("Button clicked!"), skin=btn_skin, width=140, height=40)
+    test_btn = Pushable(bg, lambda: print("Button clicked!"), skin=btn_skin, width=140, height=20)
     test_btn.place(x=60, y=0)
 
     # Create a Toggleable checkbox
@@ -39,7 +39,7 @@ def test_gui():
                            text="Hello", text_pos=(10, 5), font=("Arial", 12, "bold"), color="white",
                            width=100, height=40)
 
-    test_label.place(x=360, y=120)
+    test_label.place(x=360, y=84)
 
     # Create an EXIT button from a Labelable
     x_sprite = Skin.fromImages(cropImage(tk.PhotoImage(file='../skins/default/window-glyphs-40.png'), 80, 0, 40, 40))
