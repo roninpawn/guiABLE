@@ -62,6 +62,10 @@ def solidColorImage(width: int, height: int, color: str) -> PhotoImage:
     img.put("{" + " ".join([hex_color] * width) + "}", to=(0, 0, width, height))
     return img
 
+def fastFill(image:PhotoImage, image_width:int, image_height:int, color:str):
+    image.put(color, to=(0, 0, image_width, image_height))
+def fillImage(image:PhotoImage, color:str): fastFill(image, image.width(), image.height(), color)
+
 def drawBar(trough_image:PhotoImage, cap_image:PhotoImage, width:int, height:int, horizontal:bool = False) -> PhotoImage:
     """Constructs a full-width or full-height scrollbar image from caps and a tileable mid-section."""
     newimg = PhotoImage(width=width, height=height)

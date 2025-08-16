@@ -35,6 +35,7 @@ class Baseable(Skinnable, tk.Canvas):
 
     def setState(self, state_index:int = 0):
         start = time()
+
         # If widget lacks geometry (has not fully spawned) wait until it has.
         x, y, w, h = self.geometry
         if w <= 1 and h <= 1:
@@ -42,21 +43,36 @@ class Baseable(Skinnable, tk.Canvas):
             return
 
         self._img_state = state_index
-        if not self._skin.usesBgColors():
-            siblings = list(self._siblings_beneath)
-            siblings.append(self)
-            bg_color = self.master.skin.bg()
-        else:
+
+        # Handle opaqueness vs transparency
+        if self._skin.usesBgColors():       # Opaque skips siblings beneath it.
             siblings = [self]
             bg_color = self._skin.bg(self._img_state)
+        else:       # Transparent inherits parent's bg color if parent isn't using an image.
+            siblings = list(self._siblings_beneath)
+            siblings.append(self)
+            if not self.master.skin.hasImages(): bg_color = self.master.skin.bg()
 
-        for sibling in self._siblings_atop:
-            if not sibling.skin.usesBgColors():
-                siblings.append(sibling)
-
+        # Only render background color if it is necessary.
         if self.skin.usesBgColors() or (not self.skin.usesBgColors() and not self.master.skin.hasImages()):
             self.configure(background=bg_color)
-        self.compositeUnion(siblings)
+
+        # Add all atop-siblings if any one of them is transparent.
+        for s in self._siblings_atop:
+            if not s.skin.usesBgColors():
+                siblings.extend(self._siblings_atop)
+                break
+
+        # If any sibling has below-siblings, unknown to the caller, add them to the job, beneath that sibling.
+        # (Ensures all lower widgets are included in final composite -- No disappearing siblings on hover.)
+        out_siblings = []
+        for s in siblings:
+            for sb in s.siblingsBeneath:
+                if sb not in siblings:
+                    out_siblings.append(sb)
+            out_siblings.append(s)
+
+        self.compositeUnion(out_siblings)
 
         self.bench += time() - start
         self.benches += 1
@@ -68,21 +84,18 @@ class Baseable(Skinnable, tk.Canvas):
         u_rect = self.geometry
         for sibling in siblings: u_rect = rectUnion(u_rect, sibling.geometry)
         x, y, w, h = u_rect
-        # TODO Ensure sibling order from lowest to highest?
-        # TODO Purge siblings that nolonger touch?
 
         base = cropImage(self.master.skin.image(), x, y, w, h) if self.master.skin.hasImages() else tk.PhotoImage(width=w, height=h)
 
         # Draw each layer to a base image and then crop from that base to each widget's surface, as we go.
         for sibling in siblings:
-            if rectsOverlap(self.geometry, sibling.geometry):
-                sx, sy, sw, sh = sibling.geometry
-                nx, ny = sx-x, sy-y
-                fastComposite(base, w, h, sibling.zImage, nx, ny, sw, sh)
-                final = sibling.scratchImage()
-                fastCrop(final, base, w, h, nx, ny, sw, sh)
-                sibling.render(final)
-            else:
+            sx, sy, sw, sh = sibling.geometry
+            dx, dy = sx-x, sy-y
+            fastComposite(base, w, h, sibling.zImage, dx, dy, sw, sh)
+            final = sibling.scratchImage()
+            fastCrop(final, base, w, h, dx, dy, sw, sh)
+            sibling.render(final)
+            if not rectsOverlap(self.geometry, sibling.geometry):
                 sibling.dropSibling(self)
                 self.dropSibling(sibling)
 

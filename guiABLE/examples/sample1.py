@@ -80,7 +80,7 @@ def test_gui():
     test_toggle4.place(x=444, y=20)
 
     click_btn.lift(test_toggle1)
-    #exit_button.lift(test_toggle1)
+    exit_button.lift(test_toggle1)
 
     fps_label = tk.Label(bg, text="FPS", anchor="w")
     fps_label.place(x=518, y=10)

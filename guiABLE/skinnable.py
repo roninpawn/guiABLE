@@ -2,13 +2,13 @@ import tkinter as tk
 from typing import Optional
 
 from guiABLE.utilities import warnPrint, resolvePath, cropImage, loadImage, getGeometry, rectsOverlap, compositeImage, \
-    fastComposite, fastCrop
+    fastComposite, fastCrop, fastFill
 
 
 class Skin:
     def __init__(self, *paths: str):
         self._recipients, self._paths, self._images = [], [], []
-        self._empty_image = tk.PhotoImage(width=0, height=0)
+        self._empty_image = tk.PhotoImage()
         self._bg_colors = ['gray', 'white', 'red', 'gray25']
         self._use_bg_colors = True
 
@@ -217,7 +217,7 @@ class Skinnable:
         else:
             self._skin = Skin()
 
-        self.dirty = True
+        self.dirty, self.zDirty = True, True
 
         self._z_state = None
         self._img, self._img_state = self._skin.image(0), 0
@@ -233,17 +233,15 @@ class Skinnable:
     # The ZImage() is a persistent render of what the widget looks like on its own. The zImage base is transparent.
     @property
     def zImage(self) -> tk.PhotoImage:
-        if self._z_state != self._img_state:
+        if self._z_state != self._img_state or self.zDirty:
             _, _, w, h = self.geometry
             self._z_img = tk.PhotoImage(width=w, height=h)
             if not self._skin.hasImages() or self._skin.usesBgColors():
-                self._z_img.put(self._skin.bg(self._img_state), to=(0, 0, w, h))
+                fastFill(self._z_img, w, h, self._skin.bg(self._img_state))
             top_layer = self._skin.image(self._img_state)
-            #tw, th = top_layer.width(), top_layer.height()
-            #fastCrop(self._z_img, top_layer, tw, th, 0, 0, tw, th)
             fastComposite(self._z_img, w, h, top_layer, 0, 0, top_layer.width(), top_layer.height())
-            #compositeImage(self._z_img, self._skin.image(self._img_state), 0, 0)
             self._z_state = self._img_state
+            self.zDirty = False
         return self._z_img
 
     def setSkin(self, skin:Skin):
@@ -266,8 +264,21 @@ class Skinnable:
     def dropChild(self, child):
         if child in self._children: self._children.remove(child)
 
+    @property
+    def siblingsBeneath(self): return self._siblings_beneath
+    @property
+    def siblingsAbove(self): return self._siblings_above
     def trackSibling(self, sibling, z_above: bool):
-        self._siblings_atop.append(sibling) if z_above else self._siblings_beneath.append(sibling)
+        if z_above:
+            if sibling not in self._siblings_atop:
+                self._siblings_atop.append(sibling)
+            if sibling in self._siblings_beneath:
+                self._siblings_beneath.remove(sibling)
+        else:
+            if sibling not in self._siblings_beneath:
+                self._siblings_beneath.append(sibling)
+            if sibling in self._siblings_atop:
+                self._siblings_atop.remove(sibling)
     def dropSibling(self, sibling):
         if sibling in self._siblings_atop: self._siblings_atop.remove(sibling)
         elif sibling in self._siblings_beneath: self._siblings_beneath.remove(sibling)
