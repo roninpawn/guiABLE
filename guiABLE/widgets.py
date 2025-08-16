@@ -44,12 +44,12 @@ class Baseable(Skinnable, tk.Canvas):
         self._img_state = state_index
         bg_color = self._skin.bg(self._img_state)
 
+        # If any atop siblings are transparent, use unioned-composite method to render.
         for sibling in self._siblings_atop:
             if not sibling.skin.usesBgColors():
                 self.compositeUnion()
                 break
         else:
-            # If skin has no images. Only using bg_colors. (no widget transparency)
             base = tk.PhotoImage(width=w, height=h)
 
             # If skin has images and declares no background color use. (widget may have transparency)
@@ -59,23 +59,20 @@ class Baseable(Skinnable, tk.Canvas):
                 if self.master.skin.hasImages():
                     bg = self.master.skin.image()
                     fastCrop(base, bg, bg.width(), bg.height(), x, y, w, h)
+            else: self.configure(bg=bg_color)
 
-        # === SIBLINGS BENEATH ===
-            # Detect overlap with siblings and composite any to base. Drop siblings that are nolonger touching.
-                for sibling in self._siblings_beneath:
-                    if overlap := getOverlap(self.geometry, sibling.geometry):
-                        ox, oy = overlap.insert
-                        ow, oh = overlap.crop[2:]
-                        fastComposite(base, w, h, cropImage(sibling.zImage, *overlap.crop), ox, oy, ow, oh)
-                        if sibling in self._drop_list: self._drop_list.remove(sibling)
-                    else: self._drop_list.add(sibling)
-                # Finish the composite by adding self to the top.
-                base = compositeImage(base, self._skin.image(state_index), 0, 0)
+        # Detect overlap with siblings beneath and composite to base. Drop siblings that are nolonger touching.
+            for sibling in self._siblings_beneath:
+                if overlap := getOverlap(self.geometry, sibling.geometry):
+                    ox, oy = overlap.insert
+                    ow, oh = overlap.crop[2:]
+                    fastComposite(base, w, h, cropImage(sibling.zImage, *overlap.crop), ox, oy, ow, oh)
+                    if sibling in self._drop_list: self._drop_list.remove(sibling)
+                else: self._drop_list.add(sibling)
 
-                # Render the state.
-                self.render(base)
-
-        self.configure(bg=bg_color)
+            # Finish the composite by adding self to the top.
+            base = compositeImage(base, self._skin.image(state_index), 0, 0)
+            self.render(base)
 
         self.bench += time() - start
         self.benches += 1
