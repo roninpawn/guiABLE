@@ -101,31 +101,41 @@ def putToImage(brush:PhotoImage, canvas:PhotoImage, bbox:tuple[int,int,int,int],
     canvas.put(" ".join(data), to=bbox)
 
 
-def cropImage(image:PhotoImage, x:int, y:int, width:int, height:int) -> PhotoImage:
-    cropped = PhotoImage(width=width, height=height)
-    iw, ih = image.width(), image.height()
-    if x <= iw and y <= ih:
-        width, height = min(width, iw - x), min(height, ih - y)
+def fastCrop(image:PhotoImage, image_w:int, image_h:int, crop_x:int, crop_y:int, crop_w:int, crop_h:int) -> PhotoImage:
+    cropped = PhotoImage(width=crop_w, height=crop_h)
+    if crop_x <= image_w and crop_y <= image_h:
+        width, height = min(crop_w, image_w - crop_x), min(crop_h, image_h - crop_y)
         cropped.tk.call(cropped, 'copy', image,
-                        '-from', x, y, x + width, y + height,
+                        '-from', crop_x, crop_y, crop_x + width, crop_y + height,
                         '-to', 0, 0)
     return cropped
 
 
-def composeImages(base: PhotoImage, *overlays: tuple[PhotoImage, int, int]) -> PhotoImage:
-    width, height = base.width(), base.height()
-    composed = PhotoImage(width=width, height=height)
-    composed.tk.call(composed, 'copy', base, '-from', 0, 0, width, height, '-to', 0, 0)
+def cropImage(image:PhotoImage, x:int, y:int, width:int, height:int) -> PhotoImage:
+    return fastCrop(image, image.width(), image.height(), x, y, width, height)
 
-    for overlay, ox, oy in overlays:
-        ow, oh = overlay.width(), overlay.height()
-        x2, y2 = min(width, ox + ow), min(height, oy + oh)
-        if x2 <= ox or y2 <= oy: continue  # Nothing to draw
 
-        composed.tk.call(composed, 'copy', overlay,
-                         '-from', 0, 0, x2 - ox, y2 - oy,
-                         '-to', ox, oy)
-    return composed
+def fastComposite(base_image: PhotoImage, base_w: int, base_h: int,
+                  overlay_image: PhotoImage, dest_x:int, dest_y:int, overlay_w:int, overlay_h:int,
+                  src_x: int = 0, src_y: int = 0) -> PhotoImage:
+    x2, y2 = min(base_w, dest_x + overlay_w), min(base_h, dest_y + overlay_h)
+    if x2 > dest_x and y2 > dest_y:
+        base_image.tk.call(base_image, 'copy', overlay_image,
+                           '-from', src_x, src_y, x2 - dest_x, y2 - dest_y,
+                           '-to', dest_x, dest_y)
+
+def copySubRect(base: PhotoImage, overlay: PhotoImage, dest_x: int, dest_y: int,
+                src_x: int, src_y: int, width: int, height: int) -> None:
+    base.tk.call(base, 'copy', overlay,
+                 '-from', src_x, src_y, src_x + width, src_y + height,
+                 '-to',   dest_x, dest_y)
+
+
+def compositeImage(base: PhotoImage, overlay_image: PhotoImage, x:int, y:int) -> PhotoImage:
+    bx, bh = base.width(), base.height()
+    ow, oh = overlay_image.width(), overlay_image.height()
+    fastComposite(base, bx, bh, overlay_image, x, y, ow, oh)
+    return base
 
 
 """

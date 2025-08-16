@@ -3,8 +3,8 @@ from time import time
 from typing import Optional
 
 from guiABLE.skinnable import Skin, Skinnable
-from guiABLE.utilities import updateHover, limitMove, composeImages, getGeometry, cropImage, rectsOverlap, getOverlap, \
-    Overlap, rectUnion
+from guiABLE.utilities import (updateHover, limitMove, getGeometry, cropImage, rectsOverlap, getOverlap, rectUnion,
+                               fastComposite, copySubRect)
 
 
 class Baseable(Skinnable, tk.Canvas):
@@ -43,7 +43,11 @@ class Baseable(Skinnable, tk.Canvas):
 
         self._img_state = state_index
         bg_color = self._skin.bg(self._img_state)
-        if self._siblings_atop: self.compositeUnion()
+
+        for sibling in self._siblings_atop:
+            if not sibling.skin.usesBgColors():
+                self.compositeUnion()
+                break
         else:
             # If skin has no images. Only using bg_colors. (no widget transparency)
             if self._skin.hasImages():
@@ -65,18 +69,20 @@ class Baseable(Skinnable, tk.Canvas):
                         base = cropImage(self.master.skin.image(), x, y, w, h)
 
             # === SIBLINGS BENEATH ===
-                # Detect overlap with siblings and add to composite job.
+                # Detect overlap with siblings and composite any to base. Drop siblings that are nolonger touching.
                     for sibling in self._siblings_beneath:
                         if overlap := getOverlap(self.geometry, sibling.geometry):
-                            layers.append((cropImage(sibling.zImage, *overlap.crop), *overlap.insert))
+                            ox, oy = overlap.insert
+                            ow, oh = overlap.crop[2:]
+                            fastComposite(base, w, h, cropImage(sibling.zImage, *overlap.crop), ox, oy, ow, oh)
                             if sibling in self._drop_list: self._drop_list.remove(sibling)
                         else: self._drop_list.add(sibling)
-
-                # Composite the final image.
-                layers.append((self._skin.image(state_index), 0, 0))
+                # Finish the composite by adding self to the top.
+                new_top = self._skin.image(state_index)
+                fastComposite(base, w, h, new_top, 0, 0, new_top.width(), new_top.height())
 
                 # Render the state.
-                self.render(composeImages(base, *layers))
+                self.render(base)
 
         self.configure(bg=bg_color)
 
@@ -87,11 +93,11 @@ class Baseable(Skinnable, tk.Canvas):
             self.bench, self.benches = 0, 0
 
     def compositeUnion(self):
-        u_rect = self.geometry
         u_siblings = (list(self._siblings_beneath))
         u_siblings.append(self)
         u_siblings.extend(list(self._siblings_atop))
 
+        u_rect = self.geometry
         for sibling in u_siblings:
             u_rect = rectUnion(u_rect, sibling.geometry)
         x, y, w, h = u_rect
@@ -100,30 +106,12 @@ class Baseable(Skinnable, tk.Canvas):
 
         base = cropImage(self.master.skin.image(), x, y, w, h) if self.master.skin.hasImages() else tk.PhotoImage(width=w, height=h)
 
-        # Layer instructions for blitting each image onto the base, in order.
-        layers = []
-        for sibling in u_siblings:
-            sx, sy, _, _ = sibling.geometry
-            layers.append((sibling.zImage, sx - x, sy - y))
-
-        # Composite the union image.
-        u_img = composeImages(base, *layers)
-
-        # Then blit from the composite, to the surface of each widget.
+        # Draw each layer to a base image and then crop from that base to each widget's surface, as we go.
         for sibling in u_siblings:
             sx, sy, sw, sh = sibling.geometry
-            sibling.render(cropImage(u_img, sx-x, sy-y, sw, sh))
-            #sibling.z_dirty = True
-
-    def zDraw(self, widget, overlap:Overlap):
-        if self.skin.hasImages() or not self.skin.usesBgColors():
-            layers = ((cropImage(widget.zImage, *overlap.crop), *overlap.insert),
-                      (self.skin.image(self._img_state), 0, 0) )
-            base = cropImage(widget.master.skin.image(), *self.geometry)
-
-            self.delete("all")
-            self._img = composeImages(base, *layers)
-            self.create_image(0, 0, image=self._img, anchor="nw")
+            nx, ny = sx-x, sy-y
+            fastComposite(base, w, h, sibling.zImage, nx, ny, sw, sh)
+            sibling.render(cropImage(base, nx, ny, sw, sh))
 
     def render(self, image:tk.PhotoImage, x:int = 0, y:int = 0):
         self._img = image

@@ -1,8 +1,8 @@
 import tkinter as tk
 from typing import Optional
 
-from guiABLE.utilities import warnPrint, resolvePath, cropImage, loadImage, composeImages, getGeometry, getOverlap, \
-    rectsOverlap
+from guiABLE.utilities import warnPrint, resolvePath, cropImage, loadImage, getGeometry, rectsOverlap, fastComposite, \
+    fastCrop
 
 
 class Skin:
@@ -217,7 +217,9 @@ class Skinnable:
         else:
             self._skin = Skin()
 
-        self.z_dirty, self._z_state = True, None
+        self.dirty = True
+
+        self._z_state = None
         self._img, self._img_state = self._skin.image(0), 0
         self._z_img = self._img
         self._siblings_atop, self._siblings_beneath = set(), set()     # Tracked siblings, separated by above/below self z-index
@@ -230,14 +232,14 @@ class Skinnable:
     # The ZImage() is a persistent render of what the widget looks like on its own. The zImage base is transparent.
     @property
     def zImage(self) -> tk.PhotoImage:
-        if self.z_dirty or self._z_state != self._img_state:
-            print("new Z")
+        if self._z_state != self._img_state:
             _, _, w, h = self.geometry
             self._z_img = tk.PhotoImage(width=w, height=h)
             if not self._skin.hasImages() or self._skin.usesBgColors():
                 self._z_img.put(self._skin.bg(self._img_state), to=(0, 0, w, h))
-            self._z_img = composeImages(self._z_img, (self._skin.image(self._img_state), 0, 0))
-            self.z_dirty, self._z_state = False, self._img_state
+            new_top = self._skin.image(self._img_state)
+            fastComposite(self._z_img, w, h, new_top, 0, 0, new_top.width(), new_top.height())
+            self._z_state = self._img_state
         return self._z_img
 
     def setSkin(self, skin:Skin):
