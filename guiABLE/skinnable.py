@@ -223,7 +223,7 @@ class Skinnable:
         self._img, self._img_state = self._skin.image(0), 0
         self._z_img = self._img
         self._scratch = tk.PhotoImage()
-        self._siblings_atop, self._siblings_beneath = set(), set()     # Tracked siblings, separated by above/below self z-index
+        self._siblings_atop, self._siblings_beneath = list(), list()     # Tracked siblings, separated by above/below self z-index
         self._children = []
         self._geometry = (0, 0, 0, 0)
 
@@ -267,7 +267,7 @@ class Skinnable:
         if child in self._children: self._children.remove(child)
 
     def trackSibling(self, sibling, z_above: bool):
-        self._siblings_atop.add(sibling) if z_above else self._siblings_beneath.add(sibling)
+        self._siblings_atop.append(sibling) if z_above else self._siblings_beneath.append(sibling)
     def dropSibling(self, sibling):
         if sibling in self._siblings_atop: self._siblings_atop.remove(sibling)
         elif sibling in self._siblings_beneath: self._siblings_beneath.remove(sibling)
@@ -312,8 +312,8 @@ class Skinnable:
             elif isinstance(sibling, tk.Canvas) and rectsOverlap(self.geometry, getGeometry(sibling)):
                 if sibling in self._siblings_atop or sibling in self._siblings_beneath: sibling.dropSibling(self)
                 sibling.trackSibling(self, above)
-                if above: self._siblings_beneath.add(sibling)
-                else: self._siblings_atop.add(sibling)
+                if above: self._siblings_beneath.append(sibling)
+                else: self._siblings_atop.append(sibling)
 
     def _raiseChildIndex(self, child, above):
         self.dropChild(child)

@@ -42,37 +42,20 @@ class Baseable(Skinnable, tk.Canvas):
             return
 
         self._img_state = state_index
+        if not self._skin.usesBgColors():
+            siblings = list(self._siblings_beneath)
+            siblings.append(self)
+            bg_color = self.master.skin.bg()
+        else:
+            siblings = [self]
+            bg_color = self._skin.bg(self._img_state)
 
-        # If any atop siblings are transparent, use unioned-composite method to render.
         for sibling in self._siblings_atop:
             if not sibling.skin.usesBgColors():
-                self.compositeUnion()
-                break
-        else:
-            base = self.scratchImage()
+                siblings.append(sibling)
 
-            # If skin has images and declares no background color use. (widget may have transparency)
-            bg_color = self._skin.bg(self._img_state)
-            if not self._skin.usesBgColors():
-                # If parent is using an image, crop widget's current geometry from it as the base for compositing.
-                if self.master.skin.hasImages():
-                    bg = self.master.skin.image()
-                    fastCrop(base, bg, bg.width(), bg.height(), x, y, w, h)
-                else: bg_color = self.master.skin.bg()
-            self.configure(bg=bg_color)
-
-        # Detect overlap with siblings beneath and composite to base. Drop siblings that are nolonger touching.
-            for sibling in self._siblings_beneath:
-                if overlap := getOverlap(self.geometry, sibling.geometry):
-                    ox, oy = overlap.insert
-                    ow, oh = overlap.crop[2:]
-                    fastComposite(base, w, h, cropImage(sibling.zImage, *overlap.crop), ox, oy, ow, oh)
-                    if sibling in self._drop_list: self._drop_list.remove(sibling)
-                else: self._drop_list.add(sibling)
-
-            # Finish the composite by adding self to the top.
-            base = compositeImage(base, self._skin.image(state_index), 0, 0)
-            self.render(base)
+        self.configure(background=bg_color)
+        self.compositeUnion(siblings)
 
         self.bench += time() - start
         self.benches += 1
@@ -80,22 +63,17 @@ class Baseable(Skinnable, tk.Canvas):
             print(self.bench)
             self.bench, self.benches = 0, 0
 
-    def compositeUnion(self):
-        u_siblings = (list(self._siblings_beneath))
-        u_siblings.append(self)
-        u_siblings.extend(list(self._siblings_atop))
-
+    def compositeUnion(self, siblings:list):
         u_rect = self.geometry
-        for sibling in u_siblings:
-            u_rect = rectUnion(u_rect, sibling.geometry)
+        for sibling in siblings: u_rect = rectUnion(u_rect, sibling.geometry)
         x, y, w, h = u_rect
-        # TODO Order siblings from lowest to highest?
-        # TODO Purge siblings that nolonger touch. Here, though? idk.
+        # TODO Ensure sibling order from lowest to highest?
+        # TODO Purge siblings that nolonger touch?
 
         base = cropImage(self.master.skin.image(), x, y, w, h) if self.master.skin.hasImages() else tk.PhotoImage(width=w, height=h)
 
         # Draw each layer to a base image and then crop from that base to each widget's surface, as we go.
-        for sibling in u_siblings:
+        for sibling in siblings:
             sx, sy, sw, sh = sibling.geometry
             nx, ny = sx-x, sy-y
             fastComposite(base, w, h, sibling.zImage, nx, ny, sw, sh)
@@ -331,5 +309,5 @@ class Draggable(Holdable):
         output_set.clear()
         for sibling in source_set:
             if rectsOverlap(self.geometry, sibling.geometry):
-                output_set.add(sibling)
+                output_set.append(sibling)
                 sibling.trackSibling(self, atop)
