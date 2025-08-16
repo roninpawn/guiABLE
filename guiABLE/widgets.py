@@ -54,7 +54,8 @@ class Baseable(Skinnable, tk.Canvas):
             if not sibling.skin.usesBgColors():
                 siblings.append(sibling)
 
-        self.configure(background=bg_color)
+        if self.skin.usesBgColors() or (not self.skin.usesBgColors() and not self.master.skin.hasImages()):
+            self.configure(background=bg_color)
         self.compositeUnion(siblings)
 
         self.bench += time() - start
@@ -74,12 +75,16 @@ class Baseable(Skinnable, tk.Canvas):
 
         # Draw each layer to a base image and then crop from that base to each widget's surface, as we go.
         for sibling in siblings:
-            sx, sy, sw, sh = sibling.geometry
-            nx, ny = sx-x, sy-y
-            fastComposite(base, w, h, sibling.zImage, nx, ny, sw, sh)
-            final = sibling.scratchImage()
-            fastCrop(final, base, w, h, nx, ny, sw, sh)
-            sibling.render(final)
+            if rectsOverlap(self.geometry, sibling.geometry):
+                sx, sy, sw, sh = sibling.geometry
+                nx, ny = sx-x, sy-y
+                fastComposite(base, w, h, sibling.zImage, nx, ny, sw, sh)
+                final = sibling.scratchImage()
+                fastCrop(final, base, w, h, nx, ny, sw, sh)
+                sibling.render(final)
+            else:
+                sibling.dropSibling(self)
+                self.dropSibling(sibling)
 
     def render(self, image:tk.PhotoImage, x:int = 0, y:int = 0):
         self._img = image
