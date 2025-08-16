@@ -44,7 +44,6 @@ def loadImageByPath(image_path:str) -> PhotoImage | None:
         warnPrint(f"Image not found: {image_path}")
     return None
 
-
 def loadImage(path_or_image:str | PhotoImage) -> tuple[PhotoImage | None, str | None]:
     # Conform either input type to PhotoImage and path (path used as 'source' in _bySprite())
     if isinstance(path_or_image, str):
@@ -57,13 +56,11 @@ def loadImage(path_or_image:str | PhotoImage) -> tuple[PhotoImage | None, str | 
             return None, None
     return image, "passed internally"
 
-
 def solidColorImage(width: int, height: int, color: str) -> PhotoImage:
     img = PhotoImage(width=width, height=height)
     hex_color = color if color.startswith("#") else img.tk.call("winfo", "rgb", ".", color)
     img.put("{" + " ".join([hex_color] * width) + "}", to=(0, 0, width, height))
     return img
-
 
 def drawBar(trough_image:PhotoImage, cap_image:PhotoImage, width:int, height:int, horizontal:bool = False) -> PhotoImage:
     """Constructs a full-width or full-height scrollbar image from caps and a tileable mid-section."""
@@ -81,7 +78,6 @@ def drawBar(trough_image:PhotoImage, cap_image:PhotoImage, width:int, height:int
 
     return newimg
 
-
 def putToImage(brush:PhotoImage, canvas:PhotoImage, bbox:tuple[int,int,int,int],
                mirror_x:bool = False, mirror_y:bool = False, rotate:bool = False):
     value1 = brush.height() if rotate else brush.width()
@@ -97,30 +93,30 @@ def putToImage(brush:PhotoImage, canvas:PhotoImage, bbox:tuple[int,int,int,int],
         ) + "}"
         for col in range(start2, end2, step2)
     ]
-
     canvas.put(" ".join(data), to=bbox)
 
-
-def fastCrop(crop_to: PhotoImage, crop_from:PhotoImage, crop_x:int, crop_y:int, crop_w:int, crop_h:int) -> PhotoImage:
-    fw, fh = crop_from.width(), crop_from.height()
-    if crop_x <= fw and crop_y <= fh:
-        width, height = min(crop_w, fw - crop_x), min(crop_h, fh - crop_y)
+def fastCrop(crop_to: PhotoImage, crop_from:PhotoImage, from_w:int, from_h:int,
+             crop_x:int, crop_y:int, crop_w:int, crop_h:int) -> PhotoImage:
+    if crop_x <= from_w and crop_y <= from_h:
+        width, height = min(crop_w, from_w - crop_x), min(crop_h, from_h - crop_y)
         crop_to.copy_replace(crop_from, from_coords=(crop_x, crop_y, crop_x + width, crop_y + height))
 
 def cropImage(image:PhotoImage, x:int, y:int, width:int, height:int) -> PhotoImage:
     cropped = PhotoImage(width=width, height=height)
-    fastCrop(cropped, image, x, y, width, height)
+    fastCrop(cropped, image, image.width(), image.height(), x, y, width, height)
     return cropped
 
-def fastComposite(base_image: PhotoImage, overlay_image: PhotoImage, dest_x:int, dest_y:int,
-                  src_x: int = 0, src_y: int = 0) -> PhotoImage:
-    x2 = min(base_image.width(), dest_x + overlay_image.width())
-    y2 = min(base_image.height(), dest_y + overlay_image.height())
+def fastComposite(base_image: PhotoImage, base_w: int, base_h: int,
+                  overlay_image: PhotoImage, dest_x:int, dest_y:int, overlay_w:int, overlay_h:int,
+                  src_x: int = 0, src_y: int = 0):
+    x2, y2 = min(base_w, dest_x + overlay_w), min(base_h, dest_y + overlay_h)
     if x2 > dest_x and y2 > dest_y:
-        base_image.copy_replace(overlay_image, from_coords=(src_x, src_y, x2 - dest_x, y2 - dest_y), to=(dest_x, dest_y))
+       base_image.copy_replace(overlay_image, from_coords=(src_x, src_y, x2 - dest_x, y2 - dest_y), to=(dest_x, dest_y))
 
 def compositeImage(base: PhotoImage, overlay_image: PhotoImage, x:int, y:int) -> PhotoImage:
-    fastComposite(base, overlay_image, x, y)
+    bx, bh = base.width(), base.height()
+    ow, oh = overlay_image.width(), overlay_image.height()
+    fastComposite(base, bx, bh, overlay_image, x, y, ow, oh)
     return base
 
 
