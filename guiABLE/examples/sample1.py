@@ -6,11 +6,11 @@ from guiABLE.utilities import cropImage
 
 def test_gui():
     app = Windowable(geometry="600x400+100+100", title="guiABLE Testbed")
-    my_image = tk.PhotoImage(file="../skins/default/bg-600x400.png")
-    bg = Backgroundable(app, "600", "400")
-    bg.skin.setImage(my_image)
-    bg.inner.configure(cursor="fleur")
+    bg = Backgroundable(app, "600", "400", "../skins/default/bg-600x400.png")
     bg.place(x=0, y=0)
+
+    # Make app draggable by grabbing the background.
+    bg.configure(cursor="fleur")
     app.bindDrag(bg.inner)
 
     # Create a test Pushable button
@@ -53,8 +53,8 @@ def test_gui():
     scrollpane.place(x=20, y=100)
 
     for i in range(30):
-        label = tk.Label(scrollpane.inner, text=f"Item {i + 1}", anchor="w")
-        label.pack(fill=tk.X, padx=5)
+       label = tk.Label(scrollpane.inner, text=f"Item {i + 1}", anchor="w")
+       label.pack(fill=tk.X, padx=5)
 
     # Create a Holdable button
     hold_skin = Skin("../skins/default/hold_normal.png", "../skins/default/hold_hover.png", "../skins/default/hold_active.png")
@@ -71,6 +71,7 @@ def test_gui():
     trough = Troughable(bg, width=150, height=30, skin=trough_skin)
     trough.place(x=400, y=300)
 
+    # Create extra Togglables for above/below testing.
     test_toggle3 = Toggleable(bg, True, lambda: print("Toggle1 state:", test_toggle3.state()), skin=toggle_skin,
                              width=64, height=64)
     test_toggle3.place(x=380, y=24)
@@ -79,6 +80,7 @@ def test_gui():
                              width=64, height=64)
     test_toggle4.place(x=444, y=24)
 
+    # Prove lower/lift functionality
     click_btn.lift(test_toggle1)
     exit_button.lift(test_toggle1)
     #test_toggle1.lower(test_label)

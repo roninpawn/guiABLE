@@ -1,62 +1,15 @@
 import tkinter as tk
 
 from .utilities import limitMove, getLocalMouse, updateHover, drawBar
-from .windowing import Backgroundable
-from .widgets import Skin, Draggable
+from .windowing import Backgroundable, Frameable
+from .skinnable import Skin
+from .widgets import Draggable, Clickable
 
 
-class Troughable(Backgroundable):
+class Troughable(Frameable, Clickable):
     def __init__(self, parent, width, height, skin=None, **kwargs):
-        super().__init__(parent, width=width, height=height, **kwargs)
-
-        self.enabled = True
-        self._clicking = False
-        self._skin = skin if skin is not None else Skin()
-        self.enable()
-
-    def setSkin(self, skin):
-        if self._skin is not None:
-            self._skin.unbindWidget(self)
-        skin.bindWidget(self)
-        self._skin = skin
-
-    def mouseOut(self, event):
-        if not self._clicking:
-            self.setImage(self._skin.image(0))
-            self.inner.configure(bg="darkgray")
-        self.moused_over = False
-
-    def mouseIn(self, event):
-        if not self._clicking:
-            self.setImage(self._skin.image(1))
-            self.inner.configure(bg="lightgray")
-        self.moused_over = True
-
-    def clicked(self, event):
-        self.setImage(self._skin.image(2))
-        self.inner.configure(bg="red")
-        self._clicking = True
-
-    def mouseUp(self, event):
-        self._clicking = False
-        self.mouseIn(event) if self.moused_over else self.mouseOut(event)
-
-    def enable(self):
-        self.inner.bind("<Enter>", self.mouseIn)
-        self.inner.bind("<Leave>", self.mouseOut)
-        self.inner.bind("<Button-1>", self.clicked)
-        self.inner.bind("<ButtonRelease-1>", self.mouseUp)
-        self.enabled = True
-        updateHover(self)
-
-    def disable(self):
-        self.inner.unbind("<Enter>")
-        self.inner.unbind("<Leave>")
-        self.inner.unbind("<Button-1>")
-        self.inner.unbind("<ButtonRelease-1>")
-        self.setImage(self._skin.image(3))
-        self.enabled = False
-
+        Frameable.__init__(self, parent, width, height, **kwargs)
+        Clickable.__init__(self,parent, lambda: None, skin, **kwargs)
 
 class Scrollable(Troughable):
     def __init__(self, parent, trough_width, trough_height, handle_width, handle_height, scrollable_skin=None, **kwargs):
@@ -65,21 +18,20 @@ class Scrollable(Troughable):
         self.init_delay = 400
         self.delay = 100
 
-        skin_troughs = scrollable_skin.troughs if scrollable_skin else None
-        self.active_handle_x, self.active_handle_y = True, True
-
-        super().__init__(parent, trough_width, trough_height, skin_troughs, **kwargs)
-
         if scrollable_skin is None: scrollable_skin = ScrollableSkin()
 
+        self.handle, self.linked = None, False
+        super().__init__(parent, trough_width, trough_height, scrollable_skin.troughs, **kwargs)
+
+        self.active_handle_x, self.active_handle_y = True, True
         self.handle = Draggable(self.inner, skin=scrollable_skin.handles, width=handle_width, height=handle_height)
         self.handle.place(x=0, y=0)
+        self.enable()
 
     def enable(self):
         if not self.enabled:
-            self.handle.enable()
-            if self.linked:
-                self._linkTo()
+            if self.handle: self.handle.enable()
+            if self.linked: self._linkTo()
         super().enable()
 
     def disable(self):
@@ -112,7 +64,7 @@ class Scrollable(Troughable):
     def maybe_resize_handle(self, event=None):
         """
         Checks if the linked canvas has changed in size and triggers handle resizing if needed.
-        Consolidated logic from `_resize_handle` and `resize_handle`.
+        Logic consolidated from `_resize_handle` and `resize_handle`.
         """
         if not hasattr(self, '_linked') or self._linked is None:
             return

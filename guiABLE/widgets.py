@@ -3,8 +3,7 @@ from time import time
 from typing import Optional
 
 from guiABLE.skinnable import Skin, Skinnable
-from guiABLE.utilities import updateHover, limitMove, getGeometry, rectsOverlap, rectUnion, fastComposite, fastCrop, \
-    fastFill
+from guiABLE.utilities import limitMove, getGeometry, rectsOverlap, rectUnion, fastComposite, fastCrop, fastFill
 
 
 class Baseable(Skinnable, tk.Canvas):
