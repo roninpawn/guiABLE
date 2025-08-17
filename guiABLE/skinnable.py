@@ -1,13 +1,13 @@
 import tkinter as tk
 from typing import Optional
 
-from guiABLE.utilities import warnPrint, resolvePath, cropImage, loadImage, getGeometry, rectsOverlap, compositeImage, \
-    fastComposite, fastCrop, fastFill
+from guiABLE.utilities import (warnPrint, resolvePath, cropImage, loadImage, getGeometry, rectsOverlap, fastComposite,
+                               fastFill)
 
 
 class Skin:
     def __init__(self, *paths: str):
-        self._recipients, self._paths, self._images = [], [], []
+        self._recipients, self._paths, self._images, self._resolutions = [], [], [], []
         self._empty_image = tk.PhotoImage()
         self._bg_colors = ['gray', 'white', 'red', 'gray25']
         self._use_bg_colors = True
@@ -98,6 +98,11 @@ class Skin:
             img = self._images[index]
             if img is not None: return img
         return self._empty_image
+    def resolution(self, image_index: int = 0) -> tuple[int, int]:
+        if any(self._resolutions):
+            image_index %= len(self._resolutions)
+            return self._resolutions[image_index]
+        return 0, 0
 
     def bg(self, index: int = 0) -> Optional[str]:
         if self._use_bg_colors and len(self._bg_colors): return self._bg_colors[index % len(self._bg_colors)]
@@ -121,7 +126,9 @@ class Skin:
         if widget in self._recipients: self._recipients.remove(widget)
 
     def updateRecipients(self):
-        for recipient in self._recipients: recipient.redraw()
+        for recipient in self._recipients:
+            recipient.zDirty = True
+            recipient.redraw()
 
     def _byPaths(self, paths:tuple[str, ...], skip_falsy:bool = False, index_offset:int = 0):
         for i, path in enumerate(paths):
@@ -173,6 +180,7 @@ class Skin:
 
                 self._images.append(sprite)
                 self._paths.append(f"{x1},{y1},{width},{height} from {source}")
+                self._resolutions.append((sprite.width(), sprite.height()))
 
         self._fillImages()
 
@@ -180,6 +188,7 @@ class Skin:
         for n in range(size - len(self._images)):
             self._paths.append(None)
             self._images.append(None)
+            self._resolutions.append(None)
 
     def _existsAt(self, path:str) -> Optional[int]:
         for i in range(len(self._images)):
@@ -202,12 +211,16 @@ class Skin:
 
         self._use_bg_colors = False     # If images exist, default to transparent background.
         for i in range(len(self._images)):      # Fill in any gaps by propagating the most recent valid image forward.
-            if self._images[i] is None: self._images[i] = fallback
-            else: fallback = self._images[i]
+            if self._images[i] is None:
+                self._images[i] = fallback
+                self._resolutions[i] = (fallback.width(), fallback.height())
+            else:
+                fallback = self._images[i]
+                self._resolutions[i] = (self._images[i].width(), self._images[i].height())
 
 
 """
-Skinnable is a mixin that provides core Skin() functionality to tkinter widgets.
+Skinnable is a mixin that provides core Skin() functionality to guiABLE widgets.
 """
 class Skinnable:
     def __init__(self, skin:Skin = None):
@@ -238,8 +251,8 @@ class Skinnable:
             self._z_img = tk.PhotoImage(width=w, height=h)
             if not self._skin.hasImages() or self._skin.usesBgColors():
                 fastFill(self._z_img, w, h, self._skin.bg(self._img_state))
-            top_layer = self._skin.image(self._img_state)
-            fastComposite(self._z_img, w, h, top_layer, 0, 0, top_layer.width(), top_layer.height())
+            fastComposite(self._z_img, w, h, self._skin.image(self._img_state), 0, 0,
+                          *self._skin.resolution(self._img_state))
             self._z_state = self._img_state
             self.zDirty = False
         return self._z_img
@@ -279,6 +292,7 @@ class Skinnable:
                 self._siblings_beneath.append(sibling)
             if sibling in self._siblings_atop:
                 self._siblings_atop.remove(sibling)
+
     def dropSibling(self, sibling):
         if sibling in self._siblings_atop: self._siblings_atop.remove(sibling)
         elif sibling in self._siblings_beneath: self._siblings_beneath.remove(sibling)
@@ -296,12 +310,12 @@ class Skinnable:
 
     def lift(self, above=None):
         tk.Misc.lift(self, above)
-        self.master._raiseChildIndex(self, above)
+        self.after_idle(self.master._raiseChildIndex, self, above)
         self.after_idle(self._findOverlappingSiblings, self.master.getChildren())
 
     def lower(self, below=None):
         tk.Misc.lower(self, below)
-        self.master._lowerChildIndex(self, below)
+        self.after_idle(self.master._lowerChildIndex, self, below)
         self.after_idle(self._findOverlappingSiblings, self.master.getChildren())
 
     def configure(self, **kwargs):
@@ -312,7 +326,8 @@ class Skinnable:
         # Refresh stored geometry and register with parent.
         self._geometry = getGeometry(self)
         self._scratch = tk.PhotoImage(width=self._geometry[2], height=self._geometry[3])
-        if isinstance(self, tk.Canvas): self.master.registerChild(self)
+        if isinstance(self, tk.Canvas):
+            self.master.registerChild(self)
         self._findOverlappingSiblings(self.master.children)
 
     # Find overlapping siblings and store them / register with them, for future tracking.
@@ -328,7 +343,7 @@ class Skinnable:
 
     def _raiseChildIndex(self, child, above):
         self.dropChild(child)
-        if above in self._children:
+        if above and above in self._children:
             index = self._children.index(above) + 1
             self._children.insert(index, child)
         else:
@@ -336,7 +351,7 @@ class Skinnable:
 
     def _lowerChildIndex(self, child, below):
         self.dropChild(child)
-        if below in self._children:
+        if below and below in self._children:
             index = self._children.index(below)
             self._children.insert(index, child)
         else:

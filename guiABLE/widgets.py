@@ -3,8 +3,8 @@ from time import time
 from typing import Optional
 
 from guiABLE.skinnable import Skin, Skinnable
-from guiABLE.utilities import (updateHover, limitMove, getGeometry, cropImage, rectsOverlap, getOverlap, rectUnion,
-                               fastComposite, fastCrop, compositeImage)
+from guiABLE.utilities import updateHover, limitMove, getGeometry, rectsOverlap, rectUnion, fastComposite, fastCrop, \
+    fastFill
 
 
 class Baseable(Skinnable, tk.Canvas):
@@ -51,7 +51,8 @@ class Baseable(Skinnable, tk.Canvas):
         else:       # Transparent inherits parent's bg color if parent isn't using an image.
             siblings = list(self._siblings_beneath)
             siblings.append(self)
-            if not self.master.skin.hasImages(): bg_color = self.master.skin.bg()
+            if not self.master.skin.hasImages():
+                bg_color = self.master.skin.bg()
 
         # Only render background color if it is necessary.
         if self.skin.usesBgColors() or (not self.skin.usesBgColors() and not self.master.skin.hasImages()):
@@ -85,7 +86,11 @@ class Baseable(Skinnable, tk.Canvas):
         for sibling in siblings: u_rect = rectUnion(u_rect, sibling.geometry)
         x, y, w, h = u_rect
 
-        base = cropImage(self.master.skin.image(), x, y, w, h) if self.master.skin.hasImages() else tk.PhotoImage(width=w, height=h)
+        base = tk.PhotoImage(width=w, height=h)
+        if self.master.skin.hasImages():
+            fastCrop(base, self.master.skin.image(), *self.master.skin.resolution(), x, y, w, h)
+        else:
+            fastFill(base, w, h, self.master.skin.bg())
 
         # Draw each layer to a base image and then crop from that base to each widget's surface, as we go.
         for sibling in siblings:
@@ -126,7 +131,7 @@ class Hoverable(Baseable):
 
     def setSkin(self, skin):
         super().setSkin(skin)
-        #updateHover(self)
+        self.redraw()
 
     def mouseIn(self, event):
         self.moused_over = True
@@ -140,7 +145,7 @@ class Hoverable(Baseable):
         super().enable()
         self.bind("<Enter>", self.mouseIn)
         self.bind("<Leave>", self.mouseOut)
-        updateHover(self)
+        self.redraw()
 
     def disable(self):
         super().disable()
@@ -157,7 +162,6 @@ class Clickable(Hoverable):
     def clicked(self, event):
         self.setState(2)
         self.function()
-        #updateHover(self)
 
     def mouseUp(self, event):
         self.mouseIn(event) if self.moused_over else self.mouseOut(event)
@@ -187,7 +191,7 @@ class Pushable(Clickable):
         super().mouseUp(event)
         if self.moused_over:
             self.function()
-            #updateHover(self)
+
 
     def mouseIn(self, event):
         if not self._clicking:
@@ -229,21 +233,23 @@ class Labelable(Pushable):
 
 class Toggleable(Pushable):
     def __init__(self, parent, state:bool=False, function=lambda: None, skin:Skin = None, **kwargs):
-        self._toggle_state = state
         self._state_offset = 0
         super().__init__(parent, function, skin, **kwargs)
+        self.state(state)
 
     def mouseUp(self, event):
         self._clicking = False
         if self.moused_over:
             self.state(not self._toggle_state)
             self.function()
+            self.redraw()
 
     def state(self, state:bool=None) -> Optional[bool]:
         if isinstance(state, bool):
             self._toggle_state = state
             self._state_offset = self._toggle_state * 4
             self.setState(1)
+            self.redraw()
         return self._toggle_state
 
     def setState(self, state_index:int = 0):
@@ -280,8 +286,8 @@ class Holdable(Pushable):
 class Draggable(Holdable):
     def __init__(self, parent, function=lambda: None, skin=None, **kwargs):
         super().__init__(parent, function, skin, **kwargs)
-        self._all_siblings_atop, self._all_siblings_beneath = set(), set()
-        self._last_siblings_atop, self._last_siblings_beneath = set(), set()
+        self._all_siblings_atop, self._all_siblings_beneath = list(), list()
+        self._last_geometry = self._geometry
 
     def clicked(self, event):
         self.x = event.x
@@ -299,11 +305,12 @@ class Draggable(Holdable):
         y = limitMove(y, h, 0, mh)
 
         self.place_configure(x=x, y=y)
-        # self.update_idletasks()
 
         self._geometry = x, y, w, h
         self._populateOverlappingSiblings(self._siblings_atop, self._all_siblings_atop, False)
         self._populateOverlappingSiblings(self._siblings_beneath, self._all_siblings_beneath, True)
+        self._last_geometry = self._geometry
+
         self.after_idle(self.redraw)
 
     def enable(self):
@@ -323,9 +330,11 @@ class Draggable(Holdable):
                 if atop: self._all_siblings_atop.add(sibling)
                 else: self._all_siblings_beneath.add(sibling)
 
-    def _populateOverlappingSiblings(self, output_set:set, source_set:set, atop:bool):
-        output_set.clear()
-        for sibling in source_set:
-            if rectsOverlap(self.geometry, sibling.geometry):
-                output_set.append(sibling)
+    def _populateOverlappingSiblings(self, output_list:list, source_list:list, atop:bool):
+        output_list.clear()
+        # Using the union of the last position and current position ensures final redraw of just-exited siblings.
+        movement_union = rectUnion(self._geometry, self._last_geometry)
+        for sibling in source_list:
+            if rectsOverlap(movement_union, sibling.geometry):
+                output_list.append(sibling)
                 sibling.trackSibling(self, atop)
