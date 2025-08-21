@@ -3,7 +3,7 @@ from time import time
 from typing import Optional
 
 from guiABLE.skinnable import Skin, Skinnable
-from guiABLE.utilities import limitMove, getGeometry, rectsOverlap, rectUnion, fastComposite, fastCrop, fastFill
+from guiABLE.utilities import limitMove, getGeometry, rectsOverlap, rectUnion, fastComposite, fastCrop, fastFlood
 
 
 class Baseable(Skinnable, tk.Canvas):
@@ -38,6 +38,7 @@ class Baseable(Skinnable, tk.Canvas):
         # If widget lacks geometry (has not fully spawned) wait until it has.
         x, y, w, h = self.geometry
         if w <= 1 and h <= 1:
+            print(self)
             self.after_idle(lambda : self.redraw())
             return
 
@@ -89,7 +90,7 @@ class Baseable(Skinnable, tk.Canvas):
         if self.master.skin.hasImages():
             fastCrop(base, self.master.skin.image(), *self.master.skin.resolution(), x, y, w, h)
         else:
-            fastFill(base, w, h, self.master.skin.bg())
+            fastFlood(base, w, h, self.master.skin.bg())
 
         # Draw each layer to a base image and then crop from that base to each widget's surface, as we go.
         for sibling in siblings:

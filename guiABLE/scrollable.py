@@ -1,17 +1,17 @@
 import tkinter as tk
 
-from .utilities import limitMove, getLocalMouse, updateHover, drawBar
+from .utilities import limitMove, getLocalMouse, updateHover
 from .windowing import Backgroundable, Frameable
 from .skinnable import Skin
 from .widgets import Draggable, Clickable
 
 
-class Troughable(Frameable, Clickable):
+class ScrollTrough(Frameable, Clickable):
     def __init__(self, parent, width, height, skin=None, **kwargs):
         Frameable.__init__(self, parent, width, height, **kwargs)
         Clickable.__init__(self,parent, lambda: None, skin, **kwargs)
 
-class Scrollable(Troughable):
+class Scrollable(ScrollTrough):
     def __init__(self, parent, trough_width, trough_height, handle_width, handle_height, scrollable_skin=None, **kwargs):
         self.scrollwheel_speed = 10
         self.page_percent = .9
@@ -166,11 +166,11 @@ class Scrollable(Troughable):
             self._linked.inner.place_configure(y=y + self.y_offset)
 
 
-class ScrollableCanvas(Backgroundable):
+class ScrollCanvas(Backgroundable):
     pass
 
 
-class ScrollablePane(ScrollableCanvas):
+class ScrollFrame(ScrollCanvas):
     def __init__(self, parent, width, height, bar_size=18, scrollable_pane_skin=None, scrollbars=(False, False), auto=(False, False)):
         super().__init__(parent, width=width, height=height)
 
@@ -249,10 +249,7 @@ class BarSkin(Skin):
         self.changeSkins(mids_skin or Skin(), ends_skin or Skin())
 
     def drawBars(self, width, height, horizontal=False):
-        images = [
-            drawBar(self.mids.image(n), self.ends.image(n), width, height, horizontal)
-            for n in range(4)
-        ]
+        images = [drawBar(self.mids.image(n), self.ends.image(n), width, height, horizontal) for n in range(4)]
         self.setImages(*images)
 
     def changeSkins(self, mids_skin, ends_skin):

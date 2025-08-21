@@ -2,7 +2,7 @@ import tkinter as tk
 from typing import Optional
 
 from guiABLE.utilities import (warnPrint, resolvePath, cropImage, loadImage, getGeometry, rectsOverlap, fastComposite,
-                               fastFill)
+                               fastFlood, fastTile)
 
 
 class Skin:
@@ -130,6 +130,18 @@ class Skin:
             recipient.zDirty = True
             recipient.redraw()
 
+    def selfExtend(self, num_extensions:int = 1):     # Duplicates entire existing storage n times forward in array.
+        original_length = self.numStates()
+        new_length = (num_extensions * original_length) + 1
+        if new_length > original_length:
+            self._expand(new_length)
+            for i in range(1, num_extensions + 1):
+                index_base = i * original_length
+                for j in range(original_length):
+                    self._images[index_base + j] = self._images[j]
+                    self._resolutions[index_base + j] = self._resolutions[j]
+                    self._paths[index_base + j] = self._paths[j]
+
     def _byPaths(self, paths:tuple[str, ...], skip_falsy:bool = False, index_offset:int = 0):
         for i, path in enumerate(paths):
             i += index_offset       # index_offset is used by .updateByPath() to insert a single change at one location.
@@ -219,6 +231,78 @@ class Skin:
                 self._resolutions[i] = (self._images[i].width(), self._images[i].height())
 
 
+class BarSkin(Skin):
+    def __init__(self, cap1_skin:Skin|None, trough_skin:Skin|None, cap2_skin:Skin|None,
+                 breadth:int = 20, vertical:bool = False):
+        super().__init__()
+        self.cap1 = cap1_skin if isinstance(cap1_skin, Skin) else Skin()
+        self.trough = trough_skin if isinstance(trough_skin, Skin) else Skin()
+        self.cap2 = cap2_skin if isinstance(cap2_skin, Skin) else Skin()
+        self.breadth = breadth
+        self._vertical = vertical
+
+        self._lengths = []
+        self._expand(min(self.cap1.numStates(), self.trough.numStates(), self.cap2.numStates()))
+
+    """
+        t_len, c_len = self._trough.numStates(), self._cap.numStates()
+        self._expand(min(t_len, c_len))
+
+        # Draw other version of trough where V|H = 0|1
+        self._trough.selfExtend(1)
+        dest, source = vertical_trough * t_len, (not vertical_trough) * t_len
+        w, h = self._trough.resolution(source)
+        for n in range(t_len):
+            new_image = tk.PhotoImage(width=h, height=w)
+            putToImage(self._trough._images[source], new_image, (0, 0, w, h), rotate=True)
+            print(dest, n, dest+n, self._trough.numStates())
+            self._trough._images[dest + n] = new_image
+
+        # Draw all other orientations of cap, where 0|1|2|3 = N|W|S|E (counter-clockwise)
+        self._cap.selfExtend(3)
+        a, b, c = (cap_orientation + 1) % 4, (cap_orientation + 2) % 4, (cap_orientation + 3) % 4
+
+        for n in range(c_len):
+            source = cap_orientation * c_len + n
+            w, h = self._cap.resolution(source)
+
+            new_image = tk.PhotoImage(width=h, height=w)
+            putToImage(self._cap._images[source], new_image, (0, 0, w, h), rotate=True)
+            self._cap._images[a * c_len + n] = new_image
+
+            new_image = tk.PhotoImage(width=w, height=h)
+            putToImage(self._cap._images[source], new_image, (0, 0, w, h), mirror_x=True, mirror_y=True)
+            self._cap._images[b * c_len + n] = new_image
+
+            new_image = tk.PhotoImage(width=h, height=w)
+            putToImage(self._cap._images[source], new_image, (0, 0, w, h), mirror_x=True, mirror_y=True, rotate=True)
+            self._cap._images[c * c_len + n] = new_image
+    """
+
+    def image(self, index:int = 0, length:int = 0):
+        index = index % self.numStates()
+        if length != self._lengths[index]:
+            c2w, c2h = self.cap2.resolution(index)
+            w, h = (self.breadth, length) if not self._vertical else (length, self.breadth)
+
+            new_img = tk.PhotoImage(width=w, height=h)
+            fastTile(self.trough.image(index), *self.trough.resolution(index), new_img, w, h, (0, 0, w, h))
+            fastComposite(new_img, w, h, self.cap1.image(index), 0, 0, *self.cap1.resolution(index))
+            fastComposite(new_img, w, h, self.cap2.image(index), w-c2w, h-c2h, c2w, c2h)
+
+            self._images[index] = new_img
+            self._use_bg_colors = self.trough.usesBgColors()
+            self._bg_colors = self.trough.bg_colors()
+        return self._images[index]
+
+    def _expand(self, size:int):
+        for n in range(size - len(self._images)):
+            self._paths.append(None)
+            self._images.append(None)
+            self._resolutions.append(None)
+            self._lengths.append(None)
+
+
 """
 Skinnable is a mixin that provides core Skin() functionality to guiABLE widgets.
 """
@@ -250,7 +334,7 @@ class Skinnable:
             _, _, w, h = self.geometry
             self._z_img = tk.PhotoImage(width=w, height=h)
             if not self._skin.hasImages() or self._skin.usesBgColors():
-                fastFill(self._z_img, w, h, self._skin.bg(self._img_state))
+                fastFlood(self._z_img, w, h, self._skin.bg(self._img_state))
             fastComposite(self._z_img, w, h, self._skin.image(self._img_state), 0, 0,
                           *self._skin.resolution(self._img_state))
             self._z_state = self._img_state

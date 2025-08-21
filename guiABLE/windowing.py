@@ -3,7 +3,6 @@ from time import time
 
 from .skinnable import Skinnable
 from .utilities import resolvePath, geometryFromString
-from .widgets import Skin
 
 
 """
@@ -219,7 +218,7 @@ class Backgroundable(Skinnable, Frameable):
         self.pack_propagate(False)
         self._inner.pack(fill="both", expand=True)
 
-        self._skin.setBGColors(self.cget("bg"))
+        self._skin.setBGColors(self._inner.cget("bg"))
         self._inner.configure(selectbackground=self._skin.bg())
         self.after_idle(self.redraw)
 

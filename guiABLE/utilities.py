@@ -56,48 +56,57 @@ def loadImage(path_or_image:str | PhotoImage) -> tuple[PhotoImage | None, str | 
             return None, None
     return image, "passed internally"
 
-def solidColorImage(width: int, height: int, color: str) -> PhotoImage:
-    img = PhotoImage(width=width, height=height)
-    hex_color = color if color.startswith("#") else img.tk.call("winfo", "rgb", ".", color)
-    img.put("{" + " ".join([hex_color] * width) + "}", to=(0, 0, width, height))
-    return img
 
-def fastFill(image:PhotoImage, image_width:int, image_height:int, color:str):
+def fastFlood(image:PhotoImage, image_width:int, image_height:int, color:str):
     image.put(color, to=(0, 0, image_width, image_height))
-def fillImage(image:PhotoImage, color:str): fastFill(image, image.width(), image.height(), color)
 
-def drawBar(trough_image:PhotoImage, cap_image:PhotoImage, width:int, height:int, horizontal:bool = False) -> PhotoImage:
-    """Constructs a full-width or full-height scrollbar image from caps and a tileable mid-section."""
-    newimg = PhotoImage(width=width, height=height)
-    cap_w, cap_h = cap_image.width(), cap_image.height()
+def floodImage(image:PhotoImage, color:str): fastFlood(image, image.width(), image.height(), color)
 
-    if horizontal or width > height:
-        putToImage(cap_image, newimg, (0, 0, cap_h, cap_w), rotate=True)
-        putToImage(trough_image, newimg, (cap_h, 0, width-cap_h, height), rotate=True)
-        putToImage(cap_image, newimg, (width-cap_h, 0, width, height), mirror_x=True, rotate=True)
-    else:
-        putToImage(cap_image, newimg, (0, 0, cap_w, cap_h))
-        putToImage(trough_image, newimg, (0, cap_h, width, height-cap_h))
-        putToImage(cap_image, newimg, (0, height-cap_h, width, height), mirror_y=True)
 
-    return newimg
+def fastFlip(flip_to:PhotoImage, flip_from:PhotoImage, w:int, h:int, flip_x:bool = False, flip_y:bool = False):
+    if flip_x and flip_y:
+        tmp = PhotoImage(width=w, height=h)
+        [tmp.copy_replace(flip_from, from_coords=(col, 0, col + 1, h), to=(w-1-col, 0)) for col in range(w)]
+        [flip_to.copy_replace(tmp, from_coords=(0, row, w, row + 1), to=(0, h-1-row)) for row in range(h)]
+    elif flip_x: [flip_to.copy_replace(flip_from, from_coords=(col, 0, col + 1, h), to=(w-1-col, 0)) for col in range(w)]
+    elif flip_y: [flip_to.copy_replace(flip_from, from_coords=(0, row, w, row + 1), to=(0, h-1-row)) for row in range(h)]
 
-def putToImage(brush:PhotoImage, canvas:PhotoImage, bbox:tuple[int,int,int,int],
-               mirror_x:bool = False, mirror_y:bool = False, rotate:bool = False):
-    value1 = brush.height() if rotate else brush.width()
-    value2 = brush.width() if rotate else brush.height()
-    start1, end1, step1 = (value1-1, -1, -1) if mirror_x else (0, value1, 1)
-    start2, end2, step2 = (value2-1, -1, -1) if mirror_y else (0, value2, 1)
+def flipImage(image:PhotoImage, flip_x:bool = False, flip_y:bool = False) -> PhotoImage:
+    if isinstance(image, PhotoImage) and (flip_x or flip_y):
+        w, h = image.width(), image.height()
+        out = PhotoImage(width=w, height=h)
+        fastFlip(out, image, w, h, flip_x, flip_y)
+        return out
+    return image
 
-    data = [
-        "{" + " ".join(
-            f"#{color[0]:02x}{color[1]:02x}{color[2]:02x}"
-            for row in range(start1, end1, step1)
-            for color in [brush.get(col if rotate else row, row if rotate else col)]
-        ) + "}"
-        for col in range(start2, end2, step2)
-    ]
-    canvas.put(" ".join(data), to=bbox)
+
+def fastRotate(rotate_to:PhotoImage, rotate_from:PhotoImage, w:int, h:int):
+    for y in range(h):
+        yy = h - 1 - y
+        for x in range(w): rotate_to.copy_replace(rotate_from, from_coords=(x, y, x + 1, y + 1), to=(yy, x))
+
+def rotateImage(image: PhotoImage) -> PhotoImage:
+    if isinstance(image, PhotoImage):
+        w, h = image.width(), image.height()
+        out = PhotoImage(width=h, height=w)
+        fastRotate(out, image, w, h)
+        return out
+    return image
+
+
+def fastTile(brush:PhotoImage, bw:int, bh:int, canvas:PhotoImage, cw:int, ch:int, bbox:tuple[int,int,int,int]):
+    x1, y1, x2, y2 = bbox
+    box_w, box_h = x2 - x1, y2 - y1
+    bw, bh = min(bw, box_w), min(bh, box_h)
+    for y in range(y1, y2, bh):
+        h = min(bh, ch-y)
+        for x in range(x1, x2, bw):
+            w = min(bw, cw-x)
+            canvas.copy_replace(brush, from_coords=(0, 0, w, h), to=(x, y))
+
+def tileImage(brush:PhotoImage, canvas:PhotoImage, bbox:tuple[int,int,int,int]):
+    fastTile(brush, brush.width(), brush.height(), canvas, canvas.width(), canvas.height(), bbox)
+
 
 def fastCrop(crop_to: PhotoImage, crop_from:PhotoImage, from_w:int, from_h:int,
              crop_x:int, crop_y:int, crop_w:int, crop_h:int) -> PhotoImage:
@@ -110,6 +119,7 @@ def cropImage(image:PhotoImage, x:int, y:int, width:int, height:int) -> PhotoIma
     fastCrop(cropped, image, image.width(), image.height(), x, y, width, height)
     return cropped
 
+
 def fastComposite(base_image: PhotoImage, base_w: int, base_h: int,
                   overlay_image: PhotoImage, dest_x:int, dest_y:int, overlay_w:int, overlay_h:int,
                   src_x: int = 0, src_y: int = 0):
@@ -117,11 +127,11 @@ def fastComposite(base_image: PhotoImage, base_w: int, base_h: int,
     if x2 > dest_x and y2 > dest_y:
        base_image.copy_replace(overlay_image, from_coords=(src_x, src_y, x2 - dest_x, y2 - dest_y), to=(dest_x, dest_y))
 
-def compositeImage(base: PhotoImage, overlay_image: PhotoImage, x:int, y:int) -> PhotoImage:
-    bx, bh = base.width(), base.height()
+def compositeImage(base_image: PhotoImage, overlay_image: PhotoImage, x:int, y:int) -> PhotoImage:
+    bx, bh = base_image.width(), base_image.height()
     ow, oh = overlay_image.width(), overlay_image.height()
-    fastComposite(base, bx, bh, overlay_image, x, y, ow, oh)
-    return base
+    fastComposite(base_image, bx, bh, overlay_image, x, y, ow, oh)
+    return base_image
 
 
 """

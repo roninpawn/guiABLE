@@ -1,7 +1,5 @@
-from time import time, sleep
-
 from guiABLE import *
-from guiABLE.utilities import cropImage
+from guiABLE.utilities import cropImage, flipImage, rotateImage
 
 
 def test_gui():
@@ -49,7 +47,7 @@ def test_gui():
 
     # Create a scrollable pane with content
     pane_skin = ScrollablePaneSkin()
-    scrollpane = ScrollablePane(bg, width=250, height=150, scrollable_pane_skin=pane_skin, auto=(True, True))
+    scrollpane = ScrollFrame(bg, width=250, height=150, scrollable_pane_skin=pane_skin, auto=(True, True))
     scrollpane.place(x=20, y=100)
 
     for i in range(30):
@@ -66,11 +64,6 @@ def test_gui():
     click_btn = Clickable(bg, function=lambda: print("Clicked instantly!"), skin=click_skin, width=100, height=40)
     click_btn.place(x=140, y=300)
 
-    # Create a Troughable area
-    trough_skin = Skin("../skins/default/trough_normal.png", "../skins/default/trough_hover.png", "../skins/default/trough_active.png", "../skins/default/trough_disabled.png")
-    trough = Troughable(bg, width=150, height=30, skin=trough_skin)
-    trough.place(x=400, y=300)
-
     # Create extra Togglables for above/below testing.
     test_toggle3 = Toggleable(bg, True, lambda: print("Toggle1 state:", test_toggle3.state()), skin=toggle_skin,
                              width=64, height=64)
@@ -79,6 +72,26 @@ def test_gui():
     test_toggle4 = Toggleable(bg, function=lambda: print("Toggle2 state:", test_toggle4.state()), skin=toggle_skin,
                              width=64, height=64)
     test_toggle4.place(x=444, y=24)
+
+    from guiABLE.skinnable import BarSkin as BS
+    trough_skin = Skin("../skins/default/scroll_trough-48.png")
+    cap_skin = Skin("../skins/default/up_glyph-48.png")
+    trough_skin.usesBgColors(True)
+    cap_skin.usesBgColors(True)
+    img = flipImage(cap_skin.image(), flip_y=True)
+    img = rotateImage(img)
+    cap_skin2 = Skin.fromImages(img)
+
+    bar_skin = BS(cap_skin, trough_skin, cap_skin2, 48)
+    mid_skin = Skin.fromImages(bar_skin.image(0, 192))
+    c = Clickable(bg, skin=mid_skin, width=48, height=192)
+    c.place(x=500, y=200)
+
+#    h_cap = Clickable(bg, skin=bar_skin._cap, width=48, height=48)
+#    h_cap.place(x=300, y=200)
+
+#    bar = Clickable(bg, skin = bar_skin, width=144, height=48)
+#    bar.place(x=300, y=248)
 
     # Prove lower/lift functionality
     click_btn.lift(test_toggle1)
