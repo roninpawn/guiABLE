@@ -3,7 +3,8 @@ from time import time
 from typing import Optional
 
 from guiABLE.skinnable import Skin, Skinnable
-from guiABLE.utilities import limitMove, getGeometry, rectsOverlap, rectUnion, fastComposite, fastCrop, fastFlood
+from guiABLE.utilities import limitMove, getGeometry, rectsOverlap, rectUnion, fastComposite, fastCrop, fastFlood, \
+    getLocalMouse
 
 
 class Baseable(Skinnable, tk.Canvas):
@@ -38,7 +39,6 @@ class Baseable(Skinnable, tk.Canvas):
         # If widget lacks geometry (has not fully spawned) wait until it has.
         x, y, w, h = self.geometry
         if w <= 1 and h <= 1:
-            print(self)
             self.after_idle(lambda : self.redraw())
             return
 
@@ -134,8 +134,11 @@ class Hoverable(Baseable):
         self.redraw()
 
     def mouseIn(self, event):
+        # If widget has child and mouse enters child AND parent at the same time, only change child's visual state.
+        for child in self._children:
+            if getLocalMouse(child)[2] and not self.moused_over: break
+        else: self.setState(1)
         self.moused_over = True
-        self.setState(1)
 
     def mouseOut(self, event):
         self.moused_over = False
@@ -230,6 +233,10 @@ class Labelable(Pushable):
         super().mouseUp(event)
         self.drawText()
 
+    def setState(self, state_index:int = 0):
+        super().setState(state_index)
+        self.drawText()
+
 
 class Toggleable(Pushable):
     def __init__(self, parent, state:bool=False, function=lambda: None, skin:Skin = None, **kwargs):
@@ -264,7 +271,8 @@ class Holdable(Pushable):
         super().__init__(parent, function, skin, **kwargs)
 
     def mouseOut(self, event):
-        self.moused_over = False if self._clicking else super().mouseOut(None)
+        if self._clicking: self.moused_over = False
+        else: super().mouseOut(None)
 
     def mouseUp(self, event):
         self._clicking = False
@@ -288,6 +296,9 @@ class Draggable(Holdable):
         super().__init__(parent, function, skin, **kwargs)
         self._all_siblings_atop, self._all_siblings_beneath = list(), list()
         self._last_geometry = self._geometry
+        self._bounds = (0, 0, *self.parent.geometry[2:])
+
+    def setBounds(self, x1, y1, x2, y2): self._bounds = (x1, y1, x2, y2)
 
     def clicked(self, event):
         self.x = event.x
@@ -297,12 +308,11 @@ class Draggable(Holdable):
 
     def mouseDrag(self, event):
         x, y, w, h = self.geometry
-        _, _, mw, mh = self.master.geometry
 
         x = event.x - self.x + x
         y = event.y - self.y + y
-        x = limitMove(x, w, 0, mw)
-        y = limitMove(y, h, 0, mh)
+        x = limitMove(x, w, self._bounds[0], self._bounds[2])
+        y = limitMove(y, h, self._bounds[1], self._bounds[3])
 
         self.place_configure(x=x, y=y)
 
@@ -338,3 +348,7 @@ class Draggable(Holdable):
             if rectsOverlap(movement_union, sibling.geometry):
                 output_list.append(sibling)
                 sibling.trackSibling(self, atop)
+
+    def _bond(self):
+        super()._bond()
+        self._bounds = self._bounds = (0, 0, *self.parent.geometry[2:])

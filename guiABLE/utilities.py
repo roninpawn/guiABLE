@@ -80,16 +80,16 @@ def flipImage(image:PhotoImage, flip_x:bool = False, flip_y:bool = False) -> Pho
     return image
 
 
-def fastRotate(rotate_to:PhotoImage, rotate_from:PhotoImage, w:int, h:int):
+def fastRotate(rotate_to:PhotoImage, rotate_from:PhotoImage, w:int, h:int, clockwise:bool = True) -> PhotoImage | None:
     for y in range(h):
-        yy = h - 1 - y
+        yy = h-1-y if clockwise else y
         for x in range(w): rotate_to.copy_replace(rotate_from, from_coords=(x, y, x + 1, y + 1), to=(yy, x))
 
-def rotateImage(image: PhotoImage) -> PhotoImage:
+def rotateImage(image: PhotoImage, clockwise:bool = True) -> PhotoImage:
     if isinstance(image, PhotoImage):
         w, h = image.width(), image.height()
         out = PhotoImage(width=h, height=w)
-        fastRotate(out, image, w, h)
+        fastRotate(out, image, w, h, clockwise)
         return out
     return image
 
@@ -98,11 +98,12 @@ def fastTile(brush:PhotoImage, bw:int, bh:int, canvas:PhotoImage, cw:int, ch:int
     x1, y1, x2, y2 = bbox
     box_w, box_h = x2 - x1, y2 - y1
     bw, bh = min(bw, box_w), min(bh, box_h)
-    for y in range(y1, y2, bh):
-        h = min(bh, ch-y)
-        for x in range(x1, x2, bw):
-            w = min(bw, cw-x)
-            canvas.copy_replace(brush, from_coords=(0, 0, w, h), to=(x, y))
+    if bw and bh:
+        for y in range(y1, y2, bh):
+            h = min(bh, ch-y)
+            for x in range(x1, x2, bw):
+                w = min(bw, cw-x)
+                canvas.copy_replace(brush, from_coords=(0, 0, w, h), to=(x, y))
 
 def tileImage(brush:PhotoImage, canvas:PhotoImage, bbox:tuple[int,int,int,int]):
     fastTile(brush, brush.width(), brush.height(), canvas, canvas.width(), canvas.height(), bbox)

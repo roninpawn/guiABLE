@@ -2,7 +2,7 @@ import tkinter as tk
 from typing import Optional
 
 from guiABLE.utilities import (warnPrint, resolvePath, cropImage, loadImage, getGeometry, rectsOverlap, fastComposite,
-                               fastFlood, fastTile)
+                               fastFlood, fastTile, flipImage, rotateImage)
 
 
 class Skin:
@@ -118,7 +118,7 @@ class Skin:
 
     def hasImages(self): return any(self._images)
     def view(self, index:int = 0) -> (tk.PhotoImage, str|None): return self.image(index), self.bg(index)
-    def numStates(self): return len(self._images)
+    def numStates(self): return max(len(self._images), len(self._bg_colors))
     def reset(self): self._recipients, self._paths, self._images = [], [], []
 
     def bindWidget(self, widget): self._recipients.append(widget)
@@ -232,58 +232,30 @@ class Skin:
 
 
 class BarSkin(Skin):
-    def __init__(self, cap1_skin:Skin|None, trough_skin:Skin|None, cap2_skin:Skin|None,
+    def __init__(self, cap_skin: Skin|None = None, trough_skin: Skin|None = None, cap2_skin: Skin|None = None,
                  breadth:int = 20, vertical:bool = False):
         super().__init__()
-        self.cap1 = cap1_skin if isinstance(cap1_skin, Skin) else Skin()
-        self.trough = trough_skin if isinstance(trough_skin, Skin) else Skin()
-        self.cap2 = cap2_skin if isinstance(cap2_skin, Skin) else Skin()
-        self.breadth = breadth
+        self.cap1 = cap_skin or Skin()
+        self.trough = trough_skin or Skin()
+        self.cap2 = cap2_skin or Skin.fromImages(*self._flipImages(self.cap1.images(), vertical))
+        self._breadth = breadth
         self._vertical = vertical
 
         self._lengths = []
         self._expand(min(self.cap1.numStates(), self.trough.numStates(), self.cap2.numStates()))
 
-    """
-        t_len, c_len = self._trough.numStates(), self._cap.numStates()
-        self._expand(min(t_len, c_len))
+    @classmethod
+    def fromTwo(cls, cap_skin:Skin, trough_skin:Skin, breadth:int = 20, vertical:bool = False):
+        return cls(cap_skin, trough_skin, Skin.fromImages(*cls._flipImages(cap_skin.images(), vertical)), breadth, vertical)
 
-        # Draw other version of trough where V|H = 0|1
-        self._trough.selfExtend(1)
-        dest, source = vertical_trough * t_len, (not vertical_trough) * t_len
-        w, h = self._trough.resolution(source)
-        for n in range(t_len):
-            new_image = tk.PhotoImage(width=h, height=w)
-            putToImage(self._trough._images[source], new_image, (0, 0, w, h), rotate=True)
-            print(dest, n, dest+n, self._trough.numStates())
-            self._trough._images[dest + n] = new_image
-
-        # Draw all other orientations of cap, where 0|1|2|3 = N|W|S|E (counter-clockwise)
-        self._cap.selfExtend(3)
-        a, b, c = (cap_orientation + 1) % 4, (cap_orientation + 2) % 4, (cap_orientation + 3) % 4
-
-        for n in range(c_len):
-            source = cap_orientation * c_len + n
-            w, h = self._cap.resolution(source)
-
-            new_image = tk.PhotoImage(width=h, height=w)
-            putToImage(self._cap._images[source], new_image, (0, 0, w, h), rotate=True)
-            self._cap._images[a * c_len + n] = new_image
-
-            new_image = tk.PhotoImage(width=w, height=h)
-            putToImage(self._cap._images[source], new_image, (0, 0, w, h), mirror_x=True, mirror_y=True)
-            self._cap._images[b * c_len + n] = new_image
-
-            new_image = tk.PhotoImage(width=h, height=w)
-            putToImage(self._cap._images[source], new_image, (0, 0, w, h), mirror_x=True, mirror_y=True, rotate=True)
-            self._cap._images[c * c_len + n] = new_image
-    """
+    @property
+    def breadth(self): return self._breadth
 
     def image(self, index:int = 0, length:int = 0):
         index = index % self.numStates()
         if length != self._lengths[index]:
             c2w, c2h = self.cap2.resolution(index)
-            w, h = (self.breadth, length) if not self._vertical else (length, self.breadth)
+            w, h = (self.breadth, length) if self._vertical else (length, self.breadth)
 
             new_img = tk.PhotoImage(width=w, height=h)
             fastTile(self.trough.image(index), *self.trough.resolution(index), new_img, w, h, (0, 0, w, h))
@@ -295,12 +267,60 @@ class BarSkin(Skin):
             self._bg_colors = self.trough.bg_colors()
         return self._images[index]
 
+    @staticmethod
+    def _flipImages(images:list[tk.PhotoImage], vertical:bool):
+        new_images = []
+        fx, fy = (False, True) if vertical else (True, False)
+        for i, img in enumerate(images): new_images.append(flipImage(img, flip_x=fx, flip_y=fy))
+        return new_images
+
     def _expand(self, size:int):
         for n in range(size - len(self._images)):
             self._paths.append(None)
             self._images.append(None)
             self._resolutions.append(None)
             self._lengths.append(None)
+
+
+class ScrollSkin(Skin):
+    def __init__(self, vertical: BarSkin|None = None, horizontal: BarSkin|None = None):
+        super().__init__()
+        self._vertical = vertical or BarSkin()
+        self._horizontal = horizontal or BarSkin()
+
+    @classmethod
+    def fromSkins(cls, cap_skin:Skin, trough_skin:Skin, cap_skin2:Skin|None = None,
+                  breadth:int = 24, vertical:bool = True):
+        return cls(*cls._barsFromSkins(cap_skin, trough_skin, cap_skin2, breadth, vertical))
+
+    @property
+    def vertical(self) -> BarSkin: return self._vertical
+    @property
+    def horizontal(self) -> BarSkin: return self._horizontal
+
+    def setBars(self, vertical:BarSkin, horizontal:BarSkin):
+        self._vertical = vertical if isinstance(vertical, BarSkin) else BarSkin()
+        self._horizontal = horizontal if isinstance(horizontal, BarSkin) else BarSkin()
+
+    def setBySkins(self, cap_skin:Skin, trough_skin:Skin, cap_skin2:Skin|None = None,
+                   breadth:int = 24, vertical:bool = True):
+        self._vertical, self._horizontal = self._barsFromSkins(cap_skin, trough_skin, cap_skin2, breadth, vertical)
+
+    @staticmethod
+    def _rotateImages(images:list[tk.PhotoImage], clockwise:bool = False) -> list[tk.PhotoImage]:
+        new_images = []
+        for i, img in enumerate(images): new_images.append(rotateImage(img, clockwise))
+        return new_images
+
+    @classmethod
+    def _barsFromSkins(cls, cap_skin:Skin, trough_skin:Skin, cap_skin2:Skin|None = None,
+                       breadth:int = 24, vertical:bool = True) -> tuple[BarSkin, BarSkin]:
+        bar1 = BarSkin(cap_skin, trough_skin, cap_skin2, breadth, vertical)
+        new_cap = Skin.fromImages(*cls._rotateImages(bar1.cap1.images(), not vertical))
+        new_trough = Skin.fromImages(*cls._rotateImages(bar1.trough.images()))
+        new_cap2 = Skin.fromImages(*cls._rotateImages(bar1.cap2.images(), not vertical))
+        bar2 = BarSkin(new_cap, new_trough, new_cap2, breadth, not vertical)
+        return bar1, bar2
 
 
 """
@@ -311,8 +331,7 @@ class Skinnable:
         if isinstance(skin, Skin):
             skin.bindWidget(self)
             self._skin = skin
-        else:
-            self._skin = Skin()
+        else: self._skin = Skin()
 
         self.dirty, self.zDirty = True, True
 
@@ -404,7 +423,7 @@ class Skinnable:
 
     def configure(self, **kwargs):
         super().configure(**kwargs)
-        self.after_idle(self._bond)
+        self._geometry = getGeometry(self)      # TODO: Tell parent & overlapping siblings that you've changed.
 
     def _bond(self):        # Form lasting familial relationships with parent and siblings.
         # Refresh stored geometry and register with parent.

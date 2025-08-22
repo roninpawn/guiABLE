@@ -1,4 +1,5 @@
 from guiABLE import *
+from guiABLE.skinnable import ScrollSkin
 from guiABLE.utilities import cropImage, flipImage, rotateImage
 
 
@@ -46,13 +47,13 @@ def test_gui():
     exit_button.place(x=550, y=10)
 
     # Create a scrollable pane with content
-    pane_skin = ScrollablePaneSkin()
-    scrollpane = ScrollFrame(bg, width=250, height=150, scrollable_pane_skin=pane_skin, auto=(True, True))
-    scrollpane.place(x=20, y=100)
-
-    for i in range(30):
-       label = tk.Label(scrollpane.inner, text=f"Item {i + 1}", anchor="w")
-       label.pack(fill=tk.X, padx=5)
+#    pane_skin = ScrollablePaneSkin()
+#    scrollpane = ScrollFrame(bg, width=250, height=150, scrollable_pane_skin=pane_skin, auto=(True, True))
+#    scrollpane.place(x=20, y=100)
+#
+#    for i in range(30):
+#       label = tk.Label(scrollpane.inner, text=f"Item {i + 1}", anchor="w")
+#       label.pack(fill=tk.X, padx=5)
 
     # Create a Holdable button
     hold_skin = Skin("../skins/default/hold_normal.png", "../skins/default/hold_hover.png", "../skins/default/hold_active.png")
@@ -78,14 +79,26 @@ def test_gui():
     cap_skin = Skin("../skins/default/up_glyph-48.png")
     trough_skin.usesBgColors(True)
     cap_skin.usesBgColors(True)
-    img = flipImage(cap_skin.image(), flip_y=True)
-    img = rotateImage(img)
-    cap_skin2 = Skin.fromImages(img)
 
-    bar_skin = BS(cap_skin, trough_skin, cap_skin2, 48)
+    bar_skin = BS.fromTwo(cap_skin, trough_skin, 48, True)
     mid_skin = Skin.fromImages(bar_skin.image(0, 192))
     c = Clickable(bg, skin=mid_skin, width=48, height=192)
-    c.place(x=500, y=200)
+    c.place(x=550, y=200)
+
+    cap_skin2 = Skin.fromImages(rotateImage(cap_skin.image(), False))
+    bar_skin2 = BS.fromTwo(cap_skin2, trough_skin, 48)
+    mid_skin2 = Skin.fromImages(bar_skin2.image(0, 192))
+    c2 = Clickable(bg, skin=mid_skin2, width=192, height=48)
+    c2.place(x=350, y=352)
+
+    ss = ScrollSkin.fromSkins(cap_skin, trough_skin, None, 48)
+    mid_skin3 = Skin.fromImages(ss._vertical.image(0, 192))
+    c3 = Clickable(bg, skin=mid_skin3, width=48, height=192)
+    c3.place(x=500, y=150)
+
+    mid_skin4 = Skin.fromImages(ss._horizontal.image(0, 192))
+    c4 = Clickable(bg, skin=mid_skin4, width=192, height=48)
+    c4.place(x=300, y=300)
 
 #    h_cap = Clickable(bg, skin=bar_skin._cap, width=48, height=48)
 #    h_cap.place(x=300, y=200)

@@ -2,21 +2,23 @@ import tkinter as tk
 
 from .utilities import limitMove, getLocalMouse, updateHover
 from .windowing import Backgroundable, Frameable
-from .skinnable import Skin
-from .widgets import Draggable, Clickable
+from .skinnable import ScrollSkin, BarSkin, Skin
+from .widgets import Draggable, Holdable, Hoverable
 
 
-class ScrollTrough(Frameable, Clickable):
-    def __init__(self, parent, width, height, skin=None, **kwargs):
-        Frameable.__init__(self, parent, width, height, **kwargs)
-        Clickable.__init__(self,parent, lambda: None, skin, **kwargs)
+class Scrollable(Frameable, Hoverable):
+    def __init__(self, parent, width:int, height:int, bg_color:str='gray', **kwargs):
+        Frameable.__init__(self, parent, width, height, bg_color, **kwargs)
+        Hoverable.__init__(self, parent)
 
-class Scrollable(ScrollTrough):
+        self.scrollwheel_speed = 10
+        self.page_percent = .9
+
+
+class Scrollable():
     def __init__(self, parent, trough_width, trough_height, handle_width, handle_height, scrollable_skin=None, **kwargs):
         self.scrollwheel_speed = 10
         self.page_percent = .9
-        self.init_delay = 400
-        self.delay = 100
 
         if scrollable_skin is None: scrollable_skin = ScrollableSkin()
 
@@ -165,32 +167,100 @@ class Scrollable(ScrollTrough):
                 y = 0.0
             self._linked.inner.place_configure(y=y + self.y_offset)
 
+class ScrollBar(Backgroundable):
+    def __init__(self, parent, width:int, height:int, bar_skin:BarSkin|None = None, handle_skin:BarSkin|None = None,
+                 button_skin:Skin|None = None, vertical=True, **kwargs):
+        super().__init__(parent, width, height, **kwargs)
+        self._skin = bar_skin or BarSkin()
+        self._handle_skin = handle_skin or BarSkin()
+        self._button_skin = button_skin
+        self._vertical = vertical
 
-class ScrollCanvas(Backgroundable):
-    pass
+    @property
+    def vertical(self): return self._vertical
+
+    def movePane(self, x_percent, y_percent): pass
+
+class ScrollTrough(Holdable):
+    def __init__(self, parent:ScrollBar, **kwargs):
+        self.vertical = parent.vertical
+        self._length = 0
+
+        super().__init__(parent, skin=parent.skin, **kwargs)
+
+    # Pass handle's percentage of trough traversed to parent ScrollBar
+    def handleMoved(self, x:int, y:int, w:int, h:int):
+        self.master.movePane(
+            0.0 if self._geometry[2] <= w else x / (self._geometry[2]-w),
+            0.0 if self._geometry[3] <= h else y / (self._geometry[3]-h)
+        )
+
+    def setState(self, state_index:int = 0):
+        self._skin.image(state_index, self._length)       # Update skin's length.
+        super().setState(state_index)
+
+    def clicked(self, event):
+        super().clicked(event)
+        self.master.troughClicked(event.x, event.y)     # Pass click event to parent ScrollBar for handling.
+        self.after(self.init_delay, self._keepClicking)
+
+    def _keepClicking(self):
+        if self._clicking:
+            self.master.troughClicked(*getLocalMouse(self)[:2])     # Same.
+            self.after(self.delay, self._keepClicking)
 
 
-class ScrollFrame(ScrollCanvas):
-    def __init__(self, parent, width, height, bar_size=18, scrollable_pane_skin=None, scrollbars=(False, False), auto=(False, False)):
-        super().__init__(parent, width=width, height=height)
+class ScrollHandle(Draggable):
+    def __init__(self, parent:ScrollTrough, bar_skin:BarSkin = None, **kwargs):
+        self._vertical = parent.vertical
+        self._length, self._center = 20, 0
+        super().__init__(parent, skin=bar_skin or BarSkin(), **kwargs)
+
+    @property
+    def length(self) -> int: return self._length
+    def isVertical(self) -> bool: return self._vertical
+
+    def mouseDrag(self, event):
+        super().mouseDrag(event)
+        self.master.handleMoved(*self._geometry)
+
+    def move(self, x:int, y:int):
+        self.place_configure(x=x, y=y)
+        self._geometry[0], self._geometry[1] = x, y
+        self.master.handleMoved(*self._geometry)
+
+    def resize(self, w:int, h:int):
+        self.configure(width=w, height=h)
+        self._geometry[2], self._geometry[3] = w, h
+        self._length = self._geometry[2 + self._vertical]
+
+    def setState(self, state_index:int = 0):
+        self._skin.image(state_index, self._length)
+        super().setState(state_index)
+
+
+class ScrollFram(Frameable):
+    def __init__(self, parent, width:int, height:int, scroll_skin:ScrollSkin=None,
+                 scrollbars:tuple[bool,bool] = (False, False), auto:tuple[bool,bool] = (True, True)):
+        self._skin = scroll_skin or ScrollSkin()
+        super().__init__(parent, width, height, self._skin.bg())
 
         self.collapse = tk.Frame(self.inner)
         self.collapse.pack(anchor=tk.W)
 
-        h_on, v_on = scrollbars
         self.h_auto, self.v_auto = auto
+        h_on, v_on = scrollbars
+        vsize, hsize = self._skin.vertical.breadth, self._skin.horizontal.breadth
 
-        self._skin = scrollable_pane_skin or ScrollablePaneSkin()
+        self.inner_width = width - vsize * v_on * (not self.v_auto)
+        self.inner_height = height - hsize * h_on * (not self.h_auto)
 
-        self.inner_width = width - bar_size * v_on * (not self.v_auto)
-        self.inner_height = height - bar_size * h_on * (not self.h_auto)
-
-        self.v_scroll = Scrollable(self, bar_size, height, bar_size, bar_size, self._skin.v_skin)
+        self.v_scroll = ScrollBar(self, vsize, height, vsize, hsize, self._skin.vertical)
         self._skin.v_skin.bindScrollable(self.v_scroll)
         self.v_scroll.place(x=self.inner_width, y=0)
         self.v_scroll.linkTo(self, -1, (False, True))
 
-        self.h_scroll = Scrollable(self, self.inner_width, bar_size, bar_size, bar_size, self._skin.h_skin)
+        self.h_scroll = ScrollBar(self, self.inner_width, bar_size, bar_size, bar_size, self._skin.h_skin)
         self._skin.h_skin.bindScrollable(self.h_scroll)
         self.h_scroll.place(x=0, y=self.inner_height)
         self.h_scroll.linkTo(self, -1, (True, False))
@@ -241,74 +311,3 @@ class ScrollFrame(ScrollCanvas):
     def enable(self):
         self.v_scroll.enable()
         self.h_scroll.enable()
-
-
-class BarSkin(Skin):
-    def __init__(self, mids_skin=None, ends_skin=None, width=20, height=20, horizontal=False):
-        super().__init__()
-        self.changeSkins(mids_skin or Skin(), ends_skin or Skin())
-
-    def drawBars(self, width, height, horizontal=False):
-        images = [drawBar(self.mids.image(n), self.ends.image(n), width, height, horizontal) for n in range(4)]
-        self.setImages(*images)
-
-    def changeSkins(self, mids_skin, ends_skin):
-        self.mids, self.ends = mids_skin, ends_skin
-
-
-class ScrollableSkin:
-    def __init__(self, trough_mids=None, trough_caps=None, handle_mids=None, handle_caps=None):
-        self.troughs = BarSkin(trough_mids, trough_caps)
-        self.handles = BarSkin(handle_mids, handle_caps)
-        self._recipients = []
-
-    def redraw(self, width, height, horizontal):
-        self.troughs.drawBars(width, height, horizontal)
-        self.handles.drawBars(width, height, horizontal)
-
-    def bindScrollable(self, scrollable):
-        scrollable.setSkin(self.troughs)
-        scrollable.handle.setSkin(self.handles)
-
-    def bindWidget(self, widget):
-        self._recipients.append(widget)
-
-    def unbindWidget(self, widget):
-        if widget in self._recipients:
-            self._recipients.remove(widget)
-
-    def updateRecipients(self): [recipient.redraw() for recipient in self._recipients]
-
-    def changeSkins(self, trough_mids, trough_caps, handle_mids, handle_caps):
-        self.troughs.changeSkins(trough_mids, trough_caps)
-        self.handles.changeSkins(handle_mids, handle_caps)
-
-
-class ScrollablePaneSkin:
-    def __init__(self, trough_mids=None, trough_caps=None, handle_mids=None, handle_caps=None):
-        self.v_skin = ScrollableSkin(trough_mids, trough_caps, handle_mids, handle_caps)
-        self.h_skin = ScrollableSkin(trough_mids, trough_caps, handle_mids, handle_caps)
-
-    def redraw(self, width, height, horizontal):
-        self.v_skin.redraw(width, height, horizontal)
-        self.h_skin.redraw(width, height, horizontal)
-
-    def bindScrollables(self, scrollable):
-        self.v_skin.bindScrollable(scrollable)
-        self.h_skin.bindScrollable(scrollable)
-
-    def bindWidget(self, widget):
-        self.v_skin.bindWidget(widget)
-        self.h_skin.bindWidget(widget)
-
-    def unbindWidget(self, widget):
-        self.v_skin.unbindWidget(widget)
-        self.h_skin.unbindWidget(widget)
-
-    def updateRecipients(self):
-        self.v_skin.updateRecipients()
-        self.h_skin.updateRecipients()
-
-    def changeSkins(self, trough_mids, trough_caps, handle_mids, handle_caps):
-        self.v_skin.changeSkins(trough_mids, trough_caps, handle_mids, handle_caps)
-        self.h_skin.changeSkins(trough_mids, trough_caps, handle_mids, handle_caps)
