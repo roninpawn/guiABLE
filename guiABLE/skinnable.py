@@ -76,6 +76,12 @@ class Skin:
             self._bySprite(sheet, path, width, rows, margins)
         self.updateRecipients()
 
+    @classmethod
+    def fromColors(cls, *colors):
+        sk = cls()
+        sk.setBGColors(*colors)
+        return sk
+
     def setBGColors(self, *colors: str):
         if colors and any(colors):  self._bg_colors = self._fillList([*colors])
         else: warnPrint(f"Skinnable passed list of empty BG colors\n{colors}\nExisting colors retained.")
@@ -233,38 +239,46 @@ class Skin:
 
 class BarSkin(Skin):
     def __init__(self, cap_skin: Skin|None = None, trough_skin: Skin|None = None, cap2_skin: Skin|None = None,
-                 breadth:int = 20, vertical:bool = False):
+                 vertical:bool = False):
         super().__init__()
         self.cap1 = cap_skin or Skin()
         self.trough = trough_skin or Skin()
         self.cap2 = cap2_skin or Skin.fromImages(*self._flipImages(self.cap1.images(), vertical))
-        self._breadth = breadth
         self._vertical = vertical
 
+        self.breadth = self.trough.resolution()[not vertical]
         self._lengths = []
+
         self._expand(min(self.cap1.numStates(), self.trough.numStates(), self.cap2.numStates()))
 
     @classmethod
-    def fromTwo(cls, cap_skin:Skin, trough_skin:Skin, breadth:int = 20, vertical:bool = False):
-        return cls(cap_skin, trough_skin, Skin.fromImages(*cls._flipImages(cap_skin.images(), vertical)), breadth, vertical)
+    def fromTwo(cls, cap_skin:Skin, trough_skin:Skin, vertical:bool = False):
+        return cls(cap_skin, trough_skin, Skin.fromImages(*cls._flipImages(cap_skin.images(), vertical)), vertical)
 
-    @property
-    def breadth(self): return self._breadth
+    def length(self, image_index:int) -> int:
+        if -1 < image_index < len(self._lengths):
+            return self._lengths[image_index]
+        return 0
 
-    def image(self, index:int = 0, length:int = 0):
-        index = index % self.numStates()
-        if length != self._lengths[index]:
+    def image(self, index:int = 0, length:int = None) -> tk.PhotoImage:
+        index = index % len(self._images)
+
+        if length and length != self._lengths[index]:
             c2w, c2h = self.cap2.resolution(index)
-            w, h = (self.breadth, length) if self._vertical else (length, self.breadth)
 
-            new_img = tk.PhotoImage(width=w, height=h)
-            fastTile(self.trough.image(index), *self.trough.resolution(index), new_img, w, h, (0, 0, w, h))
-            fastComposite(new_img, w, h, self.cap1.image(index), 0, 0, *self.cap1.resolution(index))
-            fastComposite(new_img, w, h, self.cap2.image(index), w-c2w, h-c2h, c2w, c2h)
+            w, h = (self.breadth, self.length) if self._vertical else (self.length, self.breadth)
+            if w >= c2w and h >= c2h:
+                new_img = tk.PhotoImage(width=w, height=h)
+                fastTile(self.trough.image(index), *self.trough.resolution(index), new_img, w, h, (0, 0, w, h))
+                fastComposite(new_img, w, h, self.cap1.image(index), 0, 0, *self.cap1.resolution(index))
+                fastComposite(new_img, w, h, self.cap2.image(index), w-c2w, h-c2h, c2w, c2h)
 
-            self._images[index] = new_img
-            self._use_bg_colors = self.trough.usesBgColors()
-            self._bg_colors = self.trough.bg_colors()
+                self._paths[index] = "assembled by BarSkin"
+                self._images[index] = new_img
+                self._resolutions[index] = (w, h)
+                self._lengths[index] = length
+                #self._use_bg_colors = self.trough.usesBgColors()       # For bg_color transparency?
+                #self._bg_colors = self.trough.bg_colors()
         return self._images[index]
 
     @staticmethod
@@ -274,13 +288,12 @@ class BarSkin(Skin):
         for i, img in enumerate(images): new_images.append(flipImage(img, flip_x=fx, flip_y=fy))
         return new_images
 
-    def _expand(self, size:int):
+    def _expand(self, size:int):       # Expands path and image lists to new length.
         for n in range(size - len(self._images)):
             self._paths.append(None)
             self._images.append(None)
             self._resolutions.append(None)
             self._lengths.append(None)
-
 
 class ScrollSkin(Skin):
     def __init__(self, vertical: BarSkin|None = None, horizontal: BarSkin|None = None):
@@ -336,7 +349,8 @@ class Skinnable:
         self.dirty, self.zDirty = True, True
 
         self._z_state = None
-        self._img, self._img_state = self._skin.image(0), 0
+        self._img = self._skin.image(0)
+        self._img_state = 0
         self._z_img = self._img
         self._scratch = tk.PhotoImage()
         self._siblings_atop, self._siblings_beneath = list(), list()     # Tracked siblings, separated by above/below self z-index

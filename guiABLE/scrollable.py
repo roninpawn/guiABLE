@@ -1,6 +1,6 @@
 import tkinter as tk
 
-from .utilities import limitMove, getLocalMouse, updateHover
+from .utilities import limitMove, getLocalMouse, updateHover, getGeometry
 from .windowing import Backgroundable, Frameable
 from .skinnable import ScrollSkin, BarSkin, Skin
 from .widgets import Draggable, Holdable, Hoverable
@@ -168,7 +168,7 @@ class Scrollable():
             self._linked.inner.place_configure(y=y + self.y_offset)
 
 class ScrollBar(Backgroundable):
-    def __init__(self, parent, width:int, height:int, bar_skin:BarSkin|None = None, handle_skin:BarSkin|None = None,
+    def __init__(self, parent, width:int, height:int, bar_skin: BarSkin | None = None, handle_skin: BarSkin | None = None,
                  button_skin:Skin|None = None, vertical=True, **kwargs):
         super().__init__(parent, width, height, **kwargs)
         self._skin = bar_skin or BarSkin()
@@ -176,17 +176,44 @@ class ScrollBar(Backgroundable):
         self._button_skin = button_skin
         self._vertical = vertical
 
+        breadth = min(width, height)
+        if button_skin:
+            # Determine button width/height from Skin or as square of trough's breadth.
+            if self._button_skin.hasImages():
+                bw, bh = self._button_skin.resolution()
+            else:
+                bw, bh = breadth, breadth
+            # Determine 2nd button's x,y location and define trough geometry based on vertical/horizontal orientation.
+            if vertical:
+                b2x, b2y = 0, height - bh
+                tx, ty, tw, th = 0, bh, width, height - (bh * 2)
+            else:
+                b2x, b2y = width - bw, 0
+                tx, ty, tw, th = bw, 0, width - (bw * 2), height
+            # Make and place buttons
+            button1 = Holdable(self, skin=button_skin, width=bw, height=bh)
+            button2 = Holdable(self, skin=button_skin, width=bw, height=bh)
+            button1.place(x=0, y=0)
+            button2.place(x=b2x, y=b2y)
+        else:
+            tx, ty, tw, th = 0, 0, width, height
+        # Place trough
+        trough = ScrollTrough(self, bar_skin, width=tw, height=th)
+        trough.place(x=tx, y=ty)
+        # Place Handle
+        handle = ScrollHandle(trough, handle_skin, width=breadth, height=breadth)
+        handle.place(x=0, y=0)
+
+
     @property
     def vertical(self): return self._vertical
 
     def movePane(self, x_percent, y_percent): pass
 
 class ScrollTrough(Holdable):
-    def __init__(self, parent:ScrollBar, **kwargs):
+    def __init__(self, parent:ScrollBar, skin:BarSkin, **kwargs):
         self.vertical = parent.vertical
-        self._length = 0
-
-        super().__init__(parent, skin=parent.skin, **kwargs)
+        super().__init__(parent, skin=skin, **kwargs)
 
     # Pass handle's percentage of trough traversed to parent ScrollBar
     def handleMoved(self, x:int, y:int, w:int, h:int):
@@ -196,7 +223,7 @@ class ScrollTrough(Holdable):
         )
 
     def setState(self, state_index:int = 0):
-        self._skin.image(state_index, self._length)       # Update skin's length.
+        self._skin.image(state_index, self._geometry[2 + self.vertical])       # Update skin's length.
         super().setState(state_index)
 
     def clicked(self, event):
@@ -212,13 +239,8 @@ class ScrollTrough(Holdable):
 
 class ScrollHandle(Draggable):
     def __init__(self, parent:ScrollTrough, bar_skin:BarSkin = None, **kwargs):
-        self._vertical = parent.vertical
-        self._length, self._center = 20, 0
+        self.vertical = parent.vertical
         super().__init__(parent, skin=bar_skin or BarSkin(), **kwargs)
-
-    @property
-    def length(self) -> int: return self._length
-    def isVertical(self) -> bool: return self._vertical
 
     def mouseDrag(self, event):
         super().mouseDrag(event)
@@ -232,10 +254,10 @@ class ScrollHandle(Draggable):
     def resize(self, w:int, h:int):
         self.configure(width=w, height=h)
         self._geometry[2], self._geometry[3] = w, h
-        self._length = self._geometry[2 + self._vertical]
+        self._length = self._geometry[2 + self.vertical]
 
     def setState(self, state_index:int = 0):
-        self._skin.image(state_index, self._length)
+        self._skin.length = self._geometry[2 + self.vertical]
         super().setState(state_index)
 
 
