@@ -219,7 +219,7 @@ class Backgroundable(Skinnable, Frameable):
         self._inner.pack(fill="both", expand=True)
 
         self._skin.setBGColors(self._inner.cget("bg"))
-        self._inner.configure(selectbackground=self._skin.bg())
+        self._inner.configure(selectbackground=self._skin.bgColor())
         self.after_idle(self.redraw)
 
     @property

@@ -2,7 +2,7 @@ import tkinter as tk
 
 from .utilities import limitMove, getLocalMouse, updateHover, getGeometry
 from .windowing import Backgroundable, Frameable
-from .skinnable import ScrollSkin, BarSkin, Skin
+from .skinnable import ScrollSkin, BarSkin, Skin, FilterSkin
 from .widgets import Draggable, Holdable, Hoverable
 
 
@@ -169,15 +169,15 @@ class Scrollable():
 
 class ScrollBar(Backgroundable):
     def __init__(self, parent, width:int, height:int, bar_skin: BarSkin | None = None, handle_skin: BarSkin | None = None,
-                 button_skin:Skin|None = None, vertical=True, **kwargs):
+                 button_skin:Skin|None = None, vertical=True, breadth:int = 0, **kwargs):
         super().__init__(parent, width, height, **kwargs)
-        self._skin = bar_skin or BarSkin()
+        self._bar_skin = bar_skin or BarSkin()
         self._handle_skin = handle_skin or BarSkin()
         self._button_skin = button_skin
         self._vertical = vertical
 
-        breadth = min(width, height)
-        if button_skin:
+        if breadth < 1: breadth = min(width, height)        # 0/negative = Auto breadth.
+        if self._button_skin:
             # Determine button width/height from Skin or as square of trough's breadth.
             if self._button_skin.hasImages():
                 bw, bh = self._button_skin.resolution()
@@ -190,10 +190,12 @@ class ScrollBar(Backgroundable):
             else:
                 b2x, b2y = width - bw, 0
                 tx, ty, tw, th = bw, 0, width - (bw * 2), height
+
             # Make and place buttons
-            button1 = Holdable(self, skin=button_skin, width=bw, height=bh)
-            button2 = Holdable(self, skin=button_skin, width=bw, height=bh)
+            button1 = Holdable(self, skin=self._button_skin, width=bw, height=bh)
             button1.place(x=0, y=0)
+            button2 = Holdable(self, skin=FilterSkin(self._button_skin, mirror_x=not vertical, mirror_y=vertical),
+                               width=bw, height=bh)
             button2.place(x=b2x, y=b2y)
         else:
             tx, ty, tw, th = 0, 0, width, height
@@ -204,7 +206,6 @@ class ScrollBar(Backgroundable):
         handle = ScrollHandle(trough, handle_skin, width=breadth, height=breadth)
         handle.place(x=0, y=0)
 
-
     @property
     def vertical(self): return self._vertical
 
@@ -213,6 +214,7 @@ class ScrollBar(Backgroundable):
 class ScrollTrough(Holdable):
     def __init__(self, parent:ScrollBar, skin:BarSkin, **kwargs):
         self.vertical = parent.vertical
+        self._default_skin = BarSkin()
         super().__init__(parent, skin=skin, **kwargs)
 
     # Pass handle's percentage of trough traversed to parent ScrollBar
@@ -257,7 +259,7 @@ class ScrollHandle(Draggable):
         self._length = self._geometry[2 + self.vertical]
 
     def setState(self, state_index:int = 0):
-        self._skin.length = self._geometry[2 + self.vertical]
+        self._skin.image(state_index, self._geometry[2 + self.vertical])
         super().setState(state_index)
 
 
@@ -265,7 +267,7 @@ class ScrollFram(Frameable):
     def __init__(self, parent, width:int, height:int, scroll_skin:ScrollSkin=None,
                  scrollbars:tuple[bool,bool] = (False, False), auto:tuple[bool,bool] = (True, True)):
         self._skin = scroll_skin or ScrollSkin()
-        super().__init__(parent, width, height, self._skin.bg())
+        super().__init__(parent, width, height, self._skin.bgColor())
 
         self.collapse = tk.Frame(self.inner)
         self.collapse.pack(anchor=tk.W)

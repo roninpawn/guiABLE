@@ -98,12 +98,14 @@ def fastTile(brush:PhotoImage, bw:int, bh:int, canvas:PhotoImage, cw:int, ch:int
     x1, y1, x2, y2 = bbox
     box_w, box_h = x2 - x1, y2 - y1
     bw, bh = min(bw, box_w), min(bh, box_h)
+    # TODO: Do the largest blit from brush possible. Do 4 operations instead of 400.
     if bw and bh:
         for y in range(y1, y2, bh):
-            h = min(bh, ch-y)
+            h = min(bh, y2-y)
             for x in range(x1, x2, bw):
-                w = min(bw, cw-x)
-                canvas.copy_replace(brush, from_coords=(0, 0, w, h), to=(x, y))
+                w = min(bw, x2-x)
+                if w >= 0 and h >= 0:
+                    canvas.copy_replace(brush, from_coords=(0, 0, w, h), to=(x, y))
 
 def tileImage(brush:PhotoImage, canvas:PhotoImage, bbox:tuple[int,int,int,int]):
     fastTile(brush, brush.width(), brush.height(), canvas, canvas.width(), canvas.height(), bbox)
@@ -196,7 +198,14 @@ def rectsOverlap(a_xywh, b_xywh) -> bool:
         ay >= by + bh     # a is below b
     )
 
-def rectUnion(a_xywh, b_xywh) -> tuple[int, int, int, int]:
+def pointOverlapsRect(x:int, y:int, rect:tuple[int,int,int,int]) -> bool:
+    rx, ry, rw, rh = rect
+    return not (
+        rx + rw < x < rx or
+        ry + rh < y < y
+    )
+
+def rectUnion(a_xywh, b_xywh) -> tuple[int,int,int,int]:
     ax, ay, aw, ah = a_xywh
     bx, by, bw, bh = b_xywh
     ox, oy = min(ax, bx), min(ay, by)

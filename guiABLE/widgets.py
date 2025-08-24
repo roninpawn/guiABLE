@@ -47,12 +47,12 @@ class Baseable(Skinnable, tk.Canvas):
         # Handle opaqueness vs transparency
         if self._skin.usesBgColors():       # Opaque skips siblings beneath it.
             siblings = [self]
-            bg_color = self._skin.bg(self._img_state)
+            bg_color = self._skin.bgColor(self._img_state)
         else:       # Transparent inherits parent's bg color if parent isn't using an image.
             siblings = list(self._siblings_beneath)
             siblings.append(self)
             if not self.master.skin.hasImages():
-                bg_color = self.master.skin.bg()
+                bg_color = self.master.skin.bgColor()
 
         # Only render background color if it is necessary.
         if self.skin.usesBgColors() or (not self.skin.usesBgColors() and not self.master.skin.hasImages()):
@@ -90,7 +90,7 @@ class Baseable(Skinnable, tk.Canvas):
         if self.master.skin.hasImages():
             fastCrop(base, self.master.skin.image(), *self.master.skin.resolution(), x, y, w, h)
         else:
-            fastFlood(base, w, h, self.master.skin.bg())
+            fastFlood(base, w, h, self.master.skin.bgColor())
 
         # Draw each layer to a base image and then crop from that base to each widget's surface, as we go.
         for sibling in siblings:
@@ -136,11 +136,15 @@ class Hoverable(Baseable):
     def mouseIn(self, event):
         # If widget has child and mouse enters child AND parent at the same time, only change child's visual state.
         for child in self._children:
-            if getLocalMouse(child)[2] and not self.moused_over: break
-        else: self.setState(1)
+            if isinstance(child, Hoverable) and getLocalMouse(child)[2]: return
+        self.setState(1)
         self.moused_over = True
 
     def mouseOut(self, event):
+        # If mouse exits widget INTO a parent Hoverable, set parent's state. (fighting Tkinter's jank)
+        if isinstance(self.master, Hoverable) and getLocalMouse(self.master)[2]:
+            self.moused_over = True
+            self.master.setState(1)
         self.moused_over = False
         self.setState(0)
 

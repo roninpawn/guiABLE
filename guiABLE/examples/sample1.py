@@ -77,26 +77,25 @@ def test_gui():
     from guiABLE.skinnable import BarSkin as BS
     trough_skin = Skin("../skins/default/scroll_trough-48.png")
     cap_skin = Skin("../skins/default/up_glyph-48.png")
-    trough_skin.usesBgColors(True)
-    cap_skin.usesBgColors(True)
 
-    bar_skin = BS.fromTwo(cap_skin, trough_skin, 48, True)
+    bar_skin = BS.fromTwo(cap_skin, trough_skin, True)
     mid_skin = Skin.fromImages(bar_skin.image(0, 192))
     c = Clickable(bg, skin=mid_skin, width=48, height=192)
     c.place(x=550, y=200)
 
     cap_skin2 = Skin.fromImages(rotateImage(cap_skin.image(), False))
-    bar_skin2 = BS.fromTwo(cap_skin2, trough_skin, 48)
+    trough_skin2 = Skin.fromImages(rotateImage(trough_skin.image(), False))
+    bar_skin2 = BS.fromTwo(cap_skin2, trough_skin2)
     mid_skin2 = Skin.fromImages(bar_skin2.image(0, 192))
     c2 = Clickable(bg, skin=mid_skin2, width=192, height=48)
     c2.place(x=350, y=352)
 
-    ss = ScrollSkin.fromSkins(cap_skin, trough_skin, None, 48)
-    mid_skin3 = Skin.fromImages(ss._vertical.image(0, 192))
+    ss = ScrollSkin.fromSkins(cap_skin, trough_skin, None, True)
+    mid_skin3 = Skin.fromImages(ss._v_bar.image(0, 192))
     c3 = Clickable(bg, skin=mid_skin3, width=48, height=192)
     c3.place(x=500, y=150)
 
-    mid_skin4 = Skin.fromImages(ss._horizontal.image(0, 192))
+    mid_skin4 = Skin.fromImages(ss._h_bar.image(0, 192))
     c4 = Clickable(bg, skin=mid_skin4, width=192, height=48)
     c4.place(x=300, y=300)
 
