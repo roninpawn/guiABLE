@@ -172,7 +172,7 @@ class ScrollBar(Backgroundable):
                  button_skin:Skin|None = None, vertical=True, breadth:int = 0, **kwargs):
         super().__init__(parent, width, height, **kwargs)
         self._bar_skin = bar_skin or BarSkin()
-        self._handle_skin = handle_skin or BarSkin()
+        self._handle_skin = handle_skin or BarSkin().fromColors('gray65', 'white', 'red', 'gray10')
         self._button_skin = button_skin
         self._vertical = vertical
 
@@ -200,10 +200,10 @@ class ScrollBar(Backgroundable):
         else:
             tx, ty, tw, th = 0, 0, width, height
         # Place trough
-        trough = ScrollTrough(self, bar_skin, width=tw, height=th)
+        trough = ScrollTrough(self, self._bar_skin, width=tw, height=th)
         trough.place(x=tx, y=ty)
         # Place Handle
-        handle = ScrollHandle(trough, handle_skin, width=breadth, height=breadth)
+        handle = ScrollHandle(trough, self._handle_skin, width=breadth, height=breadth)
         handle.place(x=0, y=0)
 
     @property

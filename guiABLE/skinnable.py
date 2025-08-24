@@ -1,7 +1,7 @@
 import tkinter as tk
 
 from guiABLE.utilities import (warnPrint, resolvePath, cropImage, loadImage, getGeometry, rectsOverlap, fastComposite,
-                               fastFlood, fastTile, flipImage, rotateImage, fastRotate, fastFlip)
+                               fastFlood, fastTile, flipImage, rotateImage)
 
 
 """ CoreSkin establishes the core contents and operations of a Skin. It is a base class. Not for standalone use."""
@@ -13,7 +13,12 @@ class CoreSkin:
         self._bg_colors = self._default_colors
         self._use_bg_colors = True
 
-    # Basic background-color configuration methods
+    # Create/manipulate background colors. ex: new_skin = Skin.fromColors('yellow', 'blue', 'orange', 'gray15')
+    @classmethod
+    def fromColors(cls, *colors):
+        sk = cls()
+        sk.setBGColors(*colors)
+        return sk
     def setBGColors(self, *colors: str):
         if colors and any(colors):  self._bg_colors = self._fillList([*colors])
         else: warnPrint(f"Skinnable passed list of empty BG colors\n{colors}\nExisting colors retained.")
@@ -125,13 +130,6 @@ class Skin(CoreSkin):
         if any(paths):
             self._expand(len(paths))
             self._byPaths(paths)
-
-    """ Create/manipulate background colors. ex: new_skin = Skin.fromColors('yellow', 'blue', 'orange', 'gray15') """
-    @classmethod
-    def fromColors(cls, *colors):
-        sk = cls()
-        sk.setBGColors(*colors)
-        return sk
 
     """ By resource paths. ex: Skin("skins/my_skin/checkbox_enabled.png","skins/my_skin/checkbox_hover.png", ...) """
     @classmethod
@@ -335,35 +333,37 @@ class BarSkin(CoreSkin):
         else: self.breadth = breadth
 
         self._lengths = []
-        size = min(self.cap1.numStates(), self.trough.numStates(), self.cap2.numStates())
+        size = min(len(self.cap1.images), len(self.trough.images), len(self.cap2.images))
         self._expand(size)
 
     @classmethod
     def fromTwo(cls, cap_skin:Skin|FilterSkin, trough_skin:Skin|FilterSkin, vertical:bool = False, breadth:int = 0):
         return cls(cap_skin, trough_skin, vertical=vertical, breadth=breadth)
 
-    def image(self, index:int = 0, length:int = None) -> tk.PhotoImage:
-        index = index % len(self._images)
+    def image(self, index:int = 0, length:int = None) -> tk.PhotoImage|None:
+        if self._images:
+            index = index % len(self._images)
 
-        if length and length != self._lengths[index]:
-            w, h = (self.breadth, length) if self._vertical else (length, self.breadth)
-            cw, ch = self.cap1.resolution(index)
-            c2w, c2h = self.cap2.resolution(index)
-            c2x, c2y = w-c2w, h-c2h
+            if length and length != self._lengths[index]:
+                w, h = (self.breadth, length) if self._vertical else (length, self.breadth)
+                cw, ch = self.cap1.resolution(index)
+                c2w, c2h = self.cap2.resolution(index)
+                c2x, c2y = w-c2w, h-c2h
 
-            if w >= c2w and h >= c2h:
-                new_img = tk.PhotoImage(width=w, height=h)
-                bbox = (0, ch, w, c2y) if self._vertical else (cw, 0, c2x, h)
-                fastTile(self.trough.image(index), *self.trough.resolution(index), new_img, w, h, bbox)
-                fastComposite(new_img, w, h, self.cap1.image(index), 0, 0, *self.cap1.resolution(index))
-                fastComposite(new_img, w, h, self.cap2.image(index), w-c2w, h-c2h, c2w, c2h)
+                if w >= c2w and h >= c2h:
+                    new_img = tk.PhotoImage(width=w, height=h)
+                    bbox = (0, ch, w, c2y) if self._vertical else (cw, 0, c2x, h)
+                    fastTile(self.trough.image(index), *self.trough.resolution(index), new_img, w, h, bbox)
+                    fastComposite(new_img, w, h, self.cap1.image(index), 0, 0, *self.cap1.resolution(index))
+                    fastComposite(new_img, w, h, self.cap2.image(index), w-c2w, h-c2h, c2w, c2h)
 
-                self._images[index] = new_img
-                self._resolutions[index] = (w, h)
-                self._lengths[index] = length
-                #self._use_bg_colors = self.trough.usesBgColors()       # For bg_color transparency?
-                #self._bg_colors = self.trough.bg_colors
-        return self._images[index]
+                    self._images[index] = new_img
+                    self._resolutions[index] = (w, h)
+                    self._lengths[index] = length
+                    #self._use_bg_colors = self.trough.usesBgColors()       # For bg_color transparency?
+                    #self._bg_colors = self.trough.bg_colors
+            return self._images[index]
+        return None
 
     @staticmethod
     def _flipImages(images:list[tk.PhotoImage], vertical:bool):
@@ -463,7 +463,6 @@ class Skinnable:
             self._z_img = tk.PhotoImage(width=w, height=h)
             if not self._skin.hasImages() or self._skin.usesBgColors():
                 fastFlood(self._z_img, w, h, self._skin.bgColor(self._img_state))
-            if not self._skin.resolution(self._img_state): print(self._skin)
             fastComposite(self._z_img, w, h, self._skin.image(self._img_state), 0, 0,
                           *self._skin.resolution(self._img_state))
             self._z_state = self._img_state
