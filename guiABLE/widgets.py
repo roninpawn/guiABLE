@@ -11,6 +11,8 @@ class Baseable(Skinnable, tk.Canvas):
     def __init__(self, parent, skin=None, **kwargs):
         Skinnable.__init__(self, skin)
         tk.Canvas.__init__(self, parent, highlightthickness=0, **kwargs)
+        self.bind("<Configure>", self._geometry_changed)
+
         self._enabled = False
         self._drop_list = set()
         self.bench, self.benches = 0, 0
@@ -78,7 +80,7 @@ class Baseable(Skinnable, tk.Canvas):
         self.bench += time() - start
         self.benches += 1
         if self.benches >= 100:
-            print(self.bench)
+            print(f"{round(self.bench / 100, 5)}s per draw.")
             self.bench, self.benches = 0, 0
 
     def compositeUnion(self, siblings:list):
@@ -296,11 +298,11 @@ class Holdable(Pushable):
 
 
 class Draggable(Holdable):
-    def __init__(self, parent, function=lambda: None, skin=None, **kwargs):
-        super().__init__(parent, function, skin, **kwargs)
+    def __init__(self, parent, skin=None, **kwargs):
+        super().__init__(parent, self._drag, skin, **kwargs)
         self._all_siblings_atop, self._all_siblings_beneath = list(), list()
         self._last_geometry = self._geometry
-        self._bounds = (0, 0, *self.parent.geometry[2:])
+        self._bounds = (0, 0, *self.parent.size)
 
     def setBounds(self, x1, y1, x2, y2): self._bounds = (x1, y1, x2, y2)
 
@@ -308,7 +310,8 @@ class Draggable(Holdable):
         self.x = event.x
         self.y = event.y
         self._splitAllSiblings()
-        super().clicked(event)
+        self._clicking = True
+        self.setState(2)
 
     def mouseDrag(self, event):
         x, y, w, h = self.geometry
@@ -318,14 +321,8 @@ class Draggable(Holdable):
         x = limitMove(x, w, self._bounds[0], self._bounds[2])
         y = limitMove(y, h, self._bounds[1], self._bounds[3])
 
-        self.place_configure(x=x, y=y)
-
         self._geometry = x, y, w, h
-        self._populateOverlappingSiblings(self._siblings_atop, self._all_siblings_atop, False)
-        self._populateOverlappingSiblings(self._siblings_beneath, self._all_siblings_beneath, True)
-        self._last_geometry = self._geometry
-
-        self.after_idle(self.redraw)
+        if self._last_geometry != self.geometry: self.function(x, y)
 
     def enable(self):
         self.bind("<B1-Motion>", self.mouseDrag)
@@ -334,6 +331,13 @@ class Draggable(Holdable):
     def disable(self):
         self.unbind("<B1-Motion>")
         super().disable()
+
+    def _drag(self, x:int, y:int):
+        self.place_configure(x=x, y=y)
+        self._populateOverlappingSiblings(self._siblings_atop, self._all_siblings_atop, False)
+        self._populateOverlappingSiblings(self._siblings_beneath, self._all_siblings_beneath, True)
+        self._last_geometry = self._geometry
+        self.after_idle(self.redraw)
 
     def _splitAllSiblings(self):
         atop = False
@@ -355,4 +359,4 @@ class Draggable(Holdable):
 
     def _bond(self):
         super()._bond()
-        self._bounds = self._bounds = (0, 0, *self.parent.geometry[2:])
+        self._bounds = self._bounds = (0, 0, *self.parent.size)

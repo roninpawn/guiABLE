@@ -212,6 +212,7 @@ class Backgroundable(Skinnable, Frameable):
     def __init__(self, parent, width, height, image_path=None, bg='gray', **kwargs):
         Skinnable.__init__(self)
         Frameable.__init__(self, parent, width=width, height=height, bg=bg, **kwargs)
+        self.bind("<Configure>", self._geometry_changed)
 
         self._skin.setPaths(image_path)
 

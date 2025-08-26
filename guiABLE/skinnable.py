@@ -272,9 +272,9 @@ class FilterSkin(CoreSkin):
         super().__init__()
 
         if isinstance(linked_skin, FilterSkin):
-            if linked_skin.rotate: rotate = not rotate
-            if linked_skin.mirror_x: mirror_x = not mirror_x
-            if linked_skin.mirror_y: mirror_y = not mirror_y
+            rotate, mirror_x, mirror_y = self._state_sum(
+                (linked_skin.rotate, linked_skin.mirror_x, linked_skin.mirror_y), (rotate, mirror_x, mirror_y)
+            )
             self._linked_skin = linked_skin.linked_skin
 
         else: self._linked_skin =linked_skin
@@ -307,6 +307,39 @@ class FilterSkin(CoreSkin):
     def bindWidget(self, widget): self._linked_skin.bindWidget(widget)
     def unbindWidget(self, widget): self._linked_skin.unbindWidget(widget)
 
+    @staticmethod
+    def _state_sum(S1, S2) -> tuple[bool, bool, bool]:
+        """
+        Each state is a tuple (r, x, y) of booleans:
+          r: rotate 90° CCW
+          x: mirror X
+          y: mirror Y
+
+        This formula (dihedral group of the square) simply sees each 90 degree rotation flip the x and y mirror states.
+        Meanwhile R, x, and y just sum in binary. (0+1 or 1+0 = 1, 1+1 = 0)
+        R,x,y (1,1,1) + R,x,y (1,1,1) = (0,0,0) cancellation
+        x,y (0,1,1) + y (0,0,1) = (0,1,0) binary sum
+        R (1,0,0) + x (0,1,0) = (1,0,1) R flips x to 0 and y to 1
+        """
+        r2,x2,y2 = S2  # apply after...
+        r1,x1,y1 = S1  # ...this one
+
+        # If S2 rotates, it swaps the meaning of S1’s flips
+        if r2: x1, y1 = y1, x1
+
+        # Flips XOR together
+        x = x2 ^ x1
+        y = y2 ^ y1
+
+        # Rotation is XOR too, but if both rotate (i.e., 180°), fold into flips
+        both = r1 and r2
+        r = r1 ^ r2
+        if both:      # trade 180° for flip-both
+            x ^= 1
+            y ^= 1
+            # r already became False via XOR
+
+        return bool(r), bool(x), bool(y)
 
 
 """
@@ -388,10 +421,12 @@ class BarSkin(CoreSkin):
     generates both the vertical and horizontal BarSkin by rotating whichever one was given. 
 """
 class ScrollSkin(CoreSkin):
-    def __init__(self, vertical_bar: BarSkin | None = None, horizontal_bar: BarSkin | None = None):
+    def __init__(self, vertical_bar: BarSkin | None = None, horizontal_bar: BarSkin | None = None,
+                 button_skin: Skin | FilterSkin | None = None):
         super().__init__()
         self._v_bar = vertical_bar or BarSkin()
         self._h_bar = horizontal_bar or BarSkin()
+        self._button_skin = button_skin
 
     @classmethod
     def fromSkins(cls, cap_skin:Skin, trough_skin:Skin, cap_skin2:Skin|None = None, vertical:bool = True):
@@ -401,6 +436,8 @@ class ScrollSkin(CoreSkin):
     def vertical(self) -> BarSkin: return self._v_bar
     @property
     def horizontal(self) -> BarSkin: return self._h_bar
+    @property
+    def button(self) -> Skin | FilterSkin | None: return self._button_skin
 
     def setBars(self, vertical:BarSkin, horizontal:BarSkin):
         self._v_bar = vertical if isinstance(vertical, BarSkin) else BarSkin()
@@ -410,12 +447,6 @@ class ScrollSkin(CoreSkin):
                    breadth:int = 24, vertical:bool = True):
         self._v_bar, self._h_bar = self._barsFromSkins(cap_skin, trough_skin, cap_skin2, breadth, vertical)
 
-    @staticmethod
-    def _rotateImages(images:list[tk.PhotoImage], clockwise:bool = False) -> list[tk.PhotoImage]:
-        new_images = []
-        for i, img in enumerate(images): new_images.append(rotateImage(img, clockwise))
-        return new_images
-
     @classmethod
     def _barsFromSkins(cls, cap_skin:Skin, trough_skin:Skin, cap_skin2:Skin|None = None,
                        vertical:bool = True) -> tuple[BarSkin, BarSkin]:
@@ -424,6 +455,8 @@ class ScrollSkin(CoreSkin):
         new_trough = FilterSkin(bar1.trough, rotate=True)
         new_cap2 = FilterSkin(bar1.cap2, rotate=True)
         bar2 = BarSkin(new_cap, new_trough, new_cap2, not vertical)
+        print(bar1.bg_colors)
+        bar2.setBGColors(*bar1.bg_colors)
         return bar1, bar2
 
 
@@ -482,6 +515,10 @@ class Skinnable:
     # Speed enhancing methods.
     @property
     def geometry(self): return self._geometry     # Geometry is tracked, providing much faster access than winfo_ gives.
+    @property
+    def size(self): return self._geometry[2:]
+    @property
+    def location(self): return self._geometry[:2]
     def scratchImage(self): return self._scratch  # Persistent PhotoImage provides an INSTANT redraw canvas.
 
     # Parent that host child widgets track and provide a list of those children's z-order.
@@ -532,17 +569,14 @@ class Skinnable:
         self.after_idle(self.master._lowerChildIndex, self, below)
         self.after_idle(self._findOverlappingSiblings, self.master.getChildren())
 
-    # Override methods that may alter geometry (x, y, w, h) to track and report changes to all interested parties.
-    def configure(self, **kwargs):
-        super().configure(**kwargs)
-        self._geometry = getGeometry(self)      # TODO: Tell parent & overlapping siblings that you've changed.
+    def _geometry_changed(self, event):
+        self._geometry = getGeometry(self)
 
     def _bond(self):        # Form lasting familial relationships with parent and siblings.
         # Refresh stored geometry and register with parent.
         self._geometry = getGeometry(self)
         self._scratch = tk.PhotoImage(width=self._geometry[2], height=self._geometry[3])
-        if isinstance(self, tk.Canvas):
-            self.master.registerChild(self)
+        if isinstance(self, tk.Canvas): self.master.registerChild(self)
         self._findOverlappingSiblings(self.master.children)
 
     # Find overlapping siblings and store them / register with them, for future tracking.
