@@ -58,12 +58,12 @@ def test_gui():
     # Create a Holdable button
     hold_skin = Skin("../skins/default/hold_normal.png", "../skins/default/hold_hover.png", "../skins/default/hold_active.png")
     hold_btn = Holdable(bg, function=lambda: print("Holding..."), skin=hold_skin, width=100, height=40, delay=200)
-    hold_btn.place(x=20, y=300)
+    hold_btn.place(x=20, y=350)
 
     # Create a Clickable-only button
     click_skin = Skin("../skins/default/click_normal.png", "../skins/default/click_hover.png", "../skins/default/click_active.png")
     click_btn = Clickable(bg, function=lambda: print("Clicked instantly!"), skin=click_skin, width=100, height=40)
-    click_btn.place(x=140, y=300)
+    click_btn.place(x=140, y=350)
 
     # Create extra Togglables for above/below testing.
     test_toggle3 = Toggleable(bg, True, lambda: print("Toggle1 state:", test_toggle3.state()), skin=toggle_skin,
@@ -90,20 +90,11 @@ def test_gui():
     c2 = Clickable(bg, skin=mid_skin2, width=192, height=48)
     c2.place(x=350, y=352)
 
-    ss = ScrollSkin.fromSkins(cap_skin, trough_skin, None, True)
-    mid_skin3 = Skin.fromImages(ss._v_bar.image(0, 192))
-    c3 = Clickable(bg, skin=mid_skin3, width=48, height=192)
-    c3.place(x=500, y=150)
-
-    mid_skin4 = Skin.fromImages(ss._h_bar.image(0, 192))
-    c4 = Clickable(bg, skin=mid_skin4, width=192, height=48)
-    c4.place(x=300, y=300)
-
-#    h_cap = Clickable(bg, skin=bar_skin._cap, width=48, height=48)
-#    h_cap.place(x=300, y=200)
-
-#    bar = Clickable(bg, skin = bar_skin, width=144, height=48)
-#    bar.place(x=300, y=248)
+    trough_skin = Skin("../skins/default/scroll_trough-48.png")
+    cap_skin = Skin("../skins/default/up_glyph-48.png")
+    scroll_skin = ScrollSkin.fromSkins(cap_skin, trough_skin, vertical=True)
+    scroll_area = Scrollable(bg, 450, 215, scroll_skin)
+    scroll_area.place(x=20, y=120)
 
     # Prove lower/lift functionality
     click_btn.lift(test_toggle1)

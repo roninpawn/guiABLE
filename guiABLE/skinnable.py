@@ -455,7 +455,6 @@ class ScrollSkin(CoreSkin):
         new_trough = FilterSkin(bar1.trough, rotate=True)
         new_cap2 = FilterSkin(bar1.cap2, rotate=True)
         bar2 = BarSkin(new_cap, new_trough, new_cap2, not vertical)
-        print(bar1.bg_colors)
         bar2.setBGColors(*bar1.bg_colors)
         return bar1, bar2
 
