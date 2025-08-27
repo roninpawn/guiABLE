@@ -1,6 +1,20 @@
-# guiABLE
+# guiABLE 2
 The project to make Python's tkinter suck considerably less.
 
+**guiABLE 2 is a work in progress, not yet fit for public consumption.**
+What you find here, today, is the current state of the code, in active development.
+
+guiABLE2's major overhaul brings full transparency support to guiABLE 1's skin-everything party, while still
+maintaining a ZERO-DEPENDENCIES policy. No PIL. No NumPy. Just Python. Long-term, I intend to provide an
+analogue for every ttk widget, a default skin for the whole collection, and to support resizable... everything.
+Windows, widgets -- the whole shebang.
+
+In the immediate, when the re-write reaches the point of supporting up/down scaling of static applications,
+(make it at 4k and scale it to 720p), I will push a release... and then merge guiABLE2 to the master branch.
+
+Until then, here's guiABLE 1's old copy... It still describes a lot of what's here:
+
+# guiABLE
 guiABLE is a quick, all-inlusive library that allows you to whip up a graphic user interface in Python that:
 
     1.) Doesn't look awful.
