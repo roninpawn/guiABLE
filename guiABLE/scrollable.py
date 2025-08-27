@@ -1,9 +1,9 @@
 import tkinter as tk
 
-from .utilities import limitMove, getLocalMouse, updateHover, getGeometry
+from .utilities import limitMove, getLocalMouse, updateHover, getGeometry, fastCrop
 from .windowing import Backgroundable, Frameable
 from .skinnable import ScrollSkin, BarSkin, Skin, FilterSkin
-from .widgets import Draggable, Holdable, Hoverable, Glassable
+from .widgets import Draggable, Holdable, Baseable
 
 
 class Scrollable():
@@ -159,17 +159,42 @@ class Scrollable():
             self._linked.inner.place_configure(y=y + self.y_offset)
 
 
+class ScrollPlate(Baseable):
+    def __init__(self, parent, skin=None, **kwargs):
+        super().__init__(parent, skin, **kwargs)
+
+    def setState(self, state_index:int = 0):
+        # If widget lacks geometry (has not fully spawned) wait until it has.
+        x, y, w, h = self.geometry
+        if w <= 1 and h <= 1:
+            self.after_idle(lambda : self.redraw())
+            return
+
+        if self.master.skin.hasImages():
+            w, h = self.master.skin.resolution()[:2]
+            fastCrop(self._scratch, self.master.skin.image(), w, h, 0, 0, w, h)
+            self.render(self._scratch, -x, -y)
+        else:
+            bg_color = self.master.skin.bgColor()
+            self.configure(background=bg_color)
+
+    def _get_geometry(self):        # TODO: Could be problematic overriding geometry. Store req separate if issues.
+        x, y, w, h = getGeometry(self)
+        self._geometry = x, y, max(self.winfo_reqwidth(), w), max(self.winfo_reqheight(), h)
+
+
 class Scrollable(Backgroundable):
     def __init__(self, parent, width:int, height:int, scroll_skin: ScrollSkin, **kwargs):
         super().__init__(parent, width=width, height=height, **kwargs)
 
         self._scroll_skin = scroll_skin
         v_breadth, h_breadth = self._scroll_skin.vertical.breadth, self._scroll_skin.horizontal.breadth
+        bw, bh = width-v_breadth, height-h_breadth
         self._inner.configure(bg='gray55')
-        self._inner.place_configure(width=width-h_breadth, height=height-v_breadth)
+        self._inner.place_configure(width=bw, height=bh)
 
-        self._scroll_plate = Glassable(self)
-        self._scroll_plate.place(x=0, y=0, width=width-h_breadth, height=height-v_breadth)
+        self._scroll_plate = ScrollPlate(self, width=bw, height=bh)
+        self._scroll_plate.place(x=0, y=0, width=bw, height=bh)
         self._scroll_plate.bind('<Configure>', self._config_plate)
 
         # Place the scrollbars.
@@ -191,19 +216,18 @@ class Scrollable(Backgroundable):
 
     def movePane(self, x_per:int, y_per:int):
         # TODO: Store state/minimize calculations.
-        frame_w, frame_h = self.size
-        ix, iy, iw, ih = getGeometry(self._scroll_plate)
-        iw, ih = self._scroll_plate.winfo_reqwidth(), self._scroll_plate.winfo_reqheight()
+        frame_w, frame_h = (self._geometry[2] - self._scroll_skin.vertical.breadth,
+                            self._geometry[3] - self._scroll_skin.vertical.breadth)
+        ix, iy, iw, ih = self._scroll_plate.geometry
+
         min_x = min(0, -(iw - frame_w))
         min_y = min(0, -(ih - frame_h))
-        x = min_x * x_per if x_per else ix
-        y = min_y * y_per if y_per else iy
+        x = min_x * x_per if x_per is not None else ix
+        y = min_y * y_per if y_per is not None else iy
 
-        #print(x, y)
         self._scroll_plate.place_configure(x=x, y=y)
+        self._scroll_plate._geometry = (x, y, iw, ih)
         self._scroll_plate.redraw()
-
-        #self.inner._geometry[0], self._geometry[1] = x, y
 
 
 class ScrollBar(Backgroundable):

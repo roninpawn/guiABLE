@@ -387,8 +387,7 @@ class BarSkin(CoreSkin):
                     self._images[index] = new_img
                     self._resolutions[index] = (w, h)
                     self._lengths[index] = length
-                    #self._use_bg_colors = self.trough.usesBgColors()       # For bg_color transparency?
-                    #self._bg_colors = self.trough.bg_colors
+
             return self._images[index]
         return None
 
@@ -450,7 +449,7 @@ class ScrollSkin(CoreSkin):
         new_cap2 = FilterSkin(bar1.cap2, rotate=True)
         bar2 = BarSkin(new_cap, new_trough, new_cap2, not vertical)
         bar2.setBGColors(*bar1.bg_colors)
-        return bar1, bar2
+        return (bar1, bar2) if vertical else (bar2, bar1)
 
 
 """
@@ -479,7 +478,7 @@ class Skinnable:
         self._geometry = (0, 0, 0, 0)
 
     @property
-    def skin(self) -> Skin: return self._skin
+    def skin(self) -> Skin|FilterSkin|BarSkin|ScrollSkin: return self._skin
 
     # The ZImage() is a persistent render of what the widget looks like on its own. Only updated if something changed.
     @property
@@ -562,8 +561,9 @@ class Skinnable:
         self.after_idle(self.master._lowerChildIndex, self, below)
         self.after_idle(self._findOverlappingSiblings, self.master.getChildren())
 
-    def _geometry_changed(self, event):
-        self._geometry = getGeometry(self)
+    def _geometry_changed(self, event): self.after_idle(self._get_geometry)
+
+    def _get_geometry(self): self._geometry = getGeometry(self)
 
     def _bond(self):        # Form lasting familial relationships with parent and siblings.
         # Refresh stored geometry and register with parent.

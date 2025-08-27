@@ -100,8 +100,8 @@ def test_gui():
     scroll_area.place(x=20, y=120)
 
     for i in range(30):
-       label = tk.Label(scroll_area.scrollPane, text=f"Item {i + 1}", anchor="w")
-       label.pack(fill=tk.X, padx=5, pady=5)
+       label = tk.Label(scroll_area.scrollPane, text=f"Item {i + 1}", anchor="w", background="blue")
+       label.pack(fill=tk.X, padx=10, pady=10)
 
     # Prove lower/lift functionality
     click_btn.lift(test_toggle1)

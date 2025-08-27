@@ -3,8 +3,7 @@ from time import time
 from typing import Optional
 
 from guiABLE.skinnable import Skin, Skinnable
-from guiABLE.utilities import limitMove, getGeometry, rectsOverlap, rectUnion, fastComposite, fastCrop, fastFlood, \
-    getLocalMouse
+from guiABLE.utilities import limitMove, rectsOverlap, rectUnion, fastComposite, fastCrop, fastFlood, getLocalMouse
 
 
 class Baseable(Skinnable, tk.Canvas):
@@ -19,6 +18,7 @@ class Baseable(Skinnable, tk.Canvas):
         self.bench, self.benches = 0, 0
         self._img_state = 0
 
+        self.after_idle(self._geometry_changed, None)
         self.enable()
 
     @property
@@ -28,8 +28,8 @@ class Baseable(Skinnable, tk.Canvas):
     @property
     def state(self): return self._img_state
 
-    def redraw(self,):
-        self._geometry = getGeometry(self)
+    def redraw(self):
+        #self._geometry = getGeometry(self)     # TODO: Slow. Ensure geometry changes are always caught, though.
         self.setState(self._img_state)
 
     def render(self, image:tk.PhotoImage, x:int = 0, y:int = 0):
@@ -116,32 +116,6 @@ class Baseable(Skinnable, tk.Canvas):
             if not rectsOverlap(self.geometry, sibling.geometry):
                 sibling.dropSibling(self)
                 self.dropSibling(sibling)
-
-
-class Glassable(Baseable):
-    def __init__(self, parent, skin=None, **kwargs):
-        super().__init__(parent, skin, **kwargs)
-        self._origin = (0, 0)
-        self.after_idle(self._setOrigin)
-
-    def setState(self, state_index:int = 0):
-        # If widget lacks geometry (has not fully spawned) wait until it has.
-        x, y, w, h = self.geometry
-        if w <= 1 and h <= 1:
-            self.after_idle(lambda : self.redraw())
-            return
-
-        if self.master.skin.hasImages():
-            ox, oy = self._origin
-            print(x, y, ox-x, oy-y)
-            # Need to control destination of crop within receiving widget.
-            fastCrop(self._scratch, self.master.skin.image(), *self.master.skin.resolution()[:2], ox-x, ox-y, w, h)
-            self.render(self._scratch)
-        else:
-            bg_color = self.master.skin.bgColor()
-            self.configure(background=bg_color)
-
-    def _setOrigin(self): self._origin = self.location
 
 
 class Imageable(Baseable):
@@ -231,7 +205,6 @@ class Pushable(Clickable):
         if self.moused_over:
             self.function()
 
-
     def mouseIn(self, event):
         if not self._clicking:
             super().mouseIn(event)
@@ -278,14 +251,14 @@ class Toggleable(Pushable):
     def __init__(self, parent, state:bool=False, function=lambda: None, skin:Skin = None, **kwargs):
         self._state_offset = 0
         super().__init__(parent, function, skin, **kwargs)
-        self.state(state)
+        self.after_idle(self.state, state)
 
     def mouseUp(self, event):
         self._clicking = False
         if self.moused_over:
             self.state(not self._toggle_state)
             self.function()
-            self.redraw()
+        self.mouseIn(event) if self.moused_over else self.mouseOut(event)
 
     def state(self, state:bool=None) -> Optional[bool]:
         if isinstance(state, bool):
@@ -294,9 +267,7 @@ class Toggleable(Pushable):
             self.redraw()
         return self._toggle_state
 
-    def setState(self, state_index:int = 0):
-        state_index += self._state_offset
-        super().setState(state_index)
+    def setState(self, state_index:int = 0): super().setState(state_index + self._state_offset)
 
 
 class Holdable(Pushable):
@@ -362,6 +333,7 @@ class Draggable(Holdable):
         super().disable()
 
     def _drag(self, x:int, y:int):
+        #print(x,y)
         self.place_configure(x=x, y=y)
         self._populateOverlappingSiblings(self._siblings_atop, self._all_siblings_atop, False)
         self._populateOverlappingSiblings(self._siblings_beneath, self._all_siblings_beneath, True)
