@@ -1,11 +1,13 @@
 from guiABLE import *
 from guiABLE.skinnable import ScrollSkin
-from guiABLE.utilities import cropImage, flipImage, rotateImage
+from guiABLE.utilities import cropImage, rotateImage, loadImage
 
 
 def test_gui():
     app = Windowable(geometry="600x400+100+100", title="guiABLE Testbed")
-    bg = Backgroundable(app, "600", "400", "../skins/default/bg-600x400.png")
+    bg_image, _ = loadImage("../skins/default/bg-600x400.png")
+    bg = Backgroundable(app, "600", "400")
+    bg.setImage(bg_image)
     bg.place(x=0, y=0)
 
     # Make app draggable by grabbing the background.
@@ -94,7 +96,12 @@ def test_gui():
     cap_skin = Skin("../skins/default/up_glyph-48.png")
     scroll_skin = ScrollSkin.fromSkins(cap_skin, trough_skin, vertical=True)
     scroll_area = Scrollable(bg, 450, 215, scroll_skin)
+    scroll_area.setImage(bg_image)
     scroll_area.place(x=20, y=120)
+
+    for i in range(30):
+       label = tk.Label(scroll_area.scrollPane, text=f"Item {i + 1}", anchor="w")
+       label.pack(fill=tk.X, padx=5, pady=5)
 
     # Prove lower/lift functionality
     click_btn.lift(test_toggle1)

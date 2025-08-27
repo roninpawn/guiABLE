@@ -9,20 +9,17 @@ from guiABLE.utilities import limitMove, getGeometry, rectsOverlap, rectUnion, f
 
 class Baseable(Skinnable, tk.Canvas):
     def __init__(self, parent, skin=None, **kwargs):
+        self._enabled = False
+
         Skinnable.__init__(self, skin)
         tk.Canvas.__init__(self, parent, highlightthickness=0, **kwargs)
         self.bind("<Configure>", self._geometry_changed)
 
-        self._enabled = False
         self._drop_list = set()
         self.bench, self.benches = 0, 0
+        self._img_state = 0
 
         self.enable()
-
-    @property
-    def enabled(self) -> bool : return self._enabled
-    def enable(self): self._enabled = True
-    def disable(self): self._enabled = False
 
     @property
     def parent(self): return self.master
@@ -34,6 +31,20 @@ class Baseable(Skinnable, tk.Canvas):
     def redraw(self,):
         self._geometry = getGeometry(self)
         self.setState(self._img_state)
+
+    def render(self, image:tk.PhotoImage, x:int = 0, y:int = 0):
+        self._img = image
+        self.delete("all")
+        self.create_image(x, y, image=image, anchor="nw")
+
+    def enable(self):
+        self.setState(self._img_state)
+        self._enabled = True
+
+    @property
+    def enabled(self) -> bool : return self._enabled
+    def disable(self): self._enabled = False
+
 
     def setState(self, state_index:int = 0):
         start = time()
@@ -106,10 +117,32 @@ class Baseable(Skinnable, tk.Canvas):
                 sibling.dropSibling(self)
                 self.dropSibling(sibling)
 
-    def render(self, image:tk.PhotoImage, x:int = 0, y:int = 0):
-        self._img = image
-        self.delete("all")
-        self.create_image(x, y, image=image, anchor="nw")
+
+class Glassable(Baseable):
+    def __init__(self, parent, skin=None, **kwargs):
+        super().__init__(parent, skin, **kwargs)
+        self._origin = (0, 0)
+        self.after_idle(self._setOrigin)
+
+    def setState(self, state_index:int = 0):
+        # If widget lacks geometry (has not fully spawned) wait until it has.
+        x, y, w, h = self.geometry
+        if w <= 1 and h <= 1:
+            self.after_idle(lambda : self.redraw())
+            return
+
+        if self.master.skin.hasImages():
+            ox, oy = self._origin
+            print(x, y, ox-x, oy-y)
+            # Need to control destination of crop within receiving widget.
+            fastCrop(self._scratch, self.master.skin.image(), *self.master.skin.resolution()[:2], ox-x, ox-y, w, h)
+            self.render(self._scratch)
+        else:
+            bg_color = self.master.skin.bgColor()
+            self.configure(background=bg_color)
+
+    def _setOrigin(self): self._origin = self.location
+
 
 class Imageable(Baseable):
     def __init__(self, parent, skin=None, **kwargs):
@@ -117,9 +150,6 @@ class Imageable(Baseable):
         self._skin.setBGColors('gray')      # Eliminate interactive colors for simple image.
 
     def changeImage(self, img_number): self.setState(img_number)
-    def enable(self):
-        super().enable()
-        self.setState(self._img_state)
 
     def disable(self):
         super().disable()
@@ -261,7 +291,6 @@ class Toggleable(Pushable):
         if isinstance(state, bool):
             self._toggle_state = state
             self._state_offset = self._toggle_state * 4
-            self.setState(1)
             self.redraw()
         return self._toggle_state
 

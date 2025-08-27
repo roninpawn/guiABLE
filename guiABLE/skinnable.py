@@ -308,36 +308,30 @@ class FilterSkin(CoreSkin):
     def unbindWidget(self, widget): self._linked_skin.unbindWidget(widget)
 
     @staticmethod
-    def _state_sum(S1, S2) -> tuple[bool, bool, bool]:
+    def _state_sum(set_1, set_2) -> tuple[bool, bool, bool]:
         """
         Each state is a tuple (r, x, y) of booleans:
           r: rotate 90° CCW
           x: mirror X
           y: mirror Y
 
-        This formula (dihedral group of the square) simply sees each 90 degree rotation flip the x and y mirror states.
-        Meanwhile R, x, and y just sum in binary. (0+1 or 1+0 = 1, 1+1 = 0)
-        R,x,y (1,1,1) + R,x,y (1,1,1) = (0,0,0) cancellation
-        x,y (0,1,1) + y (0,0,1) = (0,1,0) binary sum
-        R (1,0,0) + x (0,1,0) = (1,0,1) R flips x to 0 and y to 1
+        This formula (dihedral group of the square? -ish?) accounts for rotation-first semantics by flipping set_1's
+        horizontal and vertical mirrors if set_2 contains a rotation. After that it simply sums the states by XORs
+        while reducing any 2 rotations into an x/y flip, as both r*2 and x/y produce the same '180 degree turn.'
         """
-        r2,x2,y2 = S2  # apply after...
-        r1,x1,y1 = S1  # ...this one
+        r1,x1,y1 = set_1
+        r2,x2,y2 = set_2
 
-        # If S2 rotates, it swaps the meaning of S1’s flips
-        if r2: x1, y1 = y1, x1
+        if r2: x1, y1 = y1, x1      # If S2 rotates, swap the meaning of S1’s mirror operations
 
-        # Flips XOR together
-        x = x2 ^ x1
-        y = y2 ^ y1
+        x, y, = x1 ^ x2, y1 ^ y2    # Flip mirrors by XOR
 
-        # Rotation is XOR too, but if both rotate (i.e., 180°), fold into flips
-        both = r1 and r2
-        r = r1 ^ r2
-        if both:      # trade 180° for flip-both
+        # 2x rotations (i.e., 180°) equal 1x X and 1x Y
+        if r1 and r2:      # trade 180° for flip-both
             x ^= 1
             y ^= 1
-            # r already became False via XOR
+
+        r = r1 ^ r2     # rotation cancellation on 2x rotations happens implicitly
 
         return bool(r), bool(x), bool(y)
 

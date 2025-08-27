@@ -191,7 +191,7 @@ class Frameable(tk.Frame):
 
         self._inner = Canvasable(self, bg=bg, **kwargs)     # A Frameable's skin() is its Canvasable's
         self.pack_propagate(False)
-        self._inner.pack(fill="both", expand=True)
+        self._inner.pack(expand=True, fill='both')
 
     @property
     def inner(self): return self._inner
@@ -211,13 +211,10 @@ to abstract away the underlying duct-tape solution required to make tk.Canvas fu
 class Backgroundable(Skinnable, Frameable):
     def __init__(self, parent, width, height, image_path=None, bg='gray', **kwargs):
         Skinnable.__init__(self)
-        Frameable.__init__(self, parent, width=width, height=height, bg=bg, **kwargs)
+        Frameable.__init__(self, parent, width, height, bg=bg, **kwargs)
         self.bind("<Configure>", self._geometry_changed)
 
         self._skin.setPaths(image_path)
-
-        self.pack_propagate(False)
-        self._inner.pack(fill="both", expand=True)
 
         self._skin.setBGColors(self._inner.cget("bg"))
         self._inner.configure(selectbackground=self._skin.bgColor())
@@ -226,14 +223,7 @@ class Backgroundable(Skinnable, Frameable):
     @property
     def inner(self): return self._inner
 
-    @classmethod
-    def fromPath(cls, parent, width:int, height:int, image_path:str = None, bg:str = 'gray', **kwargs):
-        return cls(parent, width, height, image_path, bg, **kwargs)
-    @classmethod
-    def fromImage(cls, parent, width:int, height:int, image:tk.PhotoImage = None, bg:str ='gray', **kwargs):
-        bga = cls(parent, width, height, None, bg, **kwargs)
-        bga.skin.setImage(image)
-        return bga
+    def setImage(self, image:tk.PhotoImage): self._skin.setImage(image)
 
     def empty(self):
         for child in self.inner.winfo_children():
@@ -246,3 +236,4 @@ class Backgroundable(Skinnable, Frameable):
             self._inner.delete(1.0, tk.END)
             self._inner.image_create(tk.END, image=self._skin.image())
             self._inner.configure(state="disabled")
+

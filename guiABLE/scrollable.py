@@ -3,16 +3,7 @@ import tkinter as tk
 from .utilities import limitMove, getLocalMouse, updateHover, getGeometry
 from .windowing import Backgroundable, Frameable
 from .skinnable import ScrollSkin, BarSkin, Skin, FilterSkin
-from .widgets import Draggable, Holdable, Hoverable
-
-
-class Scrollable(Frameable, Hoverable):
-    def __init__(self, parent, width:int, height:int, bg_color:str='gray', **kwargs):
-        Frameable.__init__(self, parent, width, height, bg_color, **kwargs)
-        Hoverable.__init__(self, parent)
-
-        self.scrollwheel_speed = 10
-        self.page_percent = .9
+from .widgets import Draggable, Holdable, Hoverable, Glassable
 
 
 class Scrollable():
@@ -170,32 +161,47 @@ class Scrollable():
 
 class Scrollable(Backgroundable):
     def __init__(self, parent, width:int, height:int, scroll_skin: ScrollSkin, **kwargs):
-        super().__init__(parent, width, height, **kwargs)
+        super().__init__(parent, width=width, height=height, **kwargs)
 
         self._scroll_skin = scroll_skin
         v_breadth, h_breadth = self._scroll_skin.vertical.breadth, self._scroll_skin.horizontal.breadth
-        self._inner.configure(width=width-h_breadth, height=height-v_breadth, bg='gray55')
-        self.v_bar = ScrollBar(self._inner, v_breadth, height, self._scroll_skin.vertical, None,
+        self._inner.configure(bg='gray55')
+        self._inner.place_configure(width=width-h_breadth, height=height-v_breadth)
+
+        self._scroll_plate = Glassable(self)
+        self._scroll_plate.place(x=0, y=0, width=width-h_breadth, height=height-v_breadth)
+        self._scroll_plate.bind('<Configure>', self._config_plate)
+
+        # Place the scrollbars.
+        self.v_bar = ScrollBar(self, v_breadth, height, self._scroll_skin.vertical, None,
                                self._scroll_skin.button, True, v_breadth)
         self.v_bar.place(x=width-v_breadth, y=0)
-        self.h_bar = ScrollBar(self._inner, width-v_breadth, h_breadth, self._scroll_skin.horizontal, None,
+        self.h_bar = ScrollBar(self, width-v_breadth, h_breadth, self._scroll_skin.horizontal, None,
                                self._scroll_skin.button, False, h_breadth)
         self.h_bar.place(x=0, y=height-h_breadth)
 
+    def _config_plate(self, event):
+        w, h = max(self._scroll_plate.winfo_reqwidth(), self.size[0]), max(self._scroll_plate.winfo_reqheight(), self.size[1])
+        _, _, sw, sh = getGeometry(self._scroll_plate)
+        if sw < w or sh < h:
+            self._scroll_plate.place_configure(width=w, height=h)
+
     @property
-    def scrollPane(self): return self._inner
+    def scrollPane(self): return self._scroll_plate
 
     def movePane(self, x_per:int, y_per:int):
         # TODO: Store state/minimize calculations.
         frame_w, frame_h = self.size
-        ix, iy, iw, ih = getGeometry(self._inner)
+        ix, iy, iw, ih = getGeometry(self._scroll_plate)
+        iw, ih = self._scroll_plate.winfo_reqwidth(), self._scroll_plate.winfo_reqheight()
         min_x = min(0, -(iw - frame_w))
         min_y = min(0, -(ih - frame_h))
-        x = min_x * x_per
-        y = min_y * y_per
+        x = min_x * x_per if x_per else ix
+        y = min_y * y_per if y_per else iy
 
         #print(x, y)
-        self.inner.place_configure(x=x, y=y)
+        self._scroll_plate.place_configure(x=x, y=y)
+        self._scroll_plate.redraw()
 
         #self.inner._geometry[0], self._geometry[1] = x, y
 
@@ -246,8 +252,7 @@ class ScrollBar(Backgroundable):
     def vertical(self): return self._vertical
 
     def movePane(self, x_percent:float|None, y_percent:float|None):
-        print(x_percent, y_percent)
-        #self.master.movePane(x_percent, y_percent)
+        self.master.movePane(x_percent, y_percent)
 
     def resizeHandle(self, width:int, height:int): self._handle.resize(width, height)
     def moveHandle(self, x_percent:int, y_percent:int):
@@ -328,9 +333,8 @@ class ScrollHandle(Draggable):
 
 
 
-class ScrollFram(Frameable):
-    def __init__(self, parent, width:int, height:int, scroll_skin:ScrollSkin=None,
-                 scrollbars:tuple[bool,bool] = (False, False), auto:tuple[bool,bool] = (True, True)):
+class ScrollFrame(Frameable):
+    def __init__(self, parent, width:int, height:int, scroll_skin:ScrollSkin=None):
         self._skin = scroll_skin or ScrollSkin()
         super().__init__(parent, width, height, self._skin.bgColor())
 
