@@ -178,8 +178,12 @@ class ScrollPlate(Baseable):
             bg_color = self.master.skin.bgColor()
             self.configure(background=bg_color)
 
-    def _get_geometry(self):        # TODO: Could be problematic overriding geometry. Store req separate if issues.
-        x, y, w, h = getGeometry(self)
+    def _update(self, event=None):
+        super()._update(event)
+        self.after_idle(self._get_req_geometry)
+
+    def _get_req_geometry(self):        # TODO: Could be problematic overriding geometry. Store req separate if issues.
+        x, y, w, h = self._geometry
         self._geometry = x, y, max(self.winfo_reqwidth(), w), max(self.winfo_reqheight(), h)
 
 
@@ -266,11 +270,11 @@ class ScrollBar(Backgroundable):
         else:
             tx, ty, tw, th = 0, 0, width, height
         # Place trough
-        trough = ScrollTrough(self, self._bar_skin, width=tw, height=th)
-        trough.place(x=tx, y=ty)
+        self._trough = ScrollTrough(self, self._bar_skin, width=tw, height=th)
+        self._trough.place(x=tx, y=ty)
         # Place Handle
-        handle = ScrollHandle(trough, self._handle_skin, width=breadth, height=breadth)
-        handle.place(x=0, y=0)
+        self._handle = ScrollHandle(self._trough, self._handle_skin, width=breadth, height=breadth)
+        self._handle.place(x=0, y=0)
 
     @property
     def vertical(self): return self._vertical

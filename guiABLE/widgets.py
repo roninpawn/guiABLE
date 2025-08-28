@@ -2,23 +2,113 @@ import tkinter as tk
 from time import time
 from typing import Optional
 
-from guiABLE.skinnable import Skin, Skinnable
-from guiABLE.utilities import limitMove, rectsOverlap, rectUnion, fastComposite, fastCrop, fastFlood, getLocalMouse
+from guiABLE.skinnable import Skin, Skinnable, FilterSkin, BarSkin
+from guiABLE.utilities import limitMove, rectsOverlap, rectUnion, fastComposite, fastCrop, fastFlood, getLocalMouse, \
+    getGeometry
+
+"""
+Siblingable adds sibling awareness & overlap tracking to Skinnable. (MRO sucks, real inheritance is less brittle.)  
+"""
+class Siblingable(Skinnable):
+    def __init__(self, skin:Skin|FilterSkin|BarSkin):
+        super().__init__(skin)
+        self._siblings_atop, self._siblings_beneath = list(), list()     # Overlapping siblings, by below/above z-index.
+
+    # Overlapping siblings track each other for the sake of compositing (faking transparency) during redraw.
+    @property
+    def siblingsBeneath(self): return self._siblings_beneath
+    @property
+    def siblingsAbove(self): return self._siblings_above
+    def trackSibling(self, sibling, z_above: bool):
+        if z_above:
+            if sibling not in self._siblings_atop:
+                self._siblings_atop.append(sibling)
+            if sibling in self._siblings_beneath:
+                self._siblings_beneath.remove(sibling)
+        else:
+            if sibling not in self._siblings_beneath:
+                self._siblings_beneath.append(sibling)
+            if sibling in self._siblings_atop:
+                self._siblings_atop.remove(sibling)
+    def dropSibling(self, sibling):
+        if sibling in self._siblings_atop: self._siblings_atop.remove(sibling)
+        elif sibling in self._siblings_beneath: self._siblings_beneath.remove(sibling)
+
+    # Override all attachment methods to track z-order through parent. (and report overlap with siblings if Siblingable)
+    def place(self, **kwargs):
+        super().place(**kwargs)
+        self.after_idle(self._bond)
+    def pack(self, **kwargs):
+        super().pack(**kwargs)
+        self.after_idle(self._bond)
+    def grid(self, **kwargs):
+        super().grid(**kwargs)
+        self.after_idle(self._bond)
+
+    # Override methods that change z-index, to track and report changes to all interested parties.
+    def lift(self, above=None):
+        tk.Misc.lift(self, above)
+        self.after_idle(self.master._raiseChildIndex, self, above)
+        self.after_idle(self._findOverlappingSiblings, self.master.getChildren())
+    def lower(self, below=None):
+        tk.Misc.lower(self, below)
+        self.after_idle(self.master._lowerChildIndex, self, below)
+        self.after_idle(self._findOverlappingSiblings, self.master.getChildren())
+
+    # Find overlapping siblings and store them / register with them, for future tracking.
+    def _findOverlappingSiblings(self, siblings_list):
+        above = True        # z-order state of self in reference to sibling
+        for sibling in siblings_list:
+            if sibling is self: above = False
+            elif isinstance(sibling, tk.Canvas) and rectsOverlap(self.geometry, getGeometry(sibling)):
+                if sibling in self._siblings_atop or sibling in self._siblings_beneath: sibling.dropSibling(self)
+                sibling.trackSibling(self, above)
+                if above: self._siblings_beneath.append(sibling)
+                else: self._siblings_atop.append(sibling)
+
+    def _raiseChildIndex(self, child, above):
+        self.dropChild(child)
+        if above and above in self._children:
+            index = self._children.index(above) + 1
+            self._children.insert(index, child)
+        else:
+            self._children.append(child)
+
+    def _lowerChildIndex(self, child, below):
+        self.dropChild(child)
+        if below and below in self._children:
+            index = self._children.index(below)
+            self._children.insert(index, child)
+        else:
+            self._children.insert(0, child)
+
+    def _bond(self):
+        if isinstance(self, tk.Canvas): self.master.registerChild(self)
+        self._findOverlappingSiblings(self.master.children)
 
 
-class Baseable(Skinnable, tk.Canvas):
+"""
+    Baseable is the foundation of all guiABLE's widgets. It defines how to render images to the surface of the widget,
+    and establishes the concept of state-tracking.
+"""
+class Baseable(Siblingable, tk.Canvas):
     def __init__(self, parent, skin=None, **kwargs):
         self._enabled = False
 
-        Skinnable.__init__(self, skin)
+        Siblingable.__init__(self, skin)
         tk.Canvas.__init__(self, parent, highlightthickness=0, **kwargs)
-        self.bind("<Configure>", self._geometry_changed)
 
-        self._drop_list = set()
+        self.bind("<Configure>", self._update)
+
         self.bench, self.benches = 0, 0
-        self._img_state = 0
 
-        self.after_idle(self._geometry_changed, None)
+        self.dirty = True
+        self._z_state = None
+        self._img, self._z_img = None, None
+        self._img_state = 0
+        self._drop_list = set()
+
+        self.after_idle(self._update, None)
         self.enable()
 
     @property
@@ -117,7 +207,22 @@ class Baseable(Skinnable, tk.Canvas):
                 sibling.dropSibling(self)
                 self.dropSibling(sibling)
 
+    # The ZImage() is a persistent render of what the widget looks like on its own. Only updated if something changed.
+    @property
+    def zImage(self) -> tk.PhotoImage:
+        if self._z_state != self._img_state or self.dirty:
+            _, _, w, h = self.geometry
+            self._z_img = tk.PhotoImage(width=w, height=h)
+            if not self._skin.hasImages() or self._skin.usesBgColors():
+                fastFlood(self._z_img, w, h, self._skin.bgColor(self._img_state))
+            fastComposite(self._z_img, w, h, self._skin.image(self._img_state), 0, 0,
+                          *self._skin.resolution(self._img_state))
+            self._z_state = self._img_state
+            self.dirty = False
+        return self._z_img
 
+
+""" Imageable simply displays an image. """
 class Imageable(Baseable):
     def __init__(self, parent, skin=None, **kwargs):
         super().__init__(parent, skin, **kwargs)
@@ -130,6 +235,7 @@ class Imageable(Baseable):
         self.setState(3)
 
 
+""" Hoverable adds mouse-over awareness and triggers state-change/redraws on mouse-in and mouse-out. """
 class Hoverable(Baseable):
     def __init__(self, parent, skin=None, **kwargs):
         self.moused_over = False
@@ -167,6 +273,7 @@ class Hoverable(Baseable):
         self.setState(3)
 
 
+""" Clickable adds left-click awareness and executes a passed function on mouse-down. (Instant-click button) """
 class Clickable(Hoverable):
     def __init__(self, parent, function=lambda: None, skin=None, **kwargs):
         self.function = function
@@ -190,6 +297,7 @@ class Clickable(Hoverable):
         self.unbind("<ButtonRelease-1>")
 
 
+""" Pushable is a Clickable that executes its function on when the left mouse button is released. (Normal button) """
 class Pushable(Clickable):
     def __init__(self, parent, function=lambda: None, skin=None, **kwargs):
         self._clicking = False
@@ -247,6 +355,8 @@ class Labelable(Pushable):
         self.drawText()
 
 
+""" Toggleable stores a true/false state and redirects image() calls by index+_state_offset when true. This allows the
+    skin to return states 0,1,2,3 for the False state of the Toggleable, and 4,5,6,7 for the True state. (Checkbox) """
 class Toggleable(Pushable):
     def __init__(self, parent, state:bool=False, function=lambda: None, skin:Skin = None, **kwargs):
         self._state_offset = 0
@@ -270,6 +380,8 @@ class Toggleable(Pushable):
     def setState(self, state_index:int = 0): super().setState(state_index + self._state_offset)
 
 
+""" Holdable is a Pushable that triggers its function instantly, and then again after every n milliseconds. It supports
+    a first-click, initial-delay that can be longer or shorter than the continuous delay thereafter."""
 class Holdable(Pushable):
     def __init__(self, parent, function=lambda: None, skin=None, delay=100, init_delay=400, **kwargs):
         self.delay = delay
@@ -297,6 +409,9 @@ class Holdable(Pushable):
             self.after(self.delay, self._keepClicking)
 
 
+""" Draggable is dragged by the mouse while left click is held. It remains within its parent's boundaries by default, 
+    but its bounds can be overridden using setBounds(). For correct redraw, moving objects like Draggable must be drawn
+    atop a Canvasable. Otherwise, tkinter's stale draw rectangle issue creates ghosting/visual stretching. """
 class Draggable(Holdable):
     def __init__(self, parent, skin=None, **kwargs):
         super().__init__(parent, self._drag, skin, **kwargs)
@@ -333,7 +448,6 @@ class Draggable(Holdable):
         super().disable()
 
     def _drag(self, x:int, y:int):
-        #print(x,y)
         self.place_configure(x=x, y=y)
         self._populateOverlappingSiblings(self._siblings_atop, self._all_siblings_atop, False)
         self._populateOverlappingSiblings(self._siblings_beneath, self._all_siblings_beneath, True)
@@ -358,6 +472,8 @@ class Draggable(Holdable):
                 output_list.append(sibling)
                 sibling.trackSibling(self, atop)
 
-    def _bond(self):
-        super()._bond()
+    def _update(self, event=None):
+        self._geometry = getGeometry(self)
         self._bounds = self._bounds = (0, 0, *self.parent.size)
+        if self.size != self._last_geometry[2:]:
+            self._scratch = tk.PhotoImage(width=self._geometry[2], height=self._geometry[3])

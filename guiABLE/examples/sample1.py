@@ -6,8 +6,7 @@ from guiABLE.utilities import cropImage, rotateImage, loadImage
 def test_gui():
     app = Windowable(geometry="600x400+100+100", title="guiABLE Testbed")
     bg_image, _ = loadImage("../skins/default/bg-600x400.png")
-    bg = Backgroundable(app, "600", "400")
-    bg.setImage(bg_image)
+    bg = Backgroundable.fromImage(app, "600", "400", bg_image)
     bg.place(x=0, y=0)
 
     # Make app draggable by grabbing the background.
@@ -96,7 +95,7 @@ def test_gui():
     cap_skin = Skin("../skins/default/up_glyph-48.png")
     scroll_skin = ScrollSkin.fromSkins(cap_skin, trough_skin, vertical=True)
     scroll_area = Scrollable(bg, 450, 215, scroll_skin)
-    scroll_area.setImage(bg_image)
+    scroll_area.skin.setImages(bg_image)
     scroll_area.place(x=20, y=120)
 
     for i in range(30):
@@ -104,8 +103,8 @@ def test_gui():
        label.pack(fill=tk.X, padx=10, pady=10)
 
     # Prove lower/lift functionality
-    click_btn.lift(test_toggle1)
-    exit_button.lift(test_toggle1)
+    #click_btn.lift(test_toggle1)
+    #exit_button.lift(test_toggle1)
     #test_toggle1.lower(test_label)
     #test_toggle4.lift(test_toggle2)
 

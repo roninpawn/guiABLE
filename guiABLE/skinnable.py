@@ -457,8 +457,8 @@ Skinnable is a mixin that provides core Skin() functionality to guiABLE widgets.
 """
 class Skinnable:
     def __init__(self, skin:Skin|BarSkin|FilterSkin = None):
-        # If base class has not defined _default_skin, use Skin()
-        try: exists = self._default_skin
+        # If base class has not defined _default_skin (Skin|BarSkin|FilterSkin), use Skin()
+        try: _ = self._default_skin
         except: self._default_skin = Skin()
 
         # Register widget as a user of skin, in case skin updates later and needs to issue a redraw of all users.
@@ -467,32 +467,12 @@ class Skinnable:
             self._skin = skin
         else: self._skin = self._default_skin
 
-        self.dirty = True
-
-        self._z_state = None
-        self._img, self._z_img = None, None
-        self._img_state = 0
         self._scratch = tk.PhotoImage()
-        self._siblings_atop, self._siblings_beneath = list(), list()     # Overlapping siblings, by below/above z-index.
         self._children = []
         self._geometry = (0, 0, 0, 0)
 
     @property
     def skin(self) -> Skin|FilterSkin|BarSkin|ScrollSkin: return self._skin
-
-    # The ZImage() is a persistent render of what the widget looks like on its own. Only updated if something changed.
-    @property
-    def zImage(self) -> tk.PhotoImage:
-        if self._z_state != self._img_state or self.dirty:
-            _, _, w, h = self.geometry
-            self._z_img = tk.PhotoImage(width=w, height=h)
-            if not self._skin.hasImages() or self._skin.usesBgColors():
-                fastFlood(self._z_img, w, h, self._skin.bgColor(self._img_state))
-            fastComposite(self._z_img, w, h, self._skin.image(self._img_state), 0, 0,
-                          *self._skin.resolution(self._img_state))
-            self._z_state = self._img_state
-            self.dirty = False
-        return self._z_img
 
     # Skin registration methods
     def setSkin(self, skin:Skin):
@@ -520,81 +500,8 @@ class Skinnable:
     def dropChild(self, child):
         if child in self._children: self._children.remove(child)
 
-    # Overlapping siblings track each other for the sake of compositing (faking transparency) during redraw.
-    @property
-    def siblingsBeneath(self): return self._siblings_beneath
-    @property
-    def siblingsAbove(self): return self._siblings_above
-    def trackSibling(self, sibling, z_above: bool):
-        if z_above:
-            if sibling not in self._siblings_atop:
-                self._siblings_atop.append(sibling)
-            if sibling in self._siblings_beneath:
-                self._siblings_beneath.remove(sibling)
-        else:
-            if sibling not in self._siblings_beneath:
-                self._siblings_beneath.append(sibling)
-            if sibling in self._siblings_atop:
-                self._siblings_atop.remove(sibling)
-    def dropSibling(self, sibling):
-        if sibling in self._siblings_atop: self._siblings_atop.remove(sibling)
-        elif sibling in self._siblings_beneath: self._siblings_beneath.remove(sibling)
+    def _geometry_changed(self, event): self.after_idle(self._update)
 
-    # Override all attachment methods to track z-order through parent and report overlap with any siblings.
-    def place(self, **kwargs):
-        super().place(**kwargs)
-        self.after_idle(self._bond)
-    def pack(self, **kwargs):
-        super().pack(**kwargs)
-        self.after_idle(self._bond)
-    def grid(self, **kwargs):
-        super().grid(**kwargs)
-        self.after_idle(self._bond)
-
-    # Override methods that change z-index, to track and report changes to all interested parties.
-    def lift(self, above=None):
-        tk.Misc.lift(self, above)
-        self.after_idle(self.master._raiseChildIndex, self, above)
-        self.after_idle(self._findOverlappingSiblings, self.master.getChildren())
-    def lower(self, below=None):
-        tk.Misc.lower(self, below)
-        self.after_idle(self.master._lowerChildIndex, self, below)
-        self.after_idle(self._findOverlappingSiblings, self.master.getChildren())
-
-    def _geometry_changed(self, event): self.after_idle(self._get_geometry)
-
-    def _get_geometry(self): self._geometry = getGeometry(self)
-
-    def _bond(self):        # Form lasting familial relationships with parent and siblings.
-        # Refresh stored geometry and register with parent.
+    def _update(self, event=None):
         self._geometry = getGeometry(self)
         self._scratch = tk.PhotoImage(width=self._geometry[2], height=self._geometry[3])
-        if isinstance(self, tk.Canvas): self.master.registerChild(self)
-        self._findOverlappingSiblings(self.master.children)
-
-    # Find overlapping siblings and store them / register with them, for future tracking.
-    def _findOverlappingSiblings(self, siblings_list):
-        above = True        # z-order state of self in reference to sibling
-        for sibling in siblings_list:
-            if sibling is self: above = False
-            elif isinstance(sibling, tk.Canvas) and rectsOverlap(self.geometry, getGeometry(sibling)):
-                if sibling in self._siblings_atop or sibling in self._siblings_beneath: sibling.dropSibling(self)
-                sibling.trackSibling(self, above)
-                if above: self._siblings_beneath.append(sibling)
-                else: self._siblings_atop.append(sibling)
-
-    def _raiseChildIndex(self, child, above):
-        self.dropChild(child)
-        if above and above in self._children:
-            index = self._children.index(above) + 1
-            self._children.insert(index, child)
-        else:
-            self._children.append(child)
-
-    def _lowerChildIndex(self, child, below):
-        self.dropChild(child)
-        if below and below in self._children:
-            index = self._children.index(below)
-            self._children.insert(index, child)
-        else:
-            self._children.insert(0, child)
