@@ -66,22 +66,6 @@ class Siblingable(Skinnable):
                 if above: self._siblings_beneath.append(sibling)
                 else: self._siblings_atop.append(sibling)
 
-    def _raiseChildIndex(self, child, above):
-        self.dropChild(child)
-        if above and above in self._children:
-            index = self._children.index(above) + 1
-            self._children.insert(index, child)
-        else:
-            self._children.append(child)
-
-    def _lowerChildIndex(self, child, below):
-        self.dropChild(child)
-        if below and below in self._children:
-            index = self._children.index(below)
-            self._children.insert(index, child)
-        else:
-            self._children.insert(0, child)
-
     def _bond(self):
         if isinstance(self, tk.Canvas): self.master.registerChild(self)
         self._findOverlappingSiblings(self.master.children)
@@ -98,7 +82,7 @@ class Baseable(Siblingable, tk.Canvas):
         Siblingable.__init__(self, skin)
         tk.Canvas.__init__(self, parent, highlightthickness=0, **kwargs)
 
-        self.bind("<Configure>", self._update)
+        self.bind("<Configure>", self.update)
 
         self.bench, self.benches = 0, 0
 
@@ -108,7 +92,7 @@ class Baseable(Siblingable, tk.Canvas):
         self._img_state = 0
         self._drop_list = set()
 
-        self.after_idle(self._update, None)
+        self.update()
         self.enable()
 
     @property
@@ -417,7 +401,7 @@ class Draggable(Holdable):
         super().__init__(parent, self._drag, skin, **kwargs)
         self._all_siblings_atop, self._all_siblings_beneath = list(), list()
         self._last_geometry = self._geometry
-        self._bounds = (0, 0, *self.parent.size)
+        self._bounds = None
 
     def setBounds(self, x1, y1, x2, y2): self._bounds = (x1, y1, x2, y2)
 
@@ -429,6 +413,7 @@ class Draggable(Holdable):
         self.setState(2)
 
     def mouseDrag(self, event):
+        if self._bounds is None: self._bounds = (0, 0, self.parent.winfo_width(), self.parent.winfo_height())
         x, y, w, h = self.geometry
 
         x = event.x - self.x + x
@@ -474,6 +459,5 @@ class Draggable(Holdable):
 
     def _update(self, event=None):
         self._geometry = getGeometry(self)
-        self._bounds = self._bounds = (0, 0, *self.parent.size)
         if self.size != self._last_geometry[2:]:
             self._scratch = tk.PhotoImage(width=self._geometry[2], height=self._geometry[3])

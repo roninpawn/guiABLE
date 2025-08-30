@@ -62,6 +62,11 @@ def fastFlood(image:PhotoImage, image_width:int, image_height:int, color:str):
 
 def floodImage(image:PhotoImage, color:str): fastFlood(image, image.width(), image.height(), color)
 
+def newFlood(image_width:int, image_height:int, color:str):
+    out = PhotoImage(width=image_width, height=image_height)
+    fastFlood(out, image_width, image_height, color)
+    return out
+
 
 def fastFlip(flip_to:PhotoImage, flip_from:PhotoImage, w:int, h:int, flip_x:bool = False, flip_y:bool = False):
     if flip_x and flip_y:

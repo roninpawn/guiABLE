@@ -6,12 +6,12 @@ from guiABLE.utilities import cropImage, rotateImage, loadImage
 def test_gui():
     app = Windowable(geometry="600x400+100+100", title="guiABLE Testbed")
     bg_image, _ = loadImage("../skins/default/bg-600x400.png")
-    bg = Backgroundable.fromImage(app, "600", "400", bg_image)
+    bg = Backgroundable.fromImage(app, 600, 400, bg_image)
     bg.place(x=0, y=0)
 
     # Make app draggable by grabbing the background.
     bg.configure(cursor="fleur")
-    app.bindDrag(bg.inner)
+    app.bindDrag(bg)
 
     # Create a test Pushable button
     btn_skin = Skin("../skins/default/cog.png", "../skins/default/cog_mo.png", "../skins/default/cog_red.png")
@@ -76,7 +76,7 @@ def test_gui():
     test_toggle4.place(x=444, y=24)
 
     from guiABLE.skinnable import BarSkin as BS
-    trough_skin = Skin("../skins/default/scroll_trough-48.png")
+    trough_skin = Skin("../skins/default/square-48.png")
     cap_skin = Skin("../skins/default/up_glyph-48.png")
 
     bar_skin = BS.fromTwo(cap_skin, trough_skin, True)
@@ -98,13 +98,16 @@ def test_gui():
     scroll_area.skin.setImages(bg_image)
     scroll_area.place(x=20, y=120)
 
+    nude_drag = Draggable(bg, None, width=50, height=50)
+    nude_drag.place(x=0, y=0)
+
     for i in range(30):
        label = tk.Label(scroll_area.scrollPane, text=f"Item {i + 1}", anchor="w", background="blue")
        label.pack(fill=tk.X, padx=10, pady=10)
 
     # Prove lower/lift functionality
-    #click_btn.lift(test_toggle1)
-    #exit_button.lift(test_toggle1)
+    click_btn.lift(test_toggle1)
+    exit_button.lift(test_toggle1)
     #test_toggle1.lower(test_label)
     #test_toggle4.lift(test_toggle2)
 

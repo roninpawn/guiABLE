@@ -1,7 +1,7 @@
 import tkinter as tk
 from time import time
 
-from .skinnable import Skinnable, Skin
+from .skinnable import Skinnable, Skin, FilterSkin, SingleSkin
 from .utilities import resolvePath, geometryFromString
 
 
@@ -176,6 +176,7 @@ issue of slow/wrong redraws was solved in the tk.Text widget, but nowhere else. 
 class Canvasable(tk.Text):
     def __init__(self, parent, **kwargs):
         super().__init__(parent, bd=0, padx=0, pady=0, state="disabled", cursor="arrow", **kwargs)
+        self.configure(bg=self.cget("bg"))
 
     def configure(self, **kw):
         if "bg" in kw:      # Pass changes to bg through to the 'selectbackground' to maintain non-tk.Text() illusion.
@@ -184,11 +185,14 @@ class Canvasable(tk.Text):
             kw["selectbackground"] = kw["background"]
         super().configure(**kw)
 
-    def render(self, image:tk.PhotoImage):
+    def render(self, image:tk.PhotoImage, x:int = 0, y:int = 0):
         self.configure(state="normal")
         self.delete(1.0, "end")
-        self.image_create("end", image=image)
+        self.image_create("end", image=image, padx=x, pady=y)
         self.configure(state="disabled")
+
+    @property
+    def size(self): return self.winfo_width(), self.winfo_height()
 
 
 class Frameable(tk.Frame):
@@ -215,31 +219,26 @@ A Backgroundable is a tk.Frame containing a .inner Canvasable() that serves as t
 standard interface for handling the unique configuration calls required to conform the tk.Text widget. And it attempts 
 to abstract away the underlying duct-tape solution required to make tk.Canvas function. 
 """
-class Backgroundable(Skinnable, Frameable):
-    def __init__(self, parent, width:int, height:int, skin:Skin=None, bg_color = 'gray', **kwargs):
-        Skinnable.__init__(self, skin)
-        Frameable.__init__(self, parent, width, height, bg=bg_color, **kwargs)
-        self.bind("<Configure>", self._geometry_changed)
+class Backgroundable(Skinnable, Canvasable):
+    def __init__(self, parent, width:int, height:int, skin:SingleSkin|FilterSkin = None, **kwargs):
+        Skinnable.__init__(self, skin if skin else Skin.fromColors("gray30"))
+        Canvasable.__init__(self, parent, bg=self._skin.bgColor(), **kwargs)
 
-        self._skin.setBGColors(self._inner.cget("bg"))
-        self._inner.configure(bg=self._skin.bgColor())
+        self.bind("<Configure>", self.update)
+        self.place_configure(width=width, height=height)
+
         self.after_idle(self.redraw)
 
     @classmethod
-    def fromPath(cls, parent, width:int, height:int, image_path:str, bg_color:str = 'gray', **kwargs):
-        bg_able = cls(parent, width, height, bg_color=bg_color, **kwargs)
-        bg_able.skin.setPaths(image_path)
+    def fromPath(cls, parent, width:int, height:int, image_path:str, **kwargs):
+        bg_able = cls(parent, width, height, SingleSkin(image_path), **kwargs)
         return bg_able
 
     @classmethod
-    def fromImage(cls, parent, width:int, height:int, image:tk.PhotoImage, bg_color:str = 'gray', **kwargs):
-        bg_able = cls(parent, width, height, bg_color=bg_color, **kwargs)
-        bg_able.skin.setImages(image)
+    def fromImage(cls, parent, width:int, height:int, image:tk.PhotoImage, **kwargs):
+        bg_able = cls(parent, width, height, SingleSkin.fromImage(image), **kwargs)
         return bg_able
 
-    @property
-    def inner(self): return self._inner
-
     def redraw(self):
-        if self.skin.hasImages(): self._inner.render(self.skin.image())
-
+        if self.skin.hasImages():
+            self.render(self.skin.image())

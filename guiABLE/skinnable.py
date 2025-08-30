@@ -1,7 +1,7 @@
 import tkinter as tk
 
-from guiABLE.utilities import (warnPrint, resolvePath, cropImage, loadImage, getGeometry, rectsOverlap, fastComposite,
-                               fastFlood, fastTile, flipImage, rotateImage)
+from guiABLE.utilities import (warnPrint, resolvePath, cropImage, loadImage, getGeometry, fastComposite,
+                               fastFlood, fastTile, flipImage, rotateImage, newFlood)
 
 
 """ CoreSkin establishes the core contents and operations of a Skin. It is a base class. Not for standalone use."""
@@ -9,31 +9,9 @@ class CoreSkin:
     def __init__(self):
         self._recipients, self._paths, self._images, self._resolutions = [], [], [], []
         self._empty_image = tk.PhotoImage()
-        self._default_colors = ['gray', 'white', 'red', 'gray25']
+        self._default_colors = ['gray42', 'gray51', 'gray78', 'gray27']
         self._bg_colors = self._default_colors
         self._use_bg_colors = True
-
-    # Create/manipulate background colors. ex: new_skin = Skin.fromColors('yellow', 'blue', 'orange', 'gray15')
-    @classmethod
-    def fromColors(cls, *colors):
-        sk = cls()
-        sk.setBGColors(*colors)
-        return sk
-    def setBGColors(self, *colors: str):
-        if colors and any(colors):  self._bg_colors = self._fillList([*colors])
-        else: warnPrint(f"Skinnable passed list of empty BG colors\n{colors}\nExisting colors retained.")
-        self.updateRecipients()
-    def setBGColor(self, color:str, index:int = 0):
-        # If index is out of range, extend bg_color list with itself until index is valid
-        if color:
-            while index < -len(self._bg_colors) or index >= len(self._bg_colors): self._bg_colors.extend(self._bg_colors)
-            self._bg_colors[index] = color
-        else: warnPrint(f"Skinnable passed empty BG color '{color}' for index {index}; Existing color retained.")
-        self.updateRecipients()
-    def appendBGColors(self, *colors: str):
-        if colors and any(colors):  self._bg_colors.extend(self._fillList([*colors]))
-        else: warnPrint(f"Skinnable passed list of empty BG colors\n{colors}\nExisting colors retained.")
-        self.updateRecipients()
 
     # Core access methods
     @property
@@ -47,8 +25,7 @@ class CoreSkin:
     def image(self, index: int = 0) -> tk.PhotoImage:
         if self._images:
             index %= len(self._images)
-            img = self._images[index]
-            if img: return img
+            if self._images[index]: return self._images[index]
         return self._empty_image
 
     @property
@@ -66,7 +43,7 @@ class CoreSkin:
         return None     # Represents alpha
 
     def reset(self):
-        self._recipients, self._paths, self._images, self._resolutions = [], [], [], []
+        self._paths, self._images, self._resolutions = [], [], []
         self._bg_colors = self._default_colors
         self.updateRecipients()
 
@@ -93,6 +70,20 @@ class CoreSkin:
             recipient.redraw()
 
     # Private
+    def _imageByPath(self, path:str) -> tk.PhotoImage|None:
+        try:
+            out = tk.PhotoImage(file=path)
+            self._use_bg_colors = False
+            return out
+        except tk.TclError:
+            warnPrint(f"Image not found: {path}")
+            return None
+
+    def _saveImage(self, image:tk.PhotoImage, index:int, path:str = None):
+        self._images[index] = image
+        self._resolutions[index] = image.width(), image.height()
+        self._paths[index] = path
+
     @staticmethod
     def _fillList(in_list:list) -> list:
         fallback = next(l for l in in_list if l)     # Find first non-Falsy entry
@@ -110,6 +101,64 @@ class CoreSkin:
             self._resolutions.append((0, 0))
 
 
+""" SingleSkin is a minimal skin container for holding one image. Used with static images or backgrounds. """
+class SingleSkin (CoreSkin):
+    def __init__(self, path:str = None):
+        super().__init__()
+        self._default_colors = ['gray42']
+        self._bg_colors = self._default_colors
+        self._expand(1)
+
+        self._paths = [resolvePath(path)]
+        if path: self._saveImage(self._imageByPath(self._paths[0]), 0, self._paths[0])
+
+    @classmethod
+    def fromImage(cls, image:tk.PhotoImage):
+        ss = cls()
+        if isinstance(image, tk.PhotoImage): ss.setImage(image)
+        return ss
+    @classmethod
+    def fromPath(cls, path:str): return cls(path)
+    @classmethod
+    def fromColor(cls, color:str):
+        ss = cls()
+        ss.setColor(color)
+        return ss
+
+    def setImage(self, image:tk.PhotoImage, index:int = 0): self._saveImage(image, 0, "passed internally")
+    def setPath(self, path:str, index:int = 0):
+        self._paths = [resolvePath(path)]
+        if path: self._saveImage(self._imageByPath(self._paths[0]), 0, self._paths[0])
+    def setColor(self, color:str, index:int = 0): self._bg_colors = [color]
+
+
+"""
+    ColorSkin adds methods for creating/manipulating multiple background colors. Skin & BarSkin derive from ColorSkin.
+    ex: new_skin = Skin.fromColors('yellow', 'blue', 'orange', 'gray15')
+"""
+class ColorSkin(CoreSkin):
+    @classmethod
+    def fromColors(cls, *colors):
+        sk = cls()
+        sk.setBGColors(*colors)
+        return sk
+    def setBGColors(self, *colors: str):
+        if colors and any(colors):  self._bg_colors = self._fillList([*colors])
+        else: warnPrint(f"Skinnable passed list of empty BG colors\n{colors}\nExisting colors retained.")
+        self.updateRecipients()
+    def setBGColor(self, color:str, index:int = 0):
+        # If index is out of range, extend bg_color list with itself until index is valid
+        if color:
+            while index < -len(self._bg_colors) or index >= len(self._bg_colors): self._bg_colors.extend(self._bg_colors)
+            self._bg_colors[index] = color
+        else: warnPrint(f"Skinnable passed empty BG color '{color}' for index {index}; Existing color retained.")
+        self.updateRecipients()
+    def appendBGColors(self, *colors: str):
+        if colors and any(colors):  self._bg_colors.extend(self._fillList([*colors]))
+        else: warnPrint(f"Skinnable passed list of empty BG colors\n{colors}\nExisting colors retained.")
+        self.updateRecipients()
+
+
 """
     Skin() provides many different pathways for populating/modifying the image/background colors within the Skin.
     .fromColors()       - new_skin = Skin.fromColors('yellow', 'blue', 'orange', 'gray15')
@@ -123,7 +172,7 @@ class CoreSkin:
     While Skin() supports storing any number of images in any order, the library standard length and order of states is:
     (normal, moused_over, active, disabled) 
 """
-class Skin(CoreSkin):
+class Skin(ColorSkin):
     def __init__(self, *paths: str):
         super().__init__()
 
@@ -264,20 +313,62 @@ class Skin(CoreSkin):
 
 
 """
+    NoSkin is used where no skin is provided. It creates and serves one image - of the size given - for each bg_color.
+    More consistent rendering results are achieved when everything is represented as an image, rather than mixing bg-
+    color fills with images. In particular, tk/tkinter's problematic dirty rectangle issue is avoided.
+"""
+class NoSkin(Skin):
+    def __init__(self, width:int, height:int, bg_colors:list[str] = None):
+        super().__init__()
+        self._width, self._height = width, height
+        if bg_colors is not None: self._bg_colors = bg_colors
+
+        self._img_colors = []
+        for color in self._bg_colors:
+            self._images.append(newFlood(self._width, self._height, color))
+            self._resolutions.append((width, height))
+            self._paths.append(None)
+            self._img_colors.append(color)
+
+    def setSize(self, width:int, height:int): self._width, self._height = width, height
+
+    def image(self, index: int = 0) -> tk.PhotoImage:
+        index %= len(self._bg_colors)
+        if index >= len(self._images): self._expand(index)
+
+        if self._img_colors[index] != self._bg_colors[index] or self._resolutions != (self._width, self._height):
+            self._images[index] = newFlood(self._width, self._height, self._bg_colors[index])
+            self._resolutions[index] = (self._width, self._height)
+            self._paths[index] = None
+            self._img_colors[index] = self._bg_colors[index]
+
+        if self._images[index]: return self._images[index]
+        return self._empty_image
+
+    def _expand(self, size:int):       # Expands path and image lists to new length.
+        for n in range(size - len(self._images)):
+            self._paths.append(None)
+            self._images.append(None)
+            self._resolutions.append((0, 0))
+            self._img_colors.append(None)
+
+
+"""
     FilterSkin provides a cached and ready view of another skin, as mirrored and/or rotated in place.
     Changes to the original skin will cause the FilterSkin to update as well. 
 """
 class FilterSkin(CoreSkin):
-    def __init__(self, linked_skin:Skin, rotate:bool = False, mirror_x:bool = False, mirror_y:bool = False):
+    def __init__(self, linked_skin:CoreSkin, rotate:bool = False, mirror_x:bool = False, mirror_y:bool = False):
         super().__init__()
 
+        # If the source skin is - itself - a FilterSkin, link directly to it's source, and sum with its transforms.
         if isinstance(linked_skin, FilterSkin):
             rotate, mirror_x, mirror_y = self._state_sum(
                 (linked_skin.rotate, linked_skin.mirror_x, linked_skin.mirror_y), (rotate, mirror_x, mirror_y)
             )
             self._linked_skin = linked_skin.linked_skin
+        else: self._linked_skin = linked_skin
 
-        else: self._linked_skin =linked_skin
         self.mirror_x = mirror_x
         self.mirror_y = mirror_y
         self.rotate = rotate
@@ -290,19 +381,29 @@ class FilterSkin(CoreSkin):
     def linked_skin(self): return self._linked_skin
 
     def redraw(self):
+        # Take on all qualities of the linked skin.
         self._paths = self._linked_skin.paths
         self._bg_colors = self._linked_skin.bg_colors
         self._images = list(self._linked_skin.images)
         self._resolutions = self._linked_skin.resolutions
 
+        # Rotate and flip, as requested.
         for i, img in enumerate(self._linked_skin.images):
             if self.rotate:
                 img = rotateImage(img, False)
-            self._images[i] = flipImage(img, self.mirror_x, self.mirror_y)
+            img = flipImage(img, self.mirror_x, self.mirror_y)
             self._resolutions[i] = self._images[i].width(), self._images[i].height()
 
-        self.dirty = False
+            # Composite to background color, if the linked image uses one.
+            if self._linked_skin.usesBgColors():
+                w, h = self._resolutions[i]
+                new_img = tk.PhotoImage(width=w, height=h)
+                fastFlood(new_img, w, h, self._bg_colors[i])
+                fastComposite(new_img, w, h, img, 0, 0, w, h)
+                img = new_img
 
+            self._images[i] = img
+        self.dirty = False
 
     def bindWidget(self, widget): self._linked_skin.bindWidget(widget)
     def unbindWidget(self, widget): self._linked_skin.unbindWidget(widget)
@@ -346,7 +447,7 @@ class FilterSkin(CoreSkin):
     
     ex: BarSkin(cap1, trough, vertical=True)    # When no cap2 is given, cap1 is mirrored to fill the need.
 """
-class BarSkin(CoreSkin):
+class BarSkin(ColorSkin):
     def __init__(self, cap_skin: Skin|FilterSkin|None = None, trough_skin: Skin|FilterSkin|None = None,
                  cap2_skin: Skin|FilterSkin|None = None, vertical:bool = False, breadth:int = 0):
         super().__init__()
@@ -367,7 +468,7 @@ class BarSkin(CoreSkin):
     def fromTwo(cls, cap_skin:Skin|FilterSkin, trough_skin:Skin|FilterSkin, vertical:bool = False, breadth:int = 0):
         return cls(cap_skin, trough_skin, vertical=vertical, breadth=breadth)
 
-    def image(self, index:int = 0, length:int = None) -> tk.PhotoImage|None:
+    def image(self, index:int = 0, length:int = None) -> tk.PhotoImage:
         if self._images:
             index = index % len(self._images)
 
@@ -389,14 +490,8 @@ class BarSkin(CoreSkin):
                     self._lengths[index] = length
 
             return self._images[index]
-        return None
+        return self._empty_image
 
-    @staticmethod
-    def _flipImages(images:list[tk.PhotoImage], vertical:bool):
-        new_images = []
-        fx, fy = (False, True) if vertical else (True, False)
-        for i, img in enumerate(images): new_images.append(flipImage(img, flip_x=fx, flip_y=fy))
-        return new_images
 
     def _expand(self, size:int):       # Expands path and image lists to new length.
         for n in range(size - len(self._images)):
@@ -432,13 +527,11 @@ class ScrollSkin(CoreSkin):
     @property
     def button(self) -> Skin | FilterSkin | None: return self._button_skin
 
-    def setBars(self, vertical:BarSkin, horizontal:BarSkin):
-        self._v_bar = vertical if isinstance(vertical, BarSkin) else BarSkin()
-        self._h_bar = horizontal if isinstance(horizontal, BarSkin) else BarSkin()
+    def setBars(self, vertical:BarSkin, horizontal:BarSkin): self._v_bar, self._h_bar= vertical, horizontal
 
     def setBySkins(self, cap_skin:Skin, trough_skin:Skin, cap_skin2:Skin|None = None,
                    breadth:int = 24, vertical:bool = True):
-        self._v_bar, self._h_bar = self._barsFromSkins(cap_skin, trough_skin, cap_skin2, breadth, vertical)
+        self._v_bar, self._h_bar = self._barsFromSkins(cap_skin, trough_skin, cap_skin2, vertical)
 
     @classmethod
     def _barsFromSkins(cls, cap_skin:Skin, trough_skin:Skin, cap_skin2:Skin|None = None,
@@ -453,7 +546,8 @@ class ScrollSkin(CoreSkin):
 
 
 """
-Skinnable is a mixin that provides core Skin() functionality to guiABLE widgets.
+    Skinnable is a mixin that provides core Skin() functionality to guiABLE widgets. It requires a sibling class that
+    can make use of after_idle(), for its update() method.
 """
 class Skinnable:
     def __init__(self, skin:Skin|BarSkin|FilterSkin = None):
@@ -462,46 +556,66 @@ class Skinnable:
         except: self._default_skin = Skin()
 
         # Register widget as a user of skin, in case skin updates later and needs to issue a redraw of all users.
-        if isinstance(skin, CoreSkin):
-            skin.bindWidget(self)
-            self._skin = skin
-        else: self._skin = self._default_skin
+        self._skin = skin if isinstance(skin, CoreSkin) else self._default_skin
+        self._skin.bindWidget(self)
 
-        self._scratch = tk.PhotoImage()
+        self._scratch = None
         self._children = []
         self._geometry = (0, 0, 0, 0)
 
     @property
-    def skin(self) -> Skin|FilterSkin|BarSkin|ScrollSkin: return self._skin
+    def skin(self) -> CoreSkin: return self._skin
 
     # Skin registration methods
-    def setSkin(self, skin:Skin):
+    def setSkin(self, skin:CoreSkin):
         if self._skin:
             self._skin.unbindWidget(self)
-        skin.bindWidget(self)
         self._skin = skin
+        self._skin.bindWidget(self)
+
     def dropSkin(self):
         if self._skin: self._skin.unbindWidget(self)
         self._skin = Skin()
 
     # Speed enhancing methods.
-    @property
-    def geometry(self): return self._geometry     # Geometry is tracked, providing much faster access than winfo_ gives.
+    @property       # Geometry is tracked, providing much faster access than winfo_ gives.
+    def geometry(self) -> tuple[int,int,int,int]: return self._geometry
     @property
     def size(self): return self._geometry[2:]
     @property
     def location(self): return self._geometry[:2]
-    def scratchImage(self): return self._scratch  # Persistent PhotoImage provides an INSTANT redraw canvas.
 
-    # Parent that host child widgets track and provide a list of those children's z-order.
+    # Persistent PhotoImage provides an INSTANT redraw canvas in compositing.
+    def scratchImage(self): return self._scratch
+
+    # Public callable update event that waits until idletasks are complete. (scheduled changes have been applied)
+    def update(self, event=None): self.after_idle(self._update)
+
+    # Parents that host child widgets track their children and provide a list of those children's z-order.
     def getChildren(self): return self._children
     def registerChild(self, child):
         if child not in self._children: self._children.append(child)
     def dropChild(self, child):
         if child in self._children: self._children.remove(child)
 
-    def _geometry_changed(self, event): self.after_idle(self._update)
+    # Methods for maintaining child z_order on lift/lower configurations.
+    def _raiseChildIndex(self, child, above):
+        self.dropChild(child)
+        if above and above in self._children:
+            index = self._children.index(above) + 1
+            self._children.insert(index, child)
+        else:
+            self._children.append(child)
 
+    def _lowerChildIndex(self, child, below):
+        self.dropChild(child)
+        if below and below in self._children:
+            index = self._children.index(below)
+            self._children.insert(index, child)
+        else:
+            self._children.insert(0, child)
+
+    # _update runs On instantiation, and when any tracked change takes place thereafter.
     def _update(self, event=None):
         self._geometry = getGeometry(self)
         self._scratch = tk.PhotoImage(width=self._geometry[2], height=self._geometry[3])
