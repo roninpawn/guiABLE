@@ -2,7 +2,7 @@ import tkinter as tk
 from time import time
 from typing import Optional
 
-from guiABLE.skinnable import Skin, Skinnable, FilterSkin, BarSkin, NoSkin
+from guiABLE.skinnable import Skin, Skinnable, FilterSkin, BarSkin
 from guiABLE.utilities import limitMove, rectsOverlap, rectUnion, fastComposite, fastCrop, fastFlood, getLocalMouse, \
     getGeometry
 
