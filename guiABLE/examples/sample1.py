@@ -34,7 +34,6 @@ def test_gui():
     test_drag.place(x=260, y=24)
 
     # Create a Labelable (button with text overlay)
-    label_skin = Skin("../skins/default/label_normal.png", "../skins/default/label_hover.png", "../skins/default/label_active.png")
     test_label = Labelable(bg, function=lambda: print("Label clicked!"), skin=btn_skin,
                            text="Hello", text_pos=(10, 5), font=("Arial", 12, "bold"), color="white",
                            width=100, height=24)
@@ -57,13 +56,11 @@ def test_gui():
 #       label.pack(fill=tk.X, padx=5)
 
     # Create a Holdable button
-    hold_skin = Skin("../skins/default/hold_normal.png", "../skins/default/hold_hover.png", "../skins/default/hold_active.png")
-    hold_btn = Holdable(bg, function=lambda: print("Holding..."), skin=hold_skin, width=100, height=40, delay=200)
+    hold_btn = Holdable(bg, function=lambda: print(hold_btn.skin.usesBgColors()), width=100, height=40, delay=200)
     hold_btn.place(x=20, y=350)
 
     # Create a Clickable-only button
-    click_skin = Skin("../skins/default/click_normal.png", "../skins/default/click_hover.png", "../skins/default/click_active.png")
-    click_btn = Clickable(bg, function=lambda: print("Clicked instantly!"), skin=click_skin, width=100, height=40)
+    click_btn = Clickable(bg, function=lambda: print("Clicked instantly!"), width=100, height=40)
     click_btn.place(x=140, y=350)
 
     # Create extra Togglables for above/below testing.
@@ -93,16 +90,19 @@ def test_gui():
 
     trough_skin = Skin("../skins/default/scroll_trough-48.png")
     cap_skin = Skin("../skins/default/up_glyph-48.png")
-    scroll_skin = ScrollSkin.fromSkins(cap_skin, trough_skin, vertical=True)
+    scroll_skin = ScrollSkin.fromSkins(cap_skin, trough_skin, None,  vertical=True)
     scroll_area = Scrollable(bg, 450, 215, scroll_skin)
-    scroll_area.skin.setImages(bg_image)
+    scroll_area.skin.setImage(bg_image)
     scroll_area.place(x=20, y=120)
 
-    nude_drag = Draggable(bg, None, width=50, height=50)
+    nude_skin = Skin()
+    nude_skin.usesBgColors(False)
+    nude_drag = Draggable(bg, nude_skin, width=50, height=50)
     nude_drag.place(x=0, y=0)
 
     for i in range(30):
        label = tk.Label(scroll_area.scrollPane, text=f"Item {i + 1}", anchor="w", background="blue")
+       label.pack(fill=tk.X, padx=10, pady=10)
        label.pack(fill=tk.X, padx=10, pady=10)
 
     # Prove lower/lift functionality

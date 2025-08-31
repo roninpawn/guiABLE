@@ -166,10 +166,9 @@ class ScrollPlate(Baseable):
     def setState(self, state_index:int = 0):
         # If widget lacks geometry (has not fully spawned) wait until it has.
         x, y, w, h = self.geometry
-        if w <= 1 and h <= 1:
+        if w < 1 and h < 1:
             self.after_idle(lambda : self.redraw())
             return
-
         if self.master.skin.hasImages():
             w, h = self.master.skin.resolution()[:2]
             fastCrop(self._scratch, self.master.skin.image(), w, h, 0, 0, w, h)
@@ -178,8 +177,8 @@ class ScrollPlate(Baseable):
             bg_color = self.master.skin.bgColor()
             self.configure(background=bg_color)
 
-    def _update(self, event=None):
-        super()._update(event)
+    def _refresh(self, event=None):
+        super()._refresh(event)
         self.after_idle(self._get_req_geometry)
 
     def _get_req_geometry(self):        # TODO: Could be problematic overriding geometry. Store req separate if issues.
@@ -258,10 +257,10 @@ class ScrollBar(Backgroundable):
             # Determine 2nd button's x,y location and define trough geometry based on vertical/horizontal orientation.
             if vertical:
                 b2x, b2y = 0, height - bh
-                tx, ty, tw, th = 0, bh, width, height - (bh * 2)
+                tx, ty, tw, th = 0, bh, width, height-(bh*1)
             else:
                 b2x, b2y = width - bw, 0
-                tx, ty, tw, th = bw, 0, width - (bw * 2), height
+                tx, ty, tw, th = bw, 0, width-(bw*1), height
 
             # Make and place buttons
             button1 = Holdable(self, skin=self._button_skin, width=bw, height=bh)
@@ -276,7 +275,7 @@ class ScrollBar(Backgroundable):
         self._handle.setBounds(tx, ty, tw, th)
         self._handle.place(x=tx, y=ty)
 
-        self.render(self._bar_skin.image(0, th if vertical else tw), tx, ty)
+        self.render(self._bar_skin.image(0, th if vertical else tw))
 
     @property
     def vertical(self): return self._vertical
@@ -363,7 +362,6 @@ class ScrollHandle(Draggable):
     def _drag(self, x:int, y:int):
         super()._drag(x, y)
         self.master.handleMoved(*self._geometry)
-
 
 
 class ScrollFrame(Backgroundable):

@@ -185,10 +185,10 @@ class Canvasable(tk.Text):
             kw["selectbackground"] = kw["background"]
         super().configure(**kw)
 
-    def render(self, image:tk.PhotoImage, x:int = 0, y:int = 0):
+    def render(self, image:tk.PhotoImage):
         self.configure(state="normal")
         self.delete(1.0, "end")
-        self.image_create("end", image=image, padx=x, pady=y)
+        self.image_create("end", image=image)
         self.configure(state="disabled")
 
     @property
@@ -221,10 +221,10 @@ to abstract away the underlying duct-tape solution required to make tk.Canvas fu
 """
 class Backgroundable(Skinnable, Canvasable):
     def __init__(self, parent, width:int, height:int, skin:SingleSkin|FilterSkin = None, **kwargs):
-        Skinnable.__init__(self, skin if skin else Skin.fromColors("gray30"))
+        Skinnable.__init__(self, skin if skin else SingleSkin())
         Canvasable.__init__(self, parent, bg=self._skin.bgColor(), **kwargs)
 
-        self.bind("<Configure>", self.update)
+        self.bind("<Configure>", self.refresh)
         self.place_configure(width=width, height=height)
 
         self.after_idle(self.redraw)

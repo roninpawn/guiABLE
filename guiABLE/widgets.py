@@ -2,7 +2,7 @@ import tkinter as tk
 from time import time
 from typing import Optional
 
-from guiABLE.skinnable import Skin, Skinnable, FilterSkin, BarSkin
+from guiABLE.skinnable import Skin, Skinnable, FilterSkin, BarSkin, NoSkin
 from guiABLE.utilities import limitMove, rectsOverlap, rectUnion, fastComposite, fastCrop, fastFlood, getLocalMouse, \
     getGeometry
 
@@ -82,7 +82,7 @@ class Baseable(Siblingable, tk.Canvas):
         Siblingable.__init__(self, skin)
         tk.Canvas.__init__(self, parent, highlightthickness=0, **kwargs)
 
-        self.bind("<Configure>", self.update)
+        self.bind("<Configure>", self.refresh)
 
         self.bench, self.benches = 0, 0
 
@@ -92,7 +92,7 @@ class Baseable(Siblingable, tk.Canvas):
         self._img_state = 0
         self._drop_list = set()
 
-        self.update()
+        self.refresh()
         self.enable()
 
     @property
@@ -119,13 +119,12 @@ class Baseable(Siblingable, tk.Canvas):
     def enabled(self) -> bool : return self._enabled
     def disable(self): self._enabled = False
 
-
     def setState(self, state_index:int = 0):
         start = time()
 
         # If widget lacks geometry (has not fully spawned) wait until it has.
         x, y, w, h = self.geometry
-        if w <= 1 and h <= 1:
+        if w < 1 and h < 1:
             self.after_idle(lambda : self.redraw())
             return
 
@@ -134,16 +133,16 @@ class Baseable(Siblingable, tk.Canvas):
         # Handle opaqueness vs transparency
         if self._skin.usesBgColors():       # Opaque skips siblings beneath it.
             siblings = [self]
-            bg_color = self._skin.bgColor(self._img_state)
+            #bg_color = self._skin.bgColor(self._img_state)
         else:       # Transparent inherits parent's bg color if parent isn't using an image.
             siblings = list(self._siblings_beneath)
             siblings.append(self)
-            if not self.master.skin.hasImages():
-                bg_color = self.master.skin.bgColor()
+            #if not self.master.skin.hasImages():
+            #    bg_color = self.master.skin.bgColor()
 
         # Only render background color if it is necessary.
-        if self.skin.usesBgColors() or (not self.skin.usesBgColors() and not self.master.skin.hasImages()):
-            self.configure(background=bg_color)
+        #if self.skin.usesBgColors() or (not self.skin.usesBgColors() and not self.master.skin.hasImages()):
+        #    self.configure(background=bg_color)
 
         # Add all atop-siblings if any one of them is transparent.
         for s in self._siblings_atop:
@@ -180,13 +179,16 @@ class Baseable(Siblingable, tk.Canvas):
             fastFlood(base, w, h, self.master.skin.bgColor())
 
         # Draw each layer to a base image and then crop from that base to each widget's surface, as we go.
+        atop = False
         for sibling in siblings:
+            if sibling == self: atop = True
             sx, sy, sw, sh = sibling.geometry
             dx, dy = sx-x, sy-y
             fastComposite(base, w, h, sibling.zImage, dx, dy, sw, sh)
             final = sibling.scratchImage()
-            fastCrop(final, base, w, h, dx, dy, sw, sh)
-            sibling.render(final)
+            if atop:
+                fastCrop(final, base, w, h, dx, dy, sw, sh)
+                sibling.render(final)
             if not rectsOverlap(self.geometry, sibling.geometry):
                 sibling.dropSibling(self)
                 self.dropSibling(sibling)
@@ -197,8 +199,6 @@ class Baseable(Siblingable, tk.Canvas):
         if self._z_state != self._img_state or self.dirty:
             _, _, w, h = self.geometry
             self._z_img = tk.PhotoImage(width=w, height=h)
-            if not self._skin.hasImages() or self._skin.usesBgColors():
-                fastFlood(self._z_img, w, h, self._skin.bgColor(self._img_state))
             fastComposite(self._z_img, w, h, self._skin.image(self._img_state), 0, 0,
                           *self._skin.resolution(self._img_state))
             self._z_state = self._img_state
@@ -457,7 +457,3 @@ class Draggable(Holdable):
                 output_list.append(sibling)
                 sibling.trackSibling(self, atop)
 
-    def _update(self, event=None):
-        self._geometry = getGeometry(self)
-        if self.size != self._last_geometry[2:]:
-            self._scratch = tk.PhotoImage(width=self._geometry[2], height=self._geometry[3])
