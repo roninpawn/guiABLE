@@ -43,6 +43,7 @@ def test_gui():
     # Create an EXIT button from a Labelable
     x_sprite = Skin.fromImages(cropImage(tk.PhotoImage(file='../skins/default/window-glyphs-40.png'), 80, 0, 40, 40))
     x_sprite.usesBgColors(True)
+    x_sprite.setBGColor("red", 2)
     exit_button = Pushable(bg, function=app.quit, skin=x_sprite, width=40, height=40)
     exit_button.place(x=550, y=10)
 
@@ -56,7 +57,7 @@ def test_gui():
 #       label.pack(fill=tk.X, padx=5)
 
     # Create a Holdable button
-    hold_btn = Holdable(bg, function=lambda: print(hold_btn.skin.usesBgColors()), width=100, height=40, delay=200)
+    hold_btn = Holdable(bg, function=lambda: print("Holding"), width=100, height=40, delay=200)
     hold_btn.place(x=20, y=350)
 
     # Create a Clickable-only button
@@ -90,13 +91,13 @@ def test_gui():
 
     trough_skin = Skin("../skins/default/scroll_trough-48.png")
     cap_skin = Skin("../skins/default/up_glyph-48.png")
-    scroll_skin = ScrollSkin.fromSkins(cap_skin, trough_skin, None,  vertical=True)
+    scroll_skin = ScrollSkin.fromSkins(cap_skin, trough_skin, None, vertical=True)
     scroll_area = Scrollable(bg, 450, 215, scroll_skin)
     scroll_area.skin.setImage(bg_image)
     scroll_area.place(x=20, y=120)
 
-    nude_skin = Skin()
-    nude_skin.usesBgColors(False)
+    nude_skin = BS()
+    #nude_skin.usesBgColors(False)
     nude_drag = Draggable(bg, nude_skin, width=50, height=50)
     nude_drag.place(x=0, y=0)
 
@@ -108,8 +109,9 @@ def test_gui():
     # Prove lower/lift functionality
     click_btn.lift(test_toggle1)
     exit_button.lift(test_toggle1)
-    #test_toggle1.lower(test_label)
-    #test_toggle4.lift(test_toggle2)
+    test_toggle2.lift()
+    test_toggle3.lower()
+    test_toggle4.lift(test_toggle2)
 
     fps_label = tk.Label(bg, text="FPS", anchor="w")
     fps_label.place(x=518, y=10)

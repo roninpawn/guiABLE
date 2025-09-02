@@ -181,9 +181,13 @@ class ScrollPlate(Baseable):
         super()._refresh(event)
         self.after_idle(self._get_req_geometry)
 
+
     def _get_req_geometry(self):        # TODO: Could be problematic overriding geometry. Store req separate if issues.
-        x, y, w, h = self._geometry
-        self._geometry = x, y, max(self.winfo_reqwidth(), w), max(self.winfo_reqheight(), h)
+        mw, mh = self.master.size
+        mw -= self.master._scroll_skin.vertical.breadth     # TODO: Store a "reqwidth" with the parent that pre-calcs this.
+        self._geometry = (*self.location,
+                          max(self.winfo_reqwidth(), mw),
+                          max(self.winfo_reqheight(), mh))
 
 
 class Scrollable(Backgroundable):
@@ -196,7 +200,6 @@ class Scrollable(Backgroundable):
 
         self._scroll_plate = ScrollPlate(self, width=bw, height=bh)
         self._scroll_plate.place(x=0, y=0, width=bw, height=bh)
-        self._scroll_plate.bind('<Configure>', self._config_plate)
 
         # Place the scrollbars.
         self.v_bar = ScrollBar(self, v_breadth, height, self._scroll_skin.vertical, None,
@@ -207,14 +210,8 @@ class Scrollable(Backgroundable):
         self.h_bar.place(x=0, y=height-h_breadth)
 
         # Gapper to consume space under the vertical bar, so that padded widgets appear correctly.
-        self.v_gap=tk.Canvas(self._scroll_plate, width=v_breadth, height=height)
+        self.v_gap=tk.Canvas(self._scroll_plate, width=v_breadth, height=height, highlightthickness=0)
         self.v_gap.pack(side="right")
-
-    def _config_plate(self, event):
-        w, h = max(self._scroll_plate.winfo_reqwidth(), self.size[0]), max(self._scroll_plate.winfo_reqheight(), self.size[1])
-        _, _, sw, sh = getGeometry(self._scroll_plate)
-        if sw < w or sh < h:
-            self._scroll_plate.place_configure(width=w, height=h)
 
     @property
     def scrollPane(self): return self._scroll_plate
@@ -234,21 +231,32 @@ class Scrollable(Backgroundable):
         self._scroll_plate._geometry = (x, y, iw, ih)
         self._scroll_plate.redraw()
 
+    def _refresh(self, event=None):
+        super()._refresh(event)
+        w, h = max(self._scroll_plate.winfo_reqwidth(), self.size[0]), max(self._scroll_plate.winfo_reqheight(), self.size[1])
+        _, _, sw, sh = getGeometry(self._scroll_plate)
+        if sw < w or sh < h:
+            self._scroll_plate.place_configure(width=w, height=h)
+        self.v_gap.configure(height=self._scroll_plate.geometry[3])
+
 
 class ScrollBar(Backgroundable):
     def __init__(self, parent, width:int, height:int, bar_skin: BarSkin | None = None, handle_skin: BarSkin | None = None,
                  button_skin:Skin|None = None, vertical=True, breadth:int = 0, **kwargs):
         self._bar_skin = bar_skin or BarSkin()
-        self._handle_skin = handle_skin or BarSkin()
         self._button_skin = button_skin
         self._vertical = vertical
+
+        self._bar_skin.usesBgColors(True)       # ScrollBar is a "floor" widget. No transparency below it will be passed.
 
         super().__init__(parent, width, height, bar_skin, **kwargs)
 
         if breadth < 1: breadth = min(width, height)        # 0/negative = Auto breadth.
-        self._handle = ScrollHandle(self, self._handle_skin, self._vertical, width=breadth, height=breadth)
+        self._handle = ScrollHandle(self, handle_skin or BarSkin(vertical=vertical, breadth=breadth),
+                                    self._vertical, width=breadth, height=breadth)
 
         if self._button_skin:
+            self._button_skin.usesBgColors(True)
             # Determine button width/height from Skin or as square of trough's breadth.
             if self._button_skin.hasImages():
                 bw, bh = self._button_skin.resolution()
@@ -343,7 +351,7 @@ class ScrollTrough(Backgroundable):
 class ScrollHandle(Draggable):
     def __init__(self, parent:ScrollTrough, bar_skin:BarSkin = None, vertical:bool = True, **kwargs):
         self.vertical = vertical
-        super().__init__(parent, skin=bar_skin or BarSkin(), **kwargs)
+        super().__init__(parent, skin=bar_skin or BarSkin(vertical=vertical), **kwargs)
 
     def move(self, x:int, y:int):
         x = limitMove(x, self._geometry[2], *self._bounds[0], self._bounds[2])

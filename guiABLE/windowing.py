@@ -1,7 +1,7 @@
 import tkinter as tk
 from time import time
 
-from .skinnable import Skinnable, Skin, FilterSkin, SingleSkin
+from .skinnable import Skinnable, FilterSkin, SingleSkin
 from .utilities import resolvePath, geometryFromString
 
 

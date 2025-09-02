@@ -7,7 +7,7 @@ from guiABLE.utilities import limitMove, rectsOverlap, rectUnion, fastComposite,
     getGeometry
 
 """
-Siblingable adds sibling awareness & overlap tracking to Skinnable. (MRO sucks, real inheritance is less brittle.)  
+Siblingable adds sibling awareness & overlap tracking to Skinnable. (MRO sucks, true inheritance is less brittle.)  
 """
 class Siblingable(Skinnable):
     def __init__(self, skin:Skin|FilterSkin|BarSkin):
@@ -92,7 +92,7 @@ class Baseable(Siblingable, tk.Canvas):
         self._img_state = 0
         self._drop_list = set()
 
-        self.refresh()
+        self.after_idle(self.refresh)
         self.enable()
 
     @property
@@ -184,7 +184,7 @@ class Baseable(Siblingable, tk.Canvas):
             if sibling == self: atop = True
             sx, sy, sw, sh = sibling.geometry
             dx, dy = sx-x, sy-y
-            fastComposite(base, w, h, sibling.zImage, dx, dy, sw, sh)
+            fastComposite(base, w, h, sibling.zImage(), dx, dy, sw, sh)
             final = sibling.scratchImage()
             if atop:
                 fastCrop(final, base, w, h, dx, dy, sw, sh)
@@ -194,7 +194,6 @@ class Baseable(Siblingable, tk.Canvas):
                 self.dropSibling(sibling)
 
     # The ZImage() is a persistent render of what the widget looks like on its own. Only updated if something changed.
-    @property
     def zImage(self) -> tk.PhotoImage:
         if self._z_state != self._img_state or self.dirty:
             _, _, w, h = self.geometry
@@ -317,6 +316,10 @@ class Labelable(Pushable):
         dx, dy = self.drop_pos
         self.create_text(x + dx, y + dy, text=self.text, fill=self.drop_color, font=self.font, anchor="nw")
         self.create_text(x, y, text=self.text, fill=self.color, font=self.font, anchor="nw")
+
+    def render(self, image:tk.PhotoImage, x:int = 0, y:int = 0):
+        super().render(image, x, y)
+        self.drawText()
 
     def mouseOut(self, event):
         super().mouseOut(event)
