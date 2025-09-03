@@ -2,7 +2,7 @@ import tkinter as tk
 
 from .utilities import limitMove, getLocalMouse, updateHover, getGeometry, fastCrop
 from .windowing import Backgroundable
-from .skinnable import ScrollSkin, BarSkin, Skin, FilterSkin
+from .skinnable import ScrollSkin, BarSkin, Skin, FilterSkin, ButtonPack
 from .widgets import Draggable, Holdable, Baseable
 
 
@@ -241,10 +241,10 @@ class Scrollable(Backgroundable):
 
 
 class ScrollBar(Backgroundable):
-    def __init__(self, parent, width:int, height:int, bar_skin: BarSkin | None = None, handle_skin: BarSkin | None = None,
-                 button_skin:Skin|None = None, vertical=True, breadth:int = 0, **kwargs):
+    def __init__(self, parent, width:int, height:int, bar_skin:BarSkin|None = None, handle_skin:BarSkin|None = None,
+                 button_pack:ButtonPack|None = None, vertical=True, breadth:int = 0, **kwargs):
         self._bar_skin = bar_skin or BarSkin()
-        self._button_skin = button_skin
+        self._buttons = button_pack
         self._vertical = vertical
 
         self._bar_skin.usesBgColors(True)       # ScrollBar is a "floor" widget. No transparency below it will be passed.
@@ -255,26 +255,29 @@ class ScrollBar(Backgroundable):
         self._handle = ScrollHandle(self, handle_skin or BarSkin(vertical=vertical, breadth=breadth),
                                     self._vertical, width=breadth, height=breadth)
 
-        if self._button_skin:
-            self._button_skin.usesBgColors(True)
-            # Determine button width/height from Skin or as square of trough's breadth.
-            if self._button_skin.hasImages():
-                bw, bh = self._button_skin.resolution()
-            else:
-                bw, bh = breadth, breadth
+        if self._buttons:
             # Determine 2nd button's x,y location and define trough geometry based on vertical/horizontal orientation.
             if vertical:
-                b2x, b2y = 0, height - bh
-                tx, ty, tw, th = 0, bh, width, height-(bh*1)
+                bskin1, bskin2 = self._buttons.north, self._buttons.south
+                # Determine button width/height from Skin or as square of trough's breadth.
+                b1w, b1h = bskin1.resolution()
+                b2w, b2h = bskin2.resolution()
+
+                b2x, b2y = 0, height - b2h
+                tx, ty, tw, th = 0, b1h, width, height-b2h
             else:
-                b2x, b2y = width - bw, 0
-                tx, ty, tw, th = bw, 0, width-(bw*1), height
+                bskin1, bskin2 = self._buttons.west, self._buttons.east
+                b1w, b1h = bskin1.resolution()
+                b2w, b2h = bskin2.resolution()
+                b2x, b2y = width - b2w, 0
+                tx, ty, tw, th = b1w, 0, width-b2w, height
 
             # Make and place buttons
-            button1 = Holdable(self, skin=self._button_skin, width=bw, height=bh)
+            bskin1.usesBgColors(True)
+            bskin2.usesBgColors(True)
+            button1 = Holdable(self, skin=bskin1, width=b1w, height=b1h)
             button1.place(x=0, y=0)
-            button2 = Holdable(self, skin=FilterSkin(self._button_skin, mirror_x=not vertical, mirror_y=vertical),
-                               width=bw, height=bh)
+            button2 = Holdable(self, skin=bskin2, width=b2w, height=b2h)
             button2.place(x=b2x, y=b2y)
         else:
             tx, ty, tw, th = 0, 0, width, height

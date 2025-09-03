@@ -1,4 +1,5 @@
 import tkinter as tk
+from enum import Enum
 
 from guiABLE.utilities import (warnPrint, resolvePath, cropImage, loadImage, getGeometry, fastComposite,
                                fastFlood, fastTile, flipImage, rotateImage)
@@ -57,6 +58,7 @@ class CoreSkin:
         if isinstance(use, bool):
             self._use_bg_colors = use
             if not use: self._filter = None     # Unload internal FilterSkin if no longer in use.
+            self.updateRecipients()
         return self._use_bg_colors
 
     def numStates(self): return max(len(self._images), len(self._bg_colors))
@@ -173,27 +175,32 @@ class ColorSkin(CoreSkin):
     .fromImages()       - new_skin = Skin.fromImages(img1, img2, img3, img4) 
     .fromSpriteSheet()  - new_skin = Skin.fromSpriteSheet("/skins/skin1/checkbox.png", width=32, rows=2, margins=(4,4))
     
-    The default creation method simply provides a list of resource paths as strings.
-    ex: Skin("images/button_norm.png", "images/button_mo.png", "images/button_active.png", "images/button_disabled.png")
+    The default creation method provides a list of resource paths as strings with an optional orientation value.
+    ex: Skin("images/button_norm.png", "images/button_mo.png", "images/button_active.png", orientation="w")
+    
+    Orientation is expressed in cardinal directions: North, East, South, West as "n", "e," "s", "w", and is used in
+    certain rotation/mirror operations, like for Scrollbar generation.
     
     While Skin() supports storing any number of images in any order, the guiABLE's standard order of states is:
     (normal, moused_over, active, disabled) 
 """
 class Skin(ColorSkin):
-    def __init__(self, *paths: str):
+    def __init__(self, *paths:str, orientation:str = None):
         super().__init__()
 
         if any(paths):
             self._expand(len(paths))
             self._byPaths(paths)
+        self._orientation = orientation.lower()[0] if orientation else None
 
     """ By resource paths. ex: Skin("skins/my_skin/checkbox_enabled.png","skins/my_skin/checkbox_hover.png", ...) """
     @classmethod
-    def fromPaths(cls, *paths:str):
+    def fromPaths(cls, *paths:str, orientation:str = None):
         sk = cls()
         if any(paths):
             sk._expand(len(paths))
             sk._byPaths(paths)
+        sk._orientation = orientation.lower()[0] if orientation else None
         return sk
     def setPaths(self, *paths:str):        # Supports insert-updating by list. ex: ["path", None, None, "path"]
         if len(paths) > len(self._paths): self._expand(len(paths))
@@ -210,11 +217,12 @@ class Skin(ColorSkin):
     the image by ref, so you're safe here. But avoid passing PhotoImage(file=...) directly into native Tkinter.
     """
     @classmethod
-    def fromImages(cls, *photoimages:tk.PhotoImage):
+    def fromImages(cls, *photoimages:tk.PhotoImage, orientation:str = None):
         sk = cls()
         if any(photoimages):
             sk._expand(len(photoimages))
             sk._byPhotoImages(photoimages)
+        sk._orientation = orientation.lower()[0] if orientation else None
         return sk
     def setImages(self, *photoimages:tk.PhotoImage):
         if len(photoimages) > len(self._images): self._expand(len(photoimages))
@@ -233,11 +241,13 @@ class Skin(ColorSkin):
     Example:    Skin.fromSpriteSheet("/skins/default/checkbox.png", width=32, rows=2, margins=(4,4))
     """
     @classmethod
-    def fromSpriteSheet(cls, path_or_image:str|tk.PhotoImage, width:int, rows:int = 1, margins:tuple = (0,0)):
+    def fromSpriteSheet(cls, path_or_image:str|tk.PhotoImage, width:int, rows:int = 1, margins:tuple = (0,0),
+                        orientation:str = None):
         sk = cls()
         sheet, path = loadImage(path_or_image)
         if sheet is not None:
             sk._bySprite(sheet, path, width, rows, margins)
+        sk._orientation = orientation.lower()[0] if orientation else None
         return sk
     def setSprites(self, path_or_image:str|tk.PhotoImage, width:int, rows:int = 1, margins:tuple = (0,0)):
         sheet, path = loadImage(path_or_image)
@@ -245,6 +255,9 @@ class Skin(ColorSkin):
             self._paths, self._images = [], []
             self._bySprite(sheet, path, width, rows, margins)
         self.updateRecipients()
+
+    @property
+    def orientation(self): return self._orientation
 
     """ Private Functions """
     def _byPaths(self, paths:tuple[str, ...], skip_falsy:bool = False, index_offset:int = 0):
@@ -378,6 +391,12 @@ class FilterSkin(DirtySkin, CoreSkin):
         self.mirror_y = mirror_y
         self.rotate = rotate
 
+        try:
+            self._orientation = self._linked_skin.orientation
+            if self._orientation:
+                self._transformOrientation()
+        except: self._orientation = None
+
         self._linked_skin.bindWidget(self)
         self._cleanSkin()
 
@@ -393,6 +412,11 @@ class FilterSkin(DirtySkin, CoreSkin):
         self._bg_colors = self._linked_skin.bg_colors
         self._images = list(self._linked_skin.images)
         self._resolutions = self._linked_skin.resolutions
+
+        try:
+            self._orientation = self._linked_skin.orientation
+            self._transformOrientation()
+        except: self._orientation = None
 
         # Propagate dirty state to individual image states. len(bg_colors) ensures needed length if usesBGColors().
         if self._linked_skin.usesBgColors():
@@ -421,6 +445,17 @@ class FilterSkin(DirtySkin, CoreSkin):
         while len(self._resolutions) <= index: self._resolutions.append((0,0))
         self._images[index] = img
         self._resolutions[index] = w, h
+
+    # Update orientation by applying transforms.
+    def _transformOrientation(self) -> str|None:
+        _directions = {"n":0, "e":1, "s":2, "w":3}
+        if self._orientation and self._orientation in _directions:
+            o = _directions[self._orientation]
+            if self.rotate: o = (o - 1) % 4      # CCW rotation
+            if self.mirror_x: o = (4 - o) % 4    # flip E/W
+            if self.mirror_y: o = (2 - o) % 4    # flip N/S
+            self._orientation = list(_directions.keys())[o]
+        else: self._orientation = None
 
     @staticmethod
     def _state_sum(set_1, set_2) -> tuple[bool, bool, bool]:
@@ -514,7 +549,6 @@ class BarSkin(DirtySkin, ColorSkin):
         return index % len(self._images)
 
     def _draw(self, index:int = 0, w:int = 0, h:int = 0):
-        print("--", w,h, "length:", self.length, self.breadth)
         c1w, c1h = self.cap1.resolution(index)
         c2w, c2h = self.cap2.resolution(index)
 
@@ -550,6 +584,110 @@ class BarSkin(DirtySkin, ColorSkin):
             if len(self._images) < size:        self._images.append(True)       # True appears as though hasImages()
             if len(self._resolutions) < size:   self._resolutions.append((0,0))
 
+"""
+    ButtonSkin accepts a single image, and a declaration of that image's facing/pointing direction as its orientation.
+    From that image, it rotates and mirrors, to generate all other cardinal directions, preserving the "outside" edge.
+    The bottom and the right are considered the "outside" edge, and so an east-facing image will be rotated clockwise
+    to generate its south-facing sibling. And then the north-facing image is mirrored from the south-facing one. 
+"""
+class CardinalSkin(CoreSkin):
+    def __init__(self, image:tk.PhotoImage, orientation:str = "n"):
+        super().__init__()
+        self._orientation = self._get_orientation(orientation)
+
+        self._expand(4)
+        self._saveAllImages(image)
+        self._use_bg_colors = False
+
+    def _saveAllImages(self, image: tk.PhotoImage):
+        o = self._orientation   # Original orientation. [n,e,s,w as 0,1,2,3]
+        r = (o + 1) % 4         # Rotated neighbor
+        s = (o + 2) % 4         # Opposite of original
+        t = (r + 2) % 4         # Opposite of rotated
+
+        self._saveImage(image, o, "passed internally")
+        if o in (0, 2):     # North/South → vertical axis
+            self._transformImage(o, s, flip_y=True)                     # O → S
+            self._transformImage(o, r, rotate=True, clockwise=True)     # O → R
+            self._transformImage(r, t, flip_x=True)                     # R → T
+
+        else:               # East/West → horizontal axis
+            self._transformImage(o, s, flip_x=True)
+            self._transformImage(o, r, rotate=True, clockwise=False)
+            self._transformImage(r, t, flip_y=True)
+
+    def _transformImage(self, source_index:int, dest_index:int, rotate:bool=False, clockwise:bool=False,
+                        flip_x:bool=False, flip_y:bool=False):
+        img = self._images[source_index]
+        if rotate: img = rotateImage(img, clockwise)
+        if flip_x or flip_y: img = flipImage(img, flip_x, flip_y)
+        self._saveImage(img, dest_index, "generated by CardinalSkin")
+
+    @staticmethod
+    def _get_orientation(orientation:str) -> int:
+        _directions = {"n":0, "e":1, "s":2, "w":3}
+        if orientation:
+            orientation = orientation.lower()[0]
+            if orientation in _directions:
+                return _directions[orientation]
+        return 0
+
+
+""" SkinPack is a container class for holding multiple skins, that exists only to be extended by its children. """
+class SkinPack:
+    def __init__(self, *skins): self._skins = list(skins)
+
+    def skin(self, index:int = 0): return self._skins[index % len(self._skins)]
+
+    def setSkin(self, skin:CoreSkin, index:int = 0):
+        if index < len(self._skins): self._skins[index] = skin
+        else: warnPrint(f"SkinPack.setSkin() was passed an out-of-range index: {index} ")
+    def insertSkin(self, skin:CoreSkin, index:int = 0):
+        if index < len(self._skins): self._skins.insert(index, skin)
+        else: warnPrint(f"SkinPack.insertSkin() was passed an out-of-range index: {index} ")
+    def appendSkin(self, skin:CoreSkin): self._skins.append(skin)
+    def popSkin(self, index:int = 0): return self._skins.pop(index)
+
+
+class ButtonPack(SkinPack):
+    _cardinals = {"n":0, "e":1, "s":2, "w":3}
+    def __init__(self, button_north:CoreSkin, button_east:CoreSkin, button_south:CoreSkin, button_west:CoreSkin):
+        super().__init__(button_north or None, button_east or None, button_south or None, button_west or None)
+
+    @property
+    def north(self): return Skin() if self._skins[0] is None else self._skins[0]
+    @property
+    def east(self): return Skin() if self._skins[1] is None else self._skins[1]
+    @property
+    def south(self): return Skin() if self._skins[2] is None else self._skins[2]
+    @property
+    def west(self): return Skin() if self._skins[3] is None else self._skins[3]
+
+    @classmethod
+    def fromOne(cls, button_skin:CoreSkin, orientation:str = "n"):
+        if orientation := orientation.lower()[0]:
+            if orientation in cls._cardinals and button_skin is not None:
+                o = cls._cardinals[orientation]     # Original orientation. [n,e,s,w as 0,1,2,3]
+                r = (o + 1) % 4                     # Rotated neighbor
+                s = (o + 2) % 4                     # Opposite of original
+                t = (r + 2) % 4                     # Opposite of rotated
+
+                skins = [None, None, None, None]
+
+                # The pattern below preserves inner/outer relationships, where south and east are the outer directions.
+                skins[o] = button_skin
+                if o in (0, 2):     # North/South → vertical axis
+                    skins[s] = FilterSkin(skins[o], mirror_y=True)                                  # O → S
+                    skins[r] = FilterSkin(skins[o], rotate=True, mirror_x=True)                     # O → R
+                    skins[t] = FilterSkin(skins[r], mirror_x=True)                                  # R → T
+                else:               # East/West → horizontal axis
+                    skins[s] = FilterSkin(skins[o], mirror_x=True)                                  # O → S
+                    skins[r] = FilterSkin(skins[o], rotate=True)                                    # O → R
+                    skins[t] = FilterSkin(skins[r], mirror_y=True)                                  # R → T
+
+                return cls(*skins)
+        return cls(Skin(), Skin(), Skin(), Skin())
+
 
 """
     ScrollSkin stores two BarSkins for use in rendering the vertical and horizontal ScrollBars of a Scrollable.
@@ -558,31 +696,32 @@ class BarSkin(DirtySkin, ColorSkin):
     When .fromSkins() is given only the first cap and a trough, it generates the 2nd cap by mirroring the first, and
     generates both the vertical and horizontal BarSkin by rotating whichever one was given. 
 """
-class ScrollSkin(CoreSkin):
-    def __init__(self, vertical_bar: BarSkin | None = None, horizontal_bar: BarSkin | None = None,
-                 button_skin: Skin | FilterSkin | None = None):
-        super().__init__()
-        self._v_bar = vertical_bar or BarSkin()
-        self._h_bar = horizontal_bar or BarSkin()
-        self._button_skin = button_skin
+class ScrollSkin(SkinPack):
+    def __init__(self, vertical_bar:BarSkin, horizontal_bar:BarSkin, button_pack:ButtonPack = None):
+        super().__init__(vertical_bar or None, horizontal_bar or None, button_pack)
 
     @classmethod
-    def fromSkins(cls, cap_skin:Skin, trough_skin:Skin, cap_skin2:Skin|None = None, button_skin:Skin|None = None,
-                  vertical:bool = True):
-        return cls(*cls._barsFromSkins(cap_skin, trough_skin, cap_skin2, vertical), button_skin)
+    def fromSkins(cls, cap_skin:Skin, trough_skin:Skin, cap_skin2:Skin|None = None, vertical:bool = True,
+                  button_skin:Skin|None = None, button_orientation:str = "n"):
+        if button_skin is not None: buttons = ButtonPack.fromOne(button_skin, button_orientation)
+        else: buttons = ButtonPack(None, None, None, None)
+        return cls(*cls._barsFromSkins(cap_skin, trough_skin, cap_skin2, vertical), buttons)
 
     @property
-    def vertical(self) -> BarSkin: return self._v_bar
+    def vertical(self) -> BarSkin: return BarSkin() if self._skins[0] is None else self._skins[0]
     @property
-    def horizontal(self) -> BarSkin: return self._h_bar
+    def horizontal(self) -> BarSkin: return BarSkin() if self._skins[1] is None else self._skins[1]
     @property
-    def button(self) -> Skin | FilterSkin | None: return self._button_skin
+    def button(self) -> ButtonPack: return ButtonPack(None, None, None, None) if self._skins[2] is None else self._skins[2]
 
-    def setBars(self, vertical:BarSkin, horizontal:BarSkin): self._v_bar, self._h_bar= vertical, horizontal
+    def setBars(self, vertical:BarSkin = None, horizontal:BarSkin = None):
+        if vertical: self._skins[0] = vertical
+        if horizontal: self._skins[1] = horizontal
 
-    def setBySkins(self, cap_skin:Skin, trough_skin:Skin, cap_skin2:Skin|None = None,
-                   breadth:int = 24, vertical:bool = True):
-        self._v_bar, self._h_bar = self._barsFromSkins(cap_skin, trough_skin, cap_skin2, vertical)
+    def setBySkins(self, cap_skin:Skin, trough_skin:Skin, cap_skin2:Skin|None = None, vertical:bool = True,
+                   button_skin:Skin|None = None, button_orientation:str = "n"):
+        self._skins[0], self._skins[1] = self._barsFromSkins(cap_skin, trough_skin, cap_skin2, vertical)
+        if button_skin is not None: self._skins[2] = ButtonPack.fromOne(button_skin, button_orientation)
 
     @classmethod
     def _barsFromSkins(cls, cap_skin:Skin, trough_skin:Skin, cap_skin2:Skin|None = None,
