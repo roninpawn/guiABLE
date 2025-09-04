@@ -55,7 +55,7 @@ class CoreSkin:
     # Informational methods
     def hasImages(self): return any(self._images)
     def usesBgColors(self, use:bool = None) -> bool:
-        if isinstance(use, bool):
+        if use:
             self._use_bg_colors = use
             if not use: self._filter = None     # Unload internal FilterSkin if no longer in use.
             self.updateRecipients()
@@ -653,6 +653,7 @@ class ButtonPack(SkinPack):
     _cardinals = {"n":0, "e":1, "s":2, "w":3}
     def __init__(self, button_north:CoreSkin, button_east:CoreSkin, button_south:CoreSkin, button_west:CoreSkin):
         super().__init__(button_north or None, button_east or None, button_south or None, button_west or None)
+        self._use_bg_colors = False
 
     @property
     def north(self): return Skin() if self._skins[0] is None else self._skins[0]
@@ -662,6 +663,12 @@ class ButtonPack(SkinPack):
     def south(self): return Skin() if self._skins[2] is None else self._skins[2]
     @property
     def west(self): return Skin() if self._skins[3] is None else self._skins[3]
+
+    def usesBgColors(self, use:bool = None):
+        if use:
+            [skin.usesBgColors(use) for skin in self._skins]
+            self._use_bg_colors = use
+        return self._use_bg_colors
 
     @classmethod
     def fromOne(cls, button_skin:CoreSkin, orientation:str = "n"):

@@ -79,6 +79,9 @@ class Baseable(Siblingable, tk.Canvas):
     def __init__(self, parent, skin=None, **kwargs):
         self._enabled = False
 
+        # Setting the background of widgets to a middle gray reduces the appearance of pop-in while loading...
+        kwargs["bg"] = "gray42"     # ...amd widget bg colors aren't used in guiABLE. Bg colors are set through skins.
+
         Siblingable.__init__(self, skin)
         tk.Canvas.__init__(self, parent, highlightthickness=0, **kwargs)
 
@@ -102,9 +105,7 @@ class Baseable(Siblingable, tk.Canvas):
     @property
     def state(self): return self._img_state
 
-    def redraw(self):
-        #self._geometry = getGeometry(self)     # TODO: Slow. Ensure geometry changes are always caught, though.
-        self.setState(self._img_state)
+    def redraw(self): self.setState(self._img_state)
 
     def render(self, image:tk.PhotoImage, x:int = 0, y:int = 0):
         self._img = image
@@ -416,7 +417,6 @@ class Draggable(Holdable):
         self.setState(2)
 
     def mouseDrag(self, event):
-        if self._bounds is None: self._bounds = (0, 0, self.parent.winfo_width(), self.parent.winfo_height())
         x, y, w, h = self.geometry
 
         x = event.x - self.x + x
@@ -424,7 +424,7 @@ class Draggable(Holdable):
         x = limitMove(x, w, self._bounds[0], self._bounds[2])
         y = limitMove(y, h, self._bounds[1], self._bounds[3])
 
-        self._geometry = x, y, w, h
+        self._geometry = (x, y, w, h)
         if self._last_geometry != self.geometry: self.function(x, y)
 
     def enable(self):
@@ -459,4 +459,8 @@ class Draggable(Holdable):
             if rectsOverlap(movement_union, sibling.geometry):
                 output_list.append(sibling)
                 sibling.trackSibling(self, atop)
+
+    def _refresh(self, event=None):
+        super()._refresh(event)
+        if self._bounds is None: self._bounds = (0, 0, self.parent.winfo_width(), self.parent.winfo_height())
 

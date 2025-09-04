@@ -185,10 +185,10 @@ class Canvasable(tk.Text):
             kw["selectbackground"] = kw["background"]
         super().configure(**kw)
 
-    def render(self, image:tk.PhotoImage):
+    def render(self, image:tk.PhotoImage, pad_x:int=0, pad_y:int=0):
         self.configure(state="normal")
         self.delete(1.0, "end")
-        self.image_create("end", image=image)
+        self.image_create("end", image=image, padx=pad_x, pady=pad_y)
         self.configure(state="disabled")
 
     @property

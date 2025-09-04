@@ -1,4 +1,5 @@
 import tkinter as tk
+from math import floor
 
 from .utilities import limitMove, getLocalMouse, updateHover, getGeometry, fastCrop
 from .windowing import Backgroundable
@@ -167,7 +168,7 @@ class ScrollPlate(Baseable):
         # If widget lacks geometry (has not fully spawned) wait until it has.
         x, y, w, h = self.geometry
         if w < 1 and h < 1:
-            self.after_idle(lambda : self.redraw())
+            self.after_idle(self.redraw)
             return
         if self.master.skin.hasImages():
             w, h = self.master.skin.resolution()[:2]
@@ -177,67 +178,94 @@ class ScrollPlate(Baseable):
             bg_color = self.master.skin.bgColor()
             self.configure(background=bg_color)
 
+    def redraw(self):
+        super().redraw()
+
     def _refresh(self, event=None):
         super()._refresh(event)
         self.after_idle(self._get_req_geometry)
 
-
     def _get_req_geometry(self):        # TODO: Could be problematic overriding geometry. Store req separate if issues.
         mw, mh = self.master.size
-        mw -= self.master._scroll_skin.vertical.breadth     # TODO: Store a "reqwidth" with the parent that pre-calcs this.
-        self._geometry = (*self.location,
-                          max(self.winfo_reqwidth(), mw),
-                          max(self.winfo_reqheight(), mh))
+        self._geometry = (*self.location, max(self.winfo_reqwidth(), mw), max(self.winfo_reqheight(), mh))
+        self.redraw()
 
 
-class Scrollable(Backgroundable):
-    def __init__(self, parent, width:int, height:int, scroll_skin: ScrollSkin, **kwargs):
+class ScrollFrame(Backgroundable):
+    def __init__(self, parent, width:int, height:int, skin=None, **kwargs):
+        super().__init__(parent, width, height, skin, **kwargs)
+        self._plate = ScrollPlate(self, width=width, height=height)
+        self.after_idle(self.refresh)
+
+    @property
+    def scrollPlate(self): return self._plate
+
+    def _refresh(self, event=None):
+        super()._refresh(event)
+        w, h = max(self._plate.winfo_reqwidth(), self.size[0]), max(self._plate.winfo_reqheight(), self.size[1])
+        sw, sh = self._plate.size
+        if sw != w or sh != h: self._plate.place_configure(width=w, height=h)
+        self._plate.refresh()
+
+
+class Scrollable(tk.Frame):
+    def __init__(self, parent, width:int, height:int, scroll_skin:ScrollSkin, skin:Skin = None, **kwargs):
         super().__init__(parent, width=width, height=height, **kwargs)
 
         self._scroll_skin = scroll_skin
         v_breadth, h_breadth = self._scroll_skin.vertical.breadth, self._scroll_skin.horizontal.breadth
         bw, bh = width-v_breadth, height-h_breadth
 
-        self._scroll_plate = ScrollPlate(self, width=bw, height=bh)
-        self._scroll_plate.place(x=0, y=0, width=bw, height=bh)
+        self._frame = ScrollFrame(self, bw, bh, skin)
+        self._frame.place(x=0, y=0)
+        self._plate = self._frame.scrollPlate
 
         # Place the scrollbars.
-        self.v_bar = ScrollBar(self, v_breadth, height, self._scroll_skin.vertical, None,
-                               self._scroll_skin.button, True, v_breadth)
-        self.v_bar.place(x=width-v_breadth, y=0)
-        self.h_bar = ScrollBar(self, width-v_breadth, h_breadth, self._scroll_skin.horizontal, None,
-                               self._scroll_skin.button, False, h_breadth)
-        self.h_bar.place(x=0, y=height-h_breadth)
-
-        # Gapper to consume space under the vertical bar, so that padded widgets appear correctly.
-        self.v_gap=tk.Canvas(self._scroll_plate, width=v_breadth, height=height, highlightthickness=0)
-        self.v_gap.pack(side="right")
+        self._v_bar = ScrollBar(self, v_breadth, height, self._scroll_skin.vertical, None,
+                                self._scroll_skin.button, True, v_breadth)
+        self._v_bar.place(x=width - v_breadth, y=0)
+        self._h_bar = ScrollBar(self, width - v_breadth, h_breadth, self._scroll_skin.horizontal, None,
+                                self._scroll_skin.button, False, h_breadth)
+        self._h_bar.place(x=0, y=height - h_breadth)
 
     @property
-    def scrollPane(self): return self._scroll_plate
+    def skin(self): return self._frame.skin
+    @property
+    def scrollPlate(self): return self._frame.scrollPlate
+    @property
+    def v_bar(self): return self._v_bar
+    @property
+    def h_bar(self): return self._h_bar
 
-    def movePane(self, x_per:int, y_per:int):
+    def movePlate(self, x_per:float|None, y_per:float|None):
         # TODO: Store state/minimize calculations.
-        frame_w, frame_h = (self._geometry[2] - self._scroll_skin.vertical.breadth,
-                            self._geometry[3] - self._scroll_skin.horizontal.breadth)
-        ix, iy, iw, ih = self._scroll_plate.geometry
+        frame_w, frame_h = self._frame.size
+        ix, iy, iw, ih = self._plate.geometry
 
         min_x = min(0, -(iw - frame_w))
         min_y = min(0, -(ih - frame_h))
-        x = min_x * x_per if x_per is not None else ix
-        y = min_y * y_per if y_per is not None else iy
+        x = min_x * max(0.0, min(1.0, x_per)) if x_per is not None else ix
+        y = min_y * max(0.0, min(1.0, y_per)) if y_per is not None else iy
 
-        self._scroll_plate.place_configure(x=x, y=y)
-        self._scroll_plate._geometry = (x, y, iw, ih)
-        self._scroll_plate.redraw()
+        self._plate.place_configure(x=x, y=y)
+        self._plate._geometry = (x, y, iw, ih)
+        self._plate.redraw()
 
-    def _refresh(self, event=None):
-        super()._refresh(event)
-        w, h = max(self._scroll_plate.winfo_reqwidth(), self.size[0]), max(self._scroll_plate.winfo_reqheight(), self.size[1])
-        _, _, sw, sh = getGeometry(self._scroll_plate)
-        if sw < w or sh < h:
-            self._scroll_plate.place_configure(width=w, height=h)
-        self.v_gap.configure(height=self._scroll_plate.geometry[3])
+    def pageScroll(self, direction:int, percentage:float) -> float:
+        if direction in (0, 2):
+            page_percent = self._getPageScrollPercent(3, 1, -1 if direction == 0 else 1)
+            self.movePlate(None, page_percent)
+        else:
+            page_percent = self._getPageScrollPercent(2, 0, -1 if direction == 1 else 1)
+            self.movePlate(page_percent, None)
+        return page_percent
+
+    def _getPageScrollPercent(self, wh:int, xy:int, flip:int) -> float:
+            # wh = 2|3, xy = 0|1, flip = -1|1
+            page = self._frame.geometry[wh] * .9
+            page_per = page / self._plate.geometry[wh]
+            cur_per = abs(self._plate.geometry[xy]) / (self._plate.geometry[wh] - page)
+            return cur_per + (page_per * flip)
 
 
 class ScrollBar(Backgroundable):
@@ -247,34 +275,29 @@ class ScrollBar(Backgroundable):
         self._buttons = button_pack
         self._vertical = vertical
 
-        self._bar_skin.usesBgColors(True)       # ScrollBar is a "floor" widget. No transparency below it will be passed.
-
-        super().__init__(parent, width, height, bar_skin, **kwargs)
+        kwargs["width"], kwargs["height"] = width, height
+        super().__init__(parent, **kwargs)
 
         if breadth < 1: breadth = min(width, height)        # 0/negative = Auto breadth.
-        self._handle = ScrollHandle(self, handle_skin or BarSkin(vertical=vertical, breadth=breadth),
-                                    self._vertical, width=breadth, height=breadth)
+        self._bar_skin.usesBgColors(True)       # ScrollBar widgets are "floored" by default. No transparency below.
 
+        # Spawn buttons and calculate positional adjustments for the trough, if a ButtonPack has been declared.
         if self._buttons:
-            # Determine 2nd button's x,y location and define trough geometry based on vertical/horizontal orientation.
+            self._buttons.usesBgColors(True)
             if vertical:
                 bskin1, bskin2 = self._buttons.north, self._buttons.south
-                # Determine button width/height from Skin or as square of trough's breadth.
-                b1w, b1h = bskin1.resolution()
+                b1w, b1h = bskin1.resolution()      # b for button
                 b2w, b2h = bskin2.resolution()
-
                 b2x, b2y = 0, height - b2h
-                tx, ty, tw, th = 0, b1h, width, height-b2h
+                tx, ty, tw, th = 0, b1h, width, height-(b2h*2)      # t for trough
             else:
                 bskin1, bskin2 = self._buttons.west, self._buttons.east
                 b1w, b1h = bskin1.resolution()
                 b2w, b2h = bskin2.resolution()
                 b2x, b2y = width - b2w, 0
-                tx, ty, tw, th = b1w, 0, width-b2w, height
+                tx, ty, tw, th = b1w, 0, width-(b2w*2), height
 
             # Make and place buttons
-            bskin1.usesBgColors(True)
-            bskin2.usesBgColors(True)
             button1 = Holdable(self, skin=bskin1, width=b1w, height=b1h)
             button1.place(x=0, y=0)
             button2 = Holdable(self, skin=bskin2, width=b2w, height=b2h)
@@ -282,72 +305,88 @@ class ScrollBar(Backgroundable):
         else:
             tx, ty, tw, th = 0, 0, width, height
 
-        # Place Handle
-        self._handle.setBounds(tx, ty, tw, th)
-        self._handle.place(x=tx, y=ty)
+        # Make and place Trough and Handle
+        self._trough = ScrollTrough(self, self._bar_skin, width=tw, height=th)
+        self._handle = ScrollHandle(self._trough, handle_skin or BarSkin(vertical=vertical, breadth=breadth),
+                                    self._vertical, width=breadth, height=breadth)
 
-        self.render(self._bar_skin.image(0, th if vertical else tw))
+        self._trough.place(x=tx, y=ty)
+        self._handle.place(x=0, y=0)
 
     @property
     def vertical(self): return self._vertical
 
-    def movePane(self, x_percent:float|None, y_percent:float|None):
-        self.master.movePane(x_percent, y_percent)
+    def handleDragged(self):
+        x, y, w, h = self._handle.geometry
+        tw, th = self._trough._geometry[2] - w, self._trough._geometry[3] - h
+        self.master.movePlate(x / tw if tw else None, y / th if th else None)
+
+    def scrollPlateResized(self, percent:float):
+        hw, hh = self._handle.size
+        tw, th = self._trough.size
+        if self.vertical:   self._handle.resize(self._handle.geometry[2], floor(self._trough.geometry[3] * percent))
+        else:               self._handle.resize(floor(self._trough.geometry[2] * percent), self._handle.geometry[3])
 
     def resizeHandle(self, width:int, height:int): self._handle.resize(width, height)
         # Pass handle's percentage of trough traversed to parent ScrollBar
-    def handleMoved(self, x:int, y:int, w:int, h:int):
-        per_x, per_y = (None, y / (self._geometry[3]-h)) if self.vertical else (x / (self.geometry[2]-w), None)
-        self.master.movePane(per_x, per_y)
+
     def moveHandle(self, x_percent:int, y_percent:int):
         hw, hh = self._handle.size
         self._handle.move(int(x_percent * (self._geometry[2]-hw)), int(y_percent * (self.geometry[3]-hh)))
 
-    def troughClicked(self, percent:float):
-        # Smooth/Instant scrolling? Page/Destination scrolling?
-        # Move handle
+    def troughClicked(self, click_x:int, click_y:int):
+        tw, th = self._trough.size
+        hx, hy, hw, hh = self._handle.geometry
+        if self._vertical:
+            page_percent = self.master.pageScroll(0 if click_y < hy + (hh * 0.5) else 2, click_y / th)
+            self._handle.move(0, int(page_percent * (th - hh)))
+        else:
+            page_percent = self.master.pageScroll(1 if click_x > hx + (hw * 0.5) else 3, click_x / tw)
+            self._handle.move(int(page_percent * (tw - hw)), 0)
 
-        # Move scrollPane
-        scroll_x, scroll_y = (None, percent) if self.vertical else (percent, None)
-        self.movePane(scroll_x, scroll_y)
-        pass
 
-class ScrollTrough(Backgroundable):
+class ScrollTrough(Holdable):
     def __init__(self, parent:ScrollBar, skin:BarSkin = None, **kwargs):
-        self.vertical = parent.vertical
+        self._vertical = parent.vertical
         self._default_skin = BarSkin()
-
-        super().__init__(parent, skin, **kwargs)
         self._handle = None
 
-    # Pass handle's percentage of trough traversed to parent ScrollBar
-    def handleMoved(self, x:int, y:int, w:int, h:int):
-        per_x, per_y = (None, y / (self._geometry[3]-h)) if self.vertical else (x / (self.geometry[2]-w), None)
-        self.master.movePane(per_x, per_y)
+        super().__init__(parent, skin=skin, **kwargs)
 
-    def moveHandle(self, x_percent:int, y_percent:int):
+    def handleDragged(self): self.master.handleDragged()
+
+    def moveHandle(self, x_percent:int|None, y_percent:int|None):
         hw, hh = self._handle.size
-        self._handle.move(int(x_percent * (self._geometry[2]-hw)), int(y_percent * (self.geometry[3]-hh)))
+        x, y = int((x_percent or 0) * (self._geometry[2]-hw)), int((y_percent or 0) * (self.geometry[3]-hh))
+        self._handle.move(x, y)
 
     def setState(self, state_index:int = 0):
-        self._skin.image(state_index, self._geometry[2 + self.vertical])       # Update skin's length.
+        self._skin.image(state_index, self._geometry[2 + self._vertical])       # Update skin's length.
         super().setState(state_index)
 
     def clicked(self, event):
-        super().clicked(event)
-        percent = event.y / self._geometry[3] if self.vertical else event.x / self._geometry[2]
-        self.master.troughClicked(percent)      # Pass click event to parent ScrollBar for handling.
+        self._clicking = True
+        self.setState(2)
+        self.master.troughClicked(event.x, event.y)  # Pass click event to parent ScrollBar for handling.
         self.after(self.init_delay, self._keepClicking)
 
     def registerChild(self, child):
-        if isinstance(child, ScrollHandle): self._handle = child
         super().registerChild(child)
+        if isinstance(child, ScrollHandle): self._handle = child
+
+    def _getHandlePercents(self):
+        x, y, w, h = self._handle.geometry
+        return (None, y / (self._geometry[3]-h)) if self._vertical else (x / (self.geometry[2] - w), None)
 
     def _keepClicking(self):
         if self._clicking:
-            mo = getLocalMouse(self)
-            percent = mo[1] / self._geometry[3] if self.vertical else mo[0] / self._geometry[2]
-            self.master.troughClicked(percent)
+            if self._handle:
+                mx, my, _ = getLocalMouse(self)
+                hx, hy, hw, hh = self._handle.geometry
+                if self._vertical:
+                    if not hy < my < hy+hh: self.master.troughClicked(*getLocalMouse(self)[:2])
+                elif   not hx < mx < hx+hw: self.master.troughClicked(*getLocalMouse(self)[:2])
+
             self.after(self.delay, self._keepClicking)
 
 
@@ -357,14 +396,15 @@ class ScrollHandle(Draggable):
         super().__init__(parent, skin=bar_skin or BarSkin(vertical=vertical), **kwargs)
 
     def move(self, x:int, y:int):
-        x = limitMove(x, self._geometry[2], *self._bounds[0], self._bounds[2])
-        y = limitMove(y, self._geometry[3], *self._bounds[1], self._bounds[3])
+        w, h = self.size
+        x = limitMove(x, w, self._bounds[0], self._bounds[2])
+        y = limitMove(y, h, self._bounds[1], self._bounds[3])
         self.place_configure(x=x, y=y)
-        self._geometry[0], self._geometry[1] = x, y
+        self._geometry = (x, y, w, h)
 
     def resize(self, w:int, h:int):
         self.configure(width=w, height=h)
-        self._geometry[2], self._geometry[3] = w, h
+        self._geometry = (*self.location, w, h)
 
     def setState(self, state_index:int = 0):
         self._skin.image(state_index, self._geometry[2 + self.vertical])
@@ -372,77 +412,4 @@ class ScrollHandle(Draggable):
 
     def _drag(self, x:int, y:int):
         super()._drag(x, y)
-        self.master.handleMoved(*self._geometry)
-
-
-class ScrollFrame(Backgroundable):
-    def __init__(self, parent, width:int, height:int, scroll_skin:ScrollSkin=None):
-        self._skin = scroll_skin or ScrollSkin()
-        super().__init__(parent, width, height, self._skin.bgColor())
-
-        self.collapse = tk.Frame(self.inner)
-        self.collapse.pack(anchor=tk.W)
-
-        self.h_auto, self.v_auto = auto
-        h_on, v_on = scrollbars
-        vsize, hsize = self._skin.vertical.breadth, self._skin.horizontal.breadth
-
-        self.inner_width = width - vsize * v_on * (not self.v_auto)
-        self.inner_height = height - hsize * h_on * (not self.h_auto)
-
-        self.v_scroll = ScrollBar(self, vsize, height, vsize, hsize, self._skin.vertical)
-        self._skin.v_skin.bindScrollable(self.v_scroll)
-        self.v_scroll.place(x=self.inner_width, y=0)
-        self.v_scroll.linkTo(self, -1, (False, True))
-
-        self.h_scroll = ScrollBar(self, self.inner_width, bar_size, bar_size, bar_size, self._skin.h_skin)
-        self._skin.h_skin.bindScrollable(self.h_scroll)
-        self.h_scroll.place(x=0, y=self.inner_height)
-        self.h_scroll.linkTo(self, -1, (True, False))
-
-        if self.h_auto or self.v_auto:
-            self.inner.bind("<Configure>", self.showBars)
-
-    def setSkin(self, scrollablepane_skin):
-        if scrollablepane_skin is not None:
-            scrollablepane_skin.v_skin.bindScrollable(self.v_scroll)
-            scrollablepane_skin.h_skin.bindScrollable(self.h_scroll)
-
-    def showBars(self, event):
-        changed = False
-        self.update_idletasks()
-
-        if self.v_auto:
-            if self.inner.winfo_height() > self.inner_height and self.v_scroll.winfo_x() == self.winfo_width():
-                self.inner_width -= self.v_scroll.winfo_width()
-                changed = True
-            elif self.inner.winfo_height() < self.inner_height and self.v_scroll.winfo_x() < self.winfo_width():
-                self.inner_width = self.winfo_width()
-                changed = True
-
-        if self.h_auto:
-            if self.inner.winfo_width() > self.inner_width and self.h_scroll.winfo_y() == self.winfo_height():
-                self.inner_height -= self.h_scroll.winfo_height()
-                changed = True
-            elif self.inner.winfo_width() < self.inner_width and self.h_scroll.winfo_y() != self.inner_height:
-                self.inner_height = self.winfo_height()
-                changed = True
-
-        if changed:
-            if self.v_auto:
-                self.h_scroll.configure(width=self.inner_width)
-                self.h_scroll.place_configure(width=self.inner_width)
-                self.v_scroll.place_configure(x=self.inner_width)
-                self.v_scroll.maybe_resize_handle()
-            if self.h_auto:
-                self.h_scroll.place_configure(y=self.inner_height, width=self.inner_width)
-                self.h_scroll.configure(width=self.inner_width)
-                self.h_scroll.maybe_resize_handle()
-
-    def disable(self):
-        self.v_scroll.disable()
-        self.h_scroll.disable()
-
-    def enable(self):
-        self.v_scroll.enable()
-        self.h_scroll.enable()
+        self.master.handleDragged()

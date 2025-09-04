@@ -92,8 +92,7 @@ def test_gui():
     trough_skin = Skin("../skins/default/scroll_trough-48.png")
     cap_skin = Skin("../skins/default/up_glyph-48.png", orientation="n")
     scroll_skin = ScrollSkin.fromSkins(cap_skin, trough_skin, None, True, cap_skin, "n")
-    scroll_area = Scrollable(bg, 450, 215, scroll_skin)
-    scroll_area.skin.setImage(bg_image)
+    scroll_area = Scrollable(bg, 450, 215, scroll_skin, Skin.fromImages(bg_image))
     scroll_area.place(x=20, y=120)
 
     nude_skin = BS()
@@ -102,7 +101,7 @@ def test_gui():
     nude_drag.place(x=0, y=0)
 
     for i in range(30):
-       label = tk.Label(scroll_area.scrollPane, text=f"Item {i + 1}", anchor="w", background="blue")
+       label = tk.Label(scroll_area.scrollPlate, text=f"Item {i + 1}", anchor="w", background="teal")
        label.pack(fill=tk.X, padx=10, pady=10)
        label.pack(fill=tk.X, padx=10, pady=10)
 
