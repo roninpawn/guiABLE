@@ -260,12 +260,27 @@ class Scrollable(tk.Frame):
             self.movePlate(page_percent, None)
         return page_percent
 
+    def lineScroll(self, direction:int) -> float:
+        if direction in (0, 2):
+            page_percent = self._getLineScrollPercent(3, 1, -1 if direction == 0 else 1)
+            self.movePlate(None, page_percent)
+        else:
+            page_percent = self._getLineScrollPercent(2, 0, -1 if direction == 1 else 1)
+            self.movePlate(page_percent, None)
+        return page_percent
+
     def _getPageScrollPercent(self, wh:int, xy:int, flip:int) -> float:
             # wh = 2|3, xy = 0|1, flip = -1|1
-            page = self._frame.geometry[wh] * .9
-            page_per = page / self._plate.geometry[wh]
+            page = self._frame.geometry[wh]
+            page_per = (page * .9) / self._plate.geometry[wh]
             cur_per = abs(self._plate.geometry[xy]) / (self._plate.geometry[wh] - page)
             return cur_per + (page_per * flip)
+
+    def _getLineScrollPercent(self, wh:int, xy:int, flip:int) -> float:
+            page = self._frame.geometry[wh]
+            line = 14 / self._plate.geometry[wh]
+            cur_per = abs(self._plate.geometry[xy]) / (self._plate.geometry[wh] - page)
+            return cur_per + (line * flip)
 
 
 class ScrollBar(Backgroundable):
@@ -286,21 +301,23 @@ class ScrollBar(Backgroundable):
             self._buttons.usesBgColors(True)
             if vertical:
                 bskin1, bskin2 = self._buttons.north, self._buttons.south
+                d1, d2 = 0, 2
                 b1w, b1h = bskin1.resolution()      # b for button
                 b2w, b2h = bskin2.resolution()
                 b2x, b2y = 0, height - b2h
                 tx, ty, tw, th = 0, b1h, width, height-(b2h*2)      # t for trough
             else:
                 bskin1, bskin2 = self._buttons.west, self._buttons.east
+                d1, d2 = 1, 3
                 b1w, b1h = bskin1.resolution()
                 b2w, b2h = bskin2.resolution()
                 b2x, b2y = width - b2w, 0
                 tx, ty, tw, th = b1w, 0, width-(b2w*2), height
 
             # Make and place buttons
-            button1 = Holdable(self, skin=bskin1, width=b1w, height=b1h)
+            button1 = Holdable(self, lambda: self.buttonPressed(d1), bskin1, width=b1w, height=b1h)
             button1.place(x=0, y=0)
-            button2 = Holdable(self, skin=bskin2, width=b2w, height=b2h)
+            button2 = Holdable(self, lambda: self.buttonPressed(d2), bskin2, width=b2w, height=b2h)
             button2.place(x=b2x, y=b2y)
         else:
             tx, ty, tw, th = 0, 0, width, height
@@ -343,6 +360,15 @@ class ScrollBar(Backgroundable):
         else:
             page_percent = self.master.pageScroll(1 if click_x > hx + (hw * 0.5) else 3, click_x / tw)
             self._handle.move(int(page_percent * (tw - hw)), 0)
+
+    def buttonPressed(self, direction:int):
+        tw, th = self._trough.size
+        hx, hy, hw, hh = self._handle.geometry
+
+        page_percent = self.master.lineScroll(direction)
+        if self._vertical:  self._handle.move(0, int(page_percent * (th - hh)))
+        else:               self._handle.move(int(page_percent * (tw - hw)), 0)
+
 
 
 class ScrollTrough(Holdable):
