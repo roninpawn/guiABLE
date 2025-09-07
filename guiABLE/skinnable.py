@@ -1,14 +1,33 @@
 import tkinter as tk
-from enum import Enum
 
 from guiABLE.utilities import (warnPrint, resolvePath, cropImage, loadImage, getGeometry, fastComposite,
                                fastFlood, fastTile, flipImage, rotateImage)
 
 
+""" Receivable is a base class that lets widgets register with it, and provides methods for updating those recipients. """
+class Receivable:
+    def __init__(self): self._recipients = []
+
+    def bindWidget(self, widget):   # FilterSkins kept first so they update BEFORE the widgets that might use them.
+        self._recipients.insert(0, widget) if isinstance(widget, FilterSkin) else self._recipients.append(widget)
+    def unbindWidget(self, widget):
+        if widget in self._recipients: self._recipients.remove(widget)
+
+    def dirtyRecipients(self):
+        for recipient in self._recipients: recipient.dirty = True
+    def redrawRecipients(self):
+        for recipient in self._recipients: recipient.redraw()
+    def updateRecipients(self):
+        for recipient in self._recipients:
+            recipient.dirty = True
+            recipient.redraw()
+
+
 """ CoreSkin establishes the core contents and operations of a Skin. It is a base class. Not for standalone use."""
-class CoreSkin:
+class CoreSkin(Receivable):
     def __init__(self):
-        self._recipients, self._paths, self._images, self._resolutions = [], [], [], []
+        super().__init__()
+        self._paths, self._images, self._resolutions = [], [], []
         self._empty_image = tk.PhotoImage()
         self._default_colors = ['gray42', 'gray51', 'gray78', 'gray27']
         self._bg_colors = self._default_colors
@@ -62,21 +81,6 @@ class CoreSkin:
         return self._use_bg_colors
 
     def numStates(self): return max(len(self._images), len(self._bg_colors))
-
-    # Widget registration & handling
-    def bindWidget(self, widget):   # FilterSkins kept first so they update BEFORE the widgets that might use them.
-        self._recipients.insert(0, widget) if isinstance(widget, FilterSkin) else self._recipients.append(widget)
-    def unbindWidget(self, widget):
-        if widget in self._recipients: self._recipients.remove(widget)
-
-    def dirtyRecipients(self):
-        for recipient in self._recipients: recipient.dirty = True
-    def redrawRecipients(self):
-        for recipient in self._recipients: recipient.redraw()
-    def updateRecipients(self):
-        for recipient in self._recipients:
-            recipient.dirty = True
-            recipient.redraw()
 
     def _imageByPath(self, path:str) -> tk.PhotoImage|None:
         try:
@@ -635,7 +639,8 @@ class CardinalSkin(CoreSkin):
 
 """ SkinPack is a container class for holding multiple skins, that exists only to be extended by its children. """
 class SkinPack:
-    def __init__(self, *skins): self._skins = list(skins)
+    def __init__(self, *skins):
+        self._skins = list(skins)
 
     def skin(self, index:int = 0): return self._skins[index % len(self._skins)]
 
@@ -663,6 +668,9 @@ class ButtonPack(SkinPack):
     def south(self): return Skin() if self._skins[2] is None else self._skins[2]
     @property
     def west(self): return Skin() if self._skins[3] is None else self._skins[3]
+
+    @property
+    def skins(self): return self._skins
 
     def usesBgColors(self, use:bool = None):
         if use:

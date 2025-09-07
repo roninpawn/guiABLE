@@ -1,10 +1,11 @@
 from guiABLE import *
-from guiABLE.skinnable import ScrollSkin
+from guiABLE.skinnable import ScrollSkin, ButtonPack
 from guiABLE.utilities import cropImage, rotateImage, loadImage
+from guiABLE.widgets import Repeatable
 
 
 def test_gui():
-    app = Windowable(geometry="600x400+100+100", title="guiABLE Testbed")
+    app = Windowable(geometry="600x400+420+180", title="guiABLE Testbed")
     bg_image, _ = loadImage("../skins/default/bg-600x400.png")
     bg = Backgroundable.fromImage(app, 600, 400, bg_image)
     bg.place(x=0, y=0)
@@ -38,7 +39,7 @@ def test_gui():
                            text="Hello", text_pos=(10, 5), font=("Arial", 12, "bold"), color="white",
                            width=100, height=24)
 
-    test_label.place(x=360, y=88)
+    test_label.place(x=360, y=0)
 
     # Create an EXIT button from a Labelable
     x_sprite = Skin.fromImages(cropImage(tk.PhotoImage(file='../skins/default/window-glyphs-40.png'), 80, 0, 40, 40))
@@ -47,22 +48,13 @@ def test_gui():
     exit_button = Pushable(bg, function=app.quit, skin=x_sprite, width=40, height=40)
     exit_button.place(x=550, y=10)
 
-    # Create a scrollable pane with content
-#    pane_skin = ScrollablePaneSkin()
-#    scrollpane = ScrollFrame(bg, width=250, height=150, scrollable_pane_skin=pane_skin, auto=(True, True))
-#    scrollpane.place(x=20, y=100)
-#
-#    for i in range(30):
-#       label = tk.Label(scrollpane.inner, text=f"Item {i + 1}", anchor="w")
-#       label.pack(fill=tk.X, padx=5)
-
     # Create a Holdable button
-    hold_btn = Holdable(bg, function=lambda: print("Holding"), width=100, height=40, delay=200)
-    hold_btn.place(x=20, y=350)
+    hold_btn = Repeatable(bg, function=lambda: print("Holding"), width=80, height=40, delay=200)
+    hold_btn.place(x=500, y=120)
 
     # Create a Clickable-only button
-    click_btn = Clickable(bg, function=lambda: print("Clicked instantly!"), width=100, height=40)
-    click_btn.place(x=140, y=350)
+    click_btn = Clickable(bg, function=lambda: print("Clicked instantly!"), width=80, height=40)
+    click_btn.place(x=500, y=180)
 
     # Create extra Togglables for above/below testing.
     test_toggle3 = Toggleable(bg, True, lambda: print("Toggle1 state:", test_toggle3.state()), skin=toggle_skin,
@@ -82,28 +74,27 @@ def test_gui():
     c = Clickable(bg, skin=mid_skin, width=48, height=192)
     c.place(x=550, y=200)
 
-    cap_skin2 = Skin.fromImages(rotateImage(cap_skin.image(), False))
-    trough_skin2 = Skin.fromImages(rotateImage(trough_skin.image(), False))
-    bar_skin2 = BS.fromTwo(cap_skin2, trough_skin2)
-    mid_skin2 = Skin.fromImages(bar_skin2.image(0, 192))
-    c2 = Clickable(bg, skin=mid_skin2, width=192, height=48)
-    c2.place(x=350, y=352)
-
     trough_skin = Skin("../skins/default/scroll_trough-48.png")
     cap_skin = Skin("../skins/default/up_glyph-48.png", orientation="n")
     scroll_skin = ScrollSkin.fromSkins(cap_skin, trough_skin, None, True, cap_skin, "n")
-    scroll_area = Scrollable(bg, 450, 215, scroll_skin, Skin.fromImages(bg_image))
-    scroll_area.place(x=20, y=120)
+    scroll_area = Scrollable(bg, 450, 280, scroll_skin, Skin.fromImages(bg_image))
+    scroll_area.place(x=20, y=100)
 
     nude_skin = BS()
     #nude_skin.usesBgColors(False)
     nude_drag = Draggable(bg, nude_skin, width=50, height=50)
     nude_drag.place(x=0, y=0)
 
-    for i in range(30):
-       label = tk.Label(scroll_area.scrollPlate, text=f"Item {i + 1}", anchor="w", background="teal")
-       label.pack(fill=tk.X, padx=10, pady=10)
-       label.pack(fill=tk.X, padx=10, pady=10)
+    for i in range(50):
+        #label = Pushable(scroll_area.scroll_plate, skin=btn_skin, width=100, height=24)
+        label = tk.Label(scroll_area.scroll_plate, text=f"Item {i + 1}", anchor="w", background="teal")
+        label.pack(padx=10, pady=10, fill="both")
+
+    label = tk.Label(scroll_area.scroll_plate, text=f"SPECIAL", anchor="w", background="pink")
+    label.place(x=10, y=3000)
+
+        #if i > 6: label.after_idle(label.pack_forget)
+
 
     # Prove lower/lift functionality
     click_btn.lift(test_toggle1)

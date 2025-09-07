@@ -371,23 +371,27 @@ class Toggleable(Pushable):
 """ Holdable is a Pushable that triggers its function instantly, and then again after every n milliseconds. It supports
     a first-click, initial-delay that can be longer or shorter than the continuous delay thereafter."""
 class Holdable(Pushable):
-    def __init__(self, parent, function=lambda: None, skin=None, delay=100, init_delay=400, **kwargs):
-        self.delay = delay
-        self.init_delay = init_delay
-        super().__init__(parent, function, skin, **kwargs)
-
     def mouseOut(self, event):
         if self._clicking: self.moused_over = False
         else: super().mouseOut(None)
 
     def mouseUp(self, event):
         self._clicking = False
-        if self.moused_over:
-            self.mouseIn(event)
+        if self.moused_over: self.mouseIn(event)
 
     def clicked(self, event):
         super().clicked(event)
         self.function()
+
+
+class Repeatable(Holdable):
+    def __init__(self, parent, function=lambda: None, skin=None, delay=150, init_delay=400, **kwargs):
+        super().__init__(parent, function, skin, **kwargs)
+        self.delay = delay
+        self.init_delay = init_delay
+
+    def clicked(self, event):
+        super().clicked(event)
         if self.function is not None:
             self.after(self.init_delay, self._keepClicking)
 

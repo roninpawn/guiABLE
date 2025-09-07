@@ -82,7 +82,7 @@ class Windowable(tk.Tk):
         self.taskbar_handle.bind("<Map>", self.deiconify)
 
         self.update_idletasks()
-        self._heartbeat()
+        self._framerate()
 
     def bindDrag(self, widget:tk.Canvas):
         if widget is not None:
@@ -161,8 +161,20 @@ class Windowable(tk.Tk):
                 self.focus_force()
             self.taskbar_handle.wm_iconify()
 
-    def _heartbeat(self):
-        self.after(8, self._heartbeat)
+    """
+    _framerate(): It seems that Tk's update/idletasks system throttles itself aggressively, preferring to "hibernate" at
+    all costs. This aggressive hibernation induces a kind of stop-and-go stuttering to Tk's overall performance that
+    isn't usually perceivable by a user. But because guiABLE is rendering images at high speeds, this stuttering becomes
+    visible, in Tk's canvas draws.  
+
+    To achieve a steady and continuous canvas 'frame rate,' Tk's idletasks system must be explicitly awakened, on a
+    schedule. This _heartbeat function uses Tk's .after() method to accomplish that. By simply calling itself once every
+    'n' milliseconds, the update/idletasks system is awakened to process any and all events that have stacked up in the
+    queue -- including the waiting Canvas operations.
+
+    A 2ms heartbeat is the fastest heartbeat that still throttles to no CPU use, on MS Windows, when Tk is not active.
+    """
+    def _framerate(self): self.after(8, self._framerate)
 
     def _update_offsets(self):
         self._offset_w = (self.winfo_width() - self.taskbar_handle.winfo_width()) // 2
