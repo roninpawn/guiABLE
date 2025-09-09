@@ -86,22 +86,25 @@ def test_gui():
     nude_drag.place(x=0, y=0)
 
     for i in range(50):
-        #label = Pushable(scroll_area.scroll_plate, skin=btn_skin, width=100, height=24)
-        label = tk.Label(scroll_area.scroll_plate, text=f"Item {i + 1}", anchor="w", background="teal")
-        label.pack(padx=10, pady=10, fill="both")
+        label = Labelable(scroll_area.scroll_plate, function=lambda: print("Label clicked!"), skin=btn_skin,
+                           text=f"Item {i + 1}", text_pos=(10, 5), font=("Arial", 12, "bold"), color="white",
+                           width=100, height=34)
+        #label = tk.Label(scroll_area.scroll_plate, text=f"Item {i + 1}", anchor="w", background="teal")
+        label.place(x=10, y=34*i)
+        #label.pack(padx=10, pady=10, fill="both")
 
-    label = tk.Label(scroll_area.scroll_plate, text=f"SPECIAL", anchor="w", background="pink")
-    label.place(x=10, y=3000)
+#    label = tk.Label(scroll_area.scroll_plate, text=f"SPECIAL", anchor="w", background="pink")
+#    label.place(x=10, y=3000)
 
         #if i > 6: label.after_idle(label.pack_forget)
 
 
     # Prove lower/lift functionality
-    click_btn.lift(test_toggle1)
-    exit_button.lift(test_toggle1)
-    test_toggle2.lift()
-    test_toggle3.lower()
-    test_toggle4.lift(test_toggle2)
+    #click_btn.lift(test_toggle1)
+    #exit_button.lift(test_toggle1)
+    #test_toggle2.lift()
+    #test_toggle3.lower()
+    #test_toggle4.lift(test_toggle2)
 
     fps_label = tk.Label(bg, text="FPS", anchor="w")
     fps_label.place(x=518, y=10)

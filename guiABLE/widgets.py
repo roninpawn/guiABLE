@@ -67,7 +67,7 @@ class Siblingable(Skinnable):
                 else: self._siblings_atop.append(sibling)
 
     def _bond(self):
-        if isinstance(self, tk.Canvas): self.master.registerChild(self)
+        if isinstance(self, tk.Canvas): self.after_idle(self.master.registerChild, self)
         self._findOverlappingSiblings(self.master.children)
 
 
@@ -95,7 +95,7 @@ class Baseable(Siblingable, tk.Canvas):
         self._img_state = 0
         self._drop_list = set()
 
-        self.after_idle(self.refresh)
+        self.after_idle(self.after_idle,self.refresh)       # No really, this is necessary. Hi Tk!
         self.enable()
 
     @property
@@ -138,27 +138,21 @@ class Baseable(Siblingable, tk.Canvas):
         else:       # Transparent inherits parent's bg color if parent isn't using an image.
             siblings = list(self._siblings_beneath)
             siblings.append(self)
-            #if not self.master.skin.hasImages():
-            #    bg_color = self.master.skin.bgColor()
-
-        # Only render background color if it is necessary.
-        #if self.skin.usesBgColors() or (not self.skin.usesBgColors() and not self.master.skin.hasImages()):
-        #    self.configure(background=bg_color)
 
         # Add all atop-siblings if any one of them is transparent.
-        for s in self._siblings_atop:
-            if not s.skin.usesBgColors():
+        for sibling in self._siblings_atop:
+            if not sibling.skin.usesBgColors():
                 siblings.extend(self._siblings_atop)
                 break
 
         # If any sibling has below-siblings, unknown to the caller, add them to the job, beneath that sibling.
         # (Ensures all lower widgets are included in final composite -- No disappearing siblings on hover.)
         out_siblings = []
-        for s in siblings:
-            for sb in s.siblingsBeneath:
+        for sibling in siblings:
+            for sb in sibling.siblingsBeneath:
                 if sb not in siblings:
                     out_siblings.append(sb)
-            out_siblings.append(s)
+            out_siblings.append(sibling)
 
         self.compositeUnion(out_siblings)
 
@@ -174,10 +168,7 @@ class Baseable(Siblingable, tk.Canvas):
         x, y, w, h = u_rect
 
         base = tk.PhotoImage(width=w, height=h)
-        if self.master.skin.hasImages():
-            fastCrop(base, self.master.skin.image(), *self.master.skin.resolution(), x, y, w, h)
-        else:
-            fastFlood(base, w, h, self.master.skin.bgColor())
+        fastCrop(base, self.master.skin.image(), *self.master.skin.resolution(), x, y, w, h)
 
         # Draw each layer to a base image and then crop from that base to each widget's surface, as we go.
         atop = False
@@ -414,8 +405,8 @@ class Draggable(Holdable):
     def setBounds(self, x1, y1, x2, y2): self._bounds = (x1, y1, x2, y2)
 
     def clicked(self, event):
-        self.x = event.x
-        self.y = event.y
+        self.x_origin = event.x
+        self.y_origin = event.y
         self._splitAllSiblings()
         self._clicking = True
         self.setState(2)
@@ -423,8 +414,8 @@ class Draggable(Holdable):
     def mouseDrag(self, event):
         x, y, w, h = self.geometry
 
-        x = event.x - self.x + x
-        y = event.y - self.y + y
+        x = event.x - self.x_origin + x
+        y = event.y - self.y_origin + y
         x = limitMove(x, w, self._bounds[0], self._bounds[2])
         y = limitMove(y, h, self._bounds[1], self._bounds[3])
 

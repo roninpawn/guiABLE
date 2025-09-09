@@ -38,22 +38,16 @@ def resolvePath(path:str, default_root:str=None) -> str | None:
 
 # ---------- Image Functions ----------
 def loadImageByPath(image_path:str) -> PhotoImage | None:
-    try:
-        return PhotoImage(file=image_path)
-    except TclError:
-        warnPrint(f"Image not found: {image_path}")
+    try: return PhotoImage(file=image_path)
+    except TclError: warnPrint(f"Image not found: {image_path}")
     return None
 
+# loadImage(): Conform either input type to PhotoImage and path (path used as 'source' in _bySprite())
 def loadImage(path_or_image:str | PhotoImage) -> tuple[PhotoImage | None, str | None]:
-    # Conform either input type to PhotoImage and path (path used as 'source' in _bySprite())
     if isinstance(path_or_image, str):
         r_path = resolvePath(path_or_image)
         return loadImageByPath(r_path), r_path
-    else:
-        if isinstance(path_or_image, PhotoImage): image = path_or_image
-        else:
-            warnPrint(f"Invalid PhotoImage: {path_or_image}")
-            return None, None
+    elif isinstance(path_or_image, PhotoImage): image = path_or_image
     return image, "passed internally"
 
 
@@ -91,12 +85,40 @@ def fastRotate(rotate_to:PhotoImage, rotate_from:PhotoImage, w:int, h:int, clock
         for x in range(w): rotate_to.copy_replace(rotate_from, from_coords=(x, y, x + 1, y + 1), to=(yy, x))
 
 def rotateImage(image: PhotoImage, clockwise:bool = True) -> PhotoImage:
-    if isinstance(image, PhotoImage):
-        w, h = image.width(), image.height()
-        out = PhotoImage(width=h, height=w)
-        fastRotate(out, image, w, h, clockwise)
-        return out
-    return image
+    w, h = image.width(), image.height()
+    out = PhotoImage(width=h, height=w)
+    fastRotate(out, image, w, h, clockwise)
+    return out
+
+
+def fastBlit(dest: PhotoImage, dest_w: int, dest_h: int,
+             src: PhotoImage, src_w: int, src_h: int,
+             dest_x: int, dest_y: int, blit_w: int, blit_h: int,
+             src_x: int = 0, src_y: int = 0):
+
+    def clamp_positive(p0, size, dest):
+        if p0 < 0:
+            size += p0  # shrink size by the overflow
+            dest -= p0  # shift dest to compensate
+            p0 = 0
+        return p0, size, dest
+
+    # Clamp destination coordinates to non-negative
+    src_x, blit_w, dest_x = clamp_positive(src_x, blit_w, dest_x)
+    src_y, blit_h, dest_y = clamp_positive(src_y, blit_h, dest_y)
+    dest_x, blit_w, src_x = clamp_positive(dest_x, blit_w, src_x)
+    dest_y, blit_h, src_y = clamp_positive(dest_y, blit_h, src_y)
+
+    # Clamp width/height to fit both source and dest
+    blit_w = min(blit_w, src_w - src_x, dest_w - dest_x)
+    blit_h = min(blit_h, src_h - src_y, dest_h - dest_y)
+
+    # Bail out if the region is invalid
+    if blit_w <= 0 or blit_h <= 0: return
+
+    # Perform the blit
+    dest.copy_replace( src, from_coords=(src_x, src_y, src_x + blit_w, src_y + blit_h), to=(dest_x, dest_y) )
+
 
 
 def fastTile(brush:PhotoImage, bw:int, bh:int, canvas:PhotoImage, cw:int, ch:int, bbox:tuple[int,int,int,int]):
@@ -116,29 +138,33 @@ def tileImage(brush:PhotoImage, canvas:PhotoImage, bbox:tuple[int,int,int,int]):
     fastTile(brush, brush.width(), brush.height(), canvas, canvas.width(), canvas.height(), bbox)
 
 
-def fastCrop(crop_to: PhotoImage, crop_from:PhotoImage, from_w:int, from_h:int,
-             crop_x:int, crop_y:int, crop_w:int, crop_h:int) -> PhotoImage:
-    if crop_x <= from_w and crop_y <= from_h:
-        width, height = min(crop_w, from_w - crop_x), min(crop_h, from_h - crop_y)
-        crop_to.copy_replace(crop_from, from_coords=(crop_x, crop_y, crop_x + width, crop_y + height))
+def fastCrop(crop_to: PhotoImage, crop_from: PhotoImage, from_w: int, from_h: int,
+             crop_x: int, crop_y: int, crop_w: int, crop_h: int) -> PhotoImage:
+    fastBlit(   dest=crop_to, dest_w=crop_w, dest_h=crop_h,
+                src=crop_from, src_w=from_w, src_h=from_h,
+                dest_x=0, dest_y=0, blit_w=crop_w, blit_h=crop_h,
+                src_x=crop_x, src_y=crop_y )
+    return crop_to
 
-def cropImage(image:PhotoImage, x:int, y:int, width:int, height:int) -> PhotoImage:
+
+def cropImage(image: PhotoImage, x: int, y: int, width: int, height: int) -> PhotoImage:
     cropped = PhotoImage(width=width, height=height)
-    fastCrop(cropped, image, image.width(), image.height(), x, y, width, height)
-    return cropped
+    return fastCrop(cropped, image, image.width(), image.height(), x, y, width, height)
 
 
 def fastComposite(base_image: PhotoImage, base_w: int, base_h: int,
-                  overlay_image: PhotoImage, dest_x:int, dest_y:int, overlay_w:int, overlay_h:int,
+                  overlay_image: PhotoImage, dest_x: int, dest_y: int,
+                  overlay_w: int, overlay_h: int,
                   src_x: int = 0, src_y: int = 0):
-    x2, y2 = min(base_w, dest_x + overlay_w), min(base_h, dest_y + overlay_h)
-    if x2 > dest_x and y2 > dest_y:
-       base_image.copy_replace(overlay_image, from_coords=(src_x, src_y, x2 - dest_x, y2 - dest_y), to=(dest_x, dest_y))
+    fastBlit(   dest=base_image, dest_w=base_w, dest_h=base_h,
+                src=overlay_image, src_w=overlay_w, src_h=overlay_h,
+                dest_x=dest_x, dest_y=dest_y, blit_w=overlay_w, blit_h=overlay_h,
+                src_x=src_x, src_y=src_y )
 
-def compositeImage(base_image: PhotoImage, overlay_image: PhotoImage, x:int, y:int) -> PhotoImage:
-    bx, bh = base_image.width(), base_image.height()
-    ow, oh = overlay_image.width(), overlay_image.height()
-    fastComposite(base_image, bx, bh, overlay_image, x, y, ow, oh)
+
+def compositeImage(base_image: PhotoImage, overlay_image: PhotoImage, x: int, y: int) -> PhotoImage:
+    fastComposite(  base_image, base_image.width(), base_image.height(),
+                    overlay_image, x, y, overlay_image.width(), overlay_image.height() )
     return base_image
 
 

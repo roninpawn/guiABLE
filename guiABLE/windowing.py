@@ -174,7 +174,7 @@ class Windowable(tk.Tk):
 
     A 2ms heartbeat is the fastest heartbeat that still throttles to no CPU use, on MS Windows, when Tk is not active.
     """
-    def _framerate(self): self.after(8, self._framerate)
+    def _framerate(self): self.after(2, self._framerate)
 
     def _update_offsets(self):
         self._offset_w = (self.winfo_width() - self.taskbar_handle.winfo_width()) // 2
@@ -189,6 +189,7 @@ class Canvasable(tk.Text):
     def __init__(self, parent, **kwargs):
         super().__init__(parent, bd=0, padx=0, pady=0, state="disabled", cursor="arrow", **kwargs)
         self.configure(bg=self.cget("bg"))
+        self.bind("<MouseWheel>", self.mouseWheel)
 
     def configure(self, **kw):
         if "bg" in kw:      # Pass changes to bg through to the 'selectbackground' to maintain non-tk.Text() illusion.
@@ -205,6 +206,8 @@ class Canvasable(tk.Text):
 
     @property
     def size(self): return self.winfo_width(), self.winfo_height()
+
+    def mouseWheel(self, event=None): return 'break'
 
 
 class Frameable(tk.Frame):
@@ -237,6 +240,7 @@ class Backgroundable(Skinnable, Canvasable):
         Canvasable.__init__(self, parent, bg=self._skin.bgColor(), **kwargs)
 
         self.bind("<Configure>", self.refresh)
+        self.bind("<MouseWheel>", self.mouseWheel)
         self.place_configure(width=width, height=height)
 
         self.after_idle(self.redraw)

@@ -789,12 +789,20 @@ class Skinnable:
     def size(self): return self._geometry[2:]
     @property
     def location(self): return self._geometry[:2]
+    @property
+    def x(self): return self._geometry[0]
+    @property
+    def y(self): return self._geometry[1]
+    @property
+    def width(self): return self._geometry[2]
+    @property
+    def height(self): return self._geometry[3]
 
     # Persistent PhotoImage provides an INSTANT redraw canvas in compositing.
     def scratchImage(self): return self._scratch
 
     # Public callable update event that waits until idletasks are complete. (scheduled changes have been applied)
-    def refresh(self, event=None): self.after_idle(self._refresh)
+    def refresh(self, event=None): self._refresh(event)
 
     # Parents that host child widgets track their children and provide a list of those children's z-order.
     def getChildren(self): return self._children
@@ -824,7 +832,7 @@ class Skinnable:
     def _refresh(self, event=None):
         last_geometry = self._geometry
         self._geometry = getGeometry(self)
-        if last_geometry != self._geometry:
+        if last_geometry[2:] != self._geometry[2:]:
             self._scratch = tk.PhotoImage(width=self._geometry[2], height=self._geometry[3])
 
         # If skin provides no image, generate a Skin, utilizing the FilterSkin override for skins that useBgColors().
