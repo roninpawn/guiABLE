@@ -82,24 +82,23 @@ def test_gui():
 
     nude_skin = BS()
     #nude_skin.usesBgColors(False)
-    nude_drag = Draggable(bg, nude_skin, width=50, height=50)
+    nude_drag = Draggable(bg, skin=nude_skin, width=50, height=50)
     nude_drag.place(x=0, y=0)
 
-    for i in range(50):
-        label = Labelable(scroll_area.scroll_plate, function=lambda: print("Label clicked!"), skin=btn_skin,
-                           text=f"Item {i + 1}", text_pos=(10, 5), font=("Arial", 12, "bold"), color="white",
-                           width=100, height=34)
+    for i in range(30):
+        #label = Hoverable(scroll_area.scroll_plate, skin=btn_skin, height=24)
+        label = Labelable(scroll_area.frame, function=lambda: print("Label clicked!"), skin=btn_skin,
+                          text=f"Item {i + 1}", text_pos=(10, 5), font=("Arial", 12, "bold"), color="white",
+                          width=100, height=24)
         #label = tk.Label(scroll_area.scroll_plate, text=f"Item {i + 1}", anchor="w", background="teal")
-        label.place(x=10, y=34*i)
+        label.place(x=10, y=30*i)
         #label.pack(padx=10, pady=10, fill="both")
 
-#    label = tk.Label(scroll_area.scroll_plate, text=f"SPECIAL", anchor="w", background="pink")
-#    label.place(x=10, y=3000)
 
-        #if i > 6: label.after_idle(label.pack_forget)
+    test_drag2 = Draggable(scroll_area.frame, skin=drag_skin, width=64, height=64)
+    test_drag2.place(x=190, y=285)
 
-
-    # Prove lower/lift functionality
+    # Prove lower/lift functionality    : Buggy right now.
     #click_btn.lift(test_toggle1)
     #exit_button.lift(test_toggle1)
     #test_toggle2.lift()

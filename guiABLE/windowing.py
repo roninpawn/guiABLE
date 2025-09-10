@@ -239,6 +239,7 @@ class Backgroundable(Skinnable, Canvasable):
         Skinnable.__init__(self, skin if skin else SingleSkin())
         Canvasable.__init__(self, parent, bg=self._skin.bgColor(), **kwargs)
 
+        self._parent = parent
         self.bind("<Configure>", self.refresh)
         self.bind("<MouseWheel>", self.mouseWheel)
         self.place_configure(width=width, height=height)
@@ -254,6 +255,9 @@ class Backgroundable(Skinnable, Canvasable):
     def fromImage(cls, parent, width:int, height:int, image:tk.PhotoImage, **kwargs):
         bg_able = cls(parent, width, height, SingleSkin.fromImage(image), **kwargs)
         return bg_able
+
+    @property
+    def parent(self): return self._parent
 
     def redraw(self):
         if self.skin.hasImages():

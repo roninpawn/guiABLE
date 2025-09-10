@@ -834,6 +834,8 @@ class Skinnable:
         self._geometry = getGeometry(self)
         if last_geometry[2:] != self._geometry[2:]:
             self._scratch = tk.PhotoImage(width=self._geometry[2], height=self._geometry[3])
+        if last_geometry[:2] != self._geometry[:2]:
+            self.redraw()
 
         # If skin provides no image, generate a Skin, utilizing the FilterSkin override for skins that useBgColors().
         if not self._skin.hasImages():

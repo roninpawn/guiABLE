@@ -77,6 +77,7 @@ class Siblingable(Skinnable):
 """
 class Baseable(Siblingable, tk.Canvas):
     def __init__(self, parent, skin=None, **kwargs):
+        self._parent = parent
         self._enabled = False
 
         # Setting the background of widgets to a middle gray reduces the appearance of pop-in while loading...
@@ -99,7 +100,7 @@ class Baseable(Siblingable, tk.Canvas):
         self.enable()
 
     @property
-    def parent(self): return self.master
+    def parent(self): return self._parent
     @property
     def image(self): return self._img
     @property
@@ -392,35 +393,16 @@ class Repeatable(Holdable):
             self.after(self.delay, self._keepClicking)
 
 
-""" Draggable is dragged by the mouse while left click is held. It remains within its parent's boundaries by default, 
-    but its bounds can be overridden using setBounds(). For correct redraw, moving objects like Draggable must be drawn
-    atop a Canvasable. Otherwise, tkinter's stale draw rectangle issue creates ghosting/visual stretching. """
-class Draggable(Holdable):
-    def __init__(self, parent, skin=None, **kwargs):
-        super().__init__(parent, self._drag, skin, **kwargs)
-        self._all_siblings_atop, self._all_siblings_beneath = list(), list()
-        self._last_geometry = self._geometry
+class LoneDraggable(Holdable):
+    def __init__(self, parent, function=lambda:None, skin=None, **kwargs):
+        super().__init__(parent, function, skin, **kwargs)
+        self._last_geometry = (None, None, None, None)
         self._bounds = None
 
+        self._x_origin, self._y_origin = 0, 0
+        self.after_idle(self._refresh)
+
     def setBounds(self, x1, y1, x2, y2): self._bounds = (x1, y1, x2, y2)
-
-    def clicked(self, event):
-        self.x_origin = event.x
-        self.y_origin = event.y
-        self._splitAllSiblings()
-        self._clicking = True
-        self.setState(2)
-
-    def mouseDrag(self, event):
-        x, y, w, h = self.geometry
-
-        x = event.x - self.x_origin + x
-        y = event.y - self.y_origin + y
-        x = limitMove(x, w, self._bounds[0], self._bounds[2])
-        y = limitMove(y, h, self._bounds[1], self._bounds[3])
-
-        self._geometry = (x, y, w, h)
-        if self._last_geometry != self.geometry: self.function(x, y)
 
     def enable(self):
         self.bind("<B1-Motion>", self.mouseDrag)
@@ -430,12 +412,50 @@ class Draggable(Holdable):
         self.unbind("<B1-Motion>")
         super().disable()
 
-    def _drag(self, x:int, y:int):
-        self.place_configure(x=x, y=y)
+    def clicked(self, event):
+        self._x_origin = event.x
+        self._y_origin = event.y
+        self._clicking = True
+        self.setState(2)
+
+    def mouseDrag(self, event):
+        x = event.x - self._x_origin + self._geometry[0]
+        y = event.y - self._y_origin + self._geometry[1]
+        self.move(x, y)
+
+    def move(self, x:int, y:int):
+        w, h = self._geometry[2:]
+        x = limitMove(x, w, self._bounds[0], self._bounds[2])
+        y = limitMove(y, h, self._bounds[1], self._bounds[3])
+
+        self._geometry = (x, y, w, h)
+        if self._last_geometry != self._geometry:
+            self.place_configure(x=x, y=y)
+            self._last_geometry = self._geometry
+            self.redraw()
+            self.function()
+
+    def _refresh(self, event=None):
+        super()._refresh(event)
+        if self._bounds is None: self._bounds = (0, 0, self.parent.winfo_width(), self.parent.winfo_height())
+
+
+""" Draggable is dragged by the mouse while left click is held. It remains within its parent's boundaries by default, 
+    but its bounds can be overridden using setBounds(). For correct redraw, moving objects like Draggable must be drawn
+    atop a Canvasable. Otherwise, tkinter's stale draw rectangle issue creates ghosting/visual stretching. """
+class Draggable(LoneDraggable):
+    def __init__(self, parent, function=lambda:None, skin=None, **kwargs):
+        super().__init__(parent, function, skin, **kwargs)
+        self._all_siblings_atop, self._all_siblings_beneath = list(), list()
+
+    def clicked(self, event):
+        super().clicked(event)
+        self._splitAllSiblings()
+
+    def mouseDrag(self, event=None):
+        super().mouseDrag(event)
         self._populateOverlappingSiblings(self._siblings_atop, self._all_siblings_atop, False)
         self._populateOverlappingSiblings(self._siblings_beneath, self._all_siblings_beneath, True)
-        self._last_geometry = self._geometry
-        self.after_idle(self.redraw)
 
     def _splitAllSiblings(self):
         atop = False
@@ -454,8 +474,4 @@ class Draggable(Holdable):
             if rectsOverlap(movement_union, sibling.geometry):
                 output_list.append(sibling)
                 sibling.trackSibling(self, atop)
-
-    def _refresh(self, event=None):
-        super()._refresh(event)
-        if self._bounds is None: self._bounds = (0, 0, self.parent.winfo_width(), self.parent.winfo_height())
 

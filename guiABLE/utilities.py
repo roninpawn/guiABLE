@@ -1,3 +1,4 @@
+from math import isqrt
 from tkinter import PhotoImage, TclError, Canvas
 import os
 import sys
@@ -91,10 +92,8 @@ def rotateImage(image: PhotoImage, clockwise:bool = True) -> PhotoImage:
     return out
 
 
-def fastBlit(dest: PhotoImage, dest_w: int, dest_h: int,
-             src: PhotoImage, src_w: int, src_h: int,
-             dest_x: int, dest_y: int, blit_w: int, blit_h: int,
-             src_x: int = 0, src_y: int = 0):
+def fastBlit(dest: PhotoImage, dest_w: int, dest_h: int,            src: PhotoImage, src_w: int, src_h: int,
+             dest_x: int, dest_y: int, blit_w: int, blit_h: int,    src_x: int = 0, src_y: int = 0):
 
     def clamp_positive(p0, size, dest):
         if p0 < 0:
@@ -116,8 +115,11 @@ def fastBlit(dest: PhotoImage, dest_w: int, dest_h: int,
     # Bail out if the region is invalid
     if blit_w <= 0 or blit_h <= 0: return
 
+    from_w = min(src.width(), src_x+blit_w)
+    from_h = min(src.height(), src_y+blit_h)
+
     # Perform the blit
-    dest.copy_replace( src, from_coords=(src_x, src_y, src_x + blit_w, src_y + blit_h), to=(dest_x, dest_y) )
+    dest.copy_replace( src, from_coords=(src_x, src_y, from_w, from_h), to=(dest_x, dest_y) )
 
 
 
@@ -261,3 +263,15 @@ def updateHover(widget):
             widget.mouseIn(None) if mouse_in else widget.mouseOut(None)
         else:
             widget.disable()
+
+def getDivisors(n: int):
+    """Yield divisors of n (positive integers)."""
+    if n <= 0: return []
+    small, large = [], []
+    r = int(isqrt(n))
+    for i in range(1, r+1):
+        if n % i == 0:
+            small.append(i)
+            j = n // i
+            if j != i: large.append(j)
+    return small + large[::-1]  # ascending order
