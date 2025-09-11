@@ -437,7 +437,8 @@ class LoneDraggable(Holdable):
 
     def _refresh(self, event=None):
         super()._refresh(event)
-        if self._bounds is None: self._bounds = (0, 0, self.parent.winfo_width(), self.parent.winfo_height())
+        if self._bounds is None and self.parent.geometry[2:] != (0, 0):
+            self._bounds = (0, 0, *self.parent.geometry[2:])
 
 
 """ Draggable is dragged by the mouse while left click is held. It remains within its parent's boundaries by default, 

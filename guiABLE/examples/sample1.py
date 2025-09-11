@@ -85,7 +85,7 @@ def test_gui():
     nude_drag = Draggable(bg, skin=nude_skin, width=50, height=50)
     nude_drag.place(x=0, y=0)
 
-    for i in range(30):
+    for i in range(50):
         #label = Hoverable(scroll_area.scroll_plate, skin=btn_skin, height=24)
         label = Labelable(scroll_area.frame, function=lambda: print("Label clicked!"), skin=btn_skin,
                           text=f"Item {i + 1}", text_pos=(10, 5), font=("Arial", 12, "bold"), color="white",

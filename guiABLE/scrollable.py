@@ -22,23 +22,16 @@ class Scrollable(tk.Frame):
         self._frame = ScrollFrame(self, bw, bh, skin)
         self._frame.place(x=0, y=0)
 
-        # TODO: Remove this BarSkin override when HandleSkins are passable.
-        handle_skin = BarSkin(length=v_breadth, breadth=h_breadth)
-        handle_skin.setBGColors("gray47", "gray56", "gray83", "gray27")
-
         # Place the scrollbars.
-        self._v_bar = VerticalScrollbar (self, v_breadth, height, self._scroll_skin.vertical, handle_skin,
+        self._v_bar = VerticalScrollbar(self, v_breadth, height, self._scroll_skin.vertical, None,
                                          self._scroll_skin.button, v_breadth)
         self._v_bar.place(x=width - v_breadth, y=0)
-        self._h_bar = HorizontalScrollbar(self, width - v_breadth, h_breadth, self._scroll_skin.horizontal, handle_skin,
+        self._h_bar = HorizontalScrollbar(self, width - v_breadth, h_breadth, self._scroll_skin.horizontal, None,
                                           self._scroll_skin.button, h_breadth)
         self._h_bar.place(x=0, y=height - h_breadth)
 
-        self._v_bar.setLineScrollDelay(50, 370)
-        self._h_bar.setLineScrollDelay(50, 370)
-        self._v_bar.setPageScrollDelay(160, 290)
-        self._h_bar.setPageScrollDelay(160, 290)
-
+        self.setPageScrollDelay(160, 290)
+        self.setLineScrollDelay(50, 0)
 
     @property
     def skin(self): return self._frame.skin
@@ -48,6 +41,14 @@ class Scrollable(tk.Frame):
     def v_bar(self): return self._v_bar
     @property
     def h_bar(self): return self._h_bar
+
+    def setPageScrollDelay(self, delay:int = None, extra_init_delay:int = None):
+        self._v_bar.setPageScrollDelay(delay, extra_init_delay)
+        self._h_bar.setPageScrollDelay(delay, extra_init_delay)
+
+    def setLineScrollDelay(self, delay:int = None, extra_init_delay:int = None):
+        self._v_bar.setLineScrollDelay(delay, extra_init_delay)
+        self._h_bar.setLineScrollDelay(delay, extra_init_delay)
 
     def pageSize(self, axis:int) -> int:
         if self._page_size[axis] is None:
@@ -68,16 +69,18 @@ class Scrollable(tk.Frame):
 
             # Update plate location
             self._movePlate(delta_x, delta_y)
+            px, py, = self._frame.plate_geometry[:2]
 
             # Move handles
             if sw: self.h_bar.moveHandle(px / sw)
             if sh: self.v_bar.moveHandle(py / sh)
 
-    def scrollByDrag(self, x_per:float, y_per:float):
+    def scrollByDrag(self, x_per:float|None, y_per:float|None):
         px, py, pw, ph = self._frame.plate_geometry
 
         # Convert percentages to pixels and then to the delta of change between them.
-        x, y = int(x_per * self._frame.scroll_range[0]), int(y_per * self._frame.scroll_range[1])
+        x = int(x_per * self._frame.scroll_range[0]) if x_per is not None else px
+        y = int(y_per * self._frame.scroll_range[1]) if y_per is not None else py
         delta_x, delta_y = x - px, y - py
 
         if delta_y or delta_x: self._movePlate(delta_x, delta_y)
@@ -183,9 +186,14 @@ class ScrollBar(Backgroundable):
         # Consolidates whiny IDE complaints of undefined variables to here, instead of throughout the class.
         self._directions, self._orientation = self._directions, self._orientation
 
-
-    @property
-    def vertical(self): return bool(self._orientation[0])
+    def enable(self):
+        self._trough.enable()
+        if self.button1: self.button1.enable()
+        if self.button2: self.button2.enable()
+    def disable(self):
+        self._trough.disable()
+        if self.button1: self.button1.disable()
+        if self.button2: self.button2.disable()
 
     def setPageScrollDelay(self, delay:int = None, extra_init_delay:int = None):
         if delay: self._trough.delay = delay
@@ -194,19 +202,22 @@ class ScrollBar(Backgroundable):
 
     def setLineScrollDelay(self, delay:int = None, extra_init_delay:int = None):
         if self.button1 is not None and self.button2 is not None:
-            if delay:
+            if delay is not None:
                 self.button1.delay = delay
                 self.button2.delay = delay
-            if extra_init_delay:
+            if extra_init_delay is not None:
                 self.button1.init_delay = delay + extra_init_delay
                 self.button2.init_delay = delay + extra_init_delay
             self._page_steps = None
+
+    @property
+    def vertical(self): return bool(self._orientation[0])
 
     def handleDragged(self):
         p = self._handle.geometry[self._orientation[0]]
         s = self._trough.scroll_range[self._orientation[0]]
 
-        per = [0.0, 0.0]
+        per = [None, None]
         per[self._orientation[0]] = p/-s if s else 0
         self.parent.scrollByDrag(*per)
 
@@ -215,7 +226,7 @@ class ScrollBar(Backgroundable):
     def moveHandle(self, per:float):
         o = self._orientation[0]
         move = list(self._handle.geometry[:2])
-        move[o] = int(per * (self._trough.size[self._orientation[0]]-self._handle.size[self._orientation[0]]))
+        move[o] = int(per * -self._trough.scroll_range[o])
 
         self._handle.move(*move)
 
@@ -287,7 +298,7 @@ class ScrollBar(Backgroundable):
         geo[o] = int((-p0 / sr) * tr) if sr else 0                      # Repositions handle relative to changes
 
         self._handle.place_configure(x=geo[0], y=geo[1], width=geo[2], height=geo[3])
-        self.after_idle(self._handle.redraw)
+        if geo[o2] == t: self.disable()
 
 
     """ Conforms scroll timing to continuous, pixel-friendly, integer rates by choosing the nearest step size & delay
@@ -301,7 +312,7 @@ class ScrollBar(Backgroundable):
             steps = delta_px // px_per_step
             if steps == 0: break
 
-            total_ms = steps * self.parent.smooth_rate
+            total_ms = steps * self.parent.smooth_rate      # Parent sets the animation framerate.
             diff = abs(total_ms - delay_ms)
 
             # If there's a tie in which is the nearest difference, prefer larger steps and a shorter delay.
@@ -395,6 +406,13 @@ class ScrollTrough(ScrollRepeatable):
         self._scroll_range = None
 
         super().__init__(parent, skin=skin, **kwargs)
+
+    def enable(self):
+        super().enable()
+        if self._handle: self._handle.enable()
+    def disable(self):
+        super().disable()
+        if self._handle: self._handle.disable()
 
     @property
     def scroll_range(self):

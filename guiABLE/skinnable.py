@@ -539,7 +539,7 @@ class BarSkin(DirtySkin, ColorSkin):
         return cls(cap_skin, trough_skin, vertical=vertical, breadth=breadth)
 
     def image(self, index:int = 0, length:int = None) -> tk.PhotoImage:
-        if length and length > 2: self.length = length
+        if length and length != self.length and length > 2: self.length = length
         return super().image(index)
 
     # _cleanIndex redraws/recalculates dirty images/resolutions and returns an in-range index value.
@@ -718,8 +718,7 @@ class ScrollSkin(SkinPack):
     @classmethod
     def fromSkins(cls, cap_skin:Skin, trough_skin:Skin, cap_skin2:Skin|None = None, vertical:bool = True,
                   button_skin:Skin|None = None, button_orientation:str = "n"):
-        if button_skin is not None: buttons = ButtonPack.fromOne(button_skin, button_orientation)
-        else: buttons = ButtonPack(None, None, None, None)
+        buttons = ButtonPack.fromOne(button_skin, button_orientation) if button_skin is not None else None
         return cls(*cls._barsFromSkins(cap_skin, trough_skin, cap_skin2, vertical), buttons)
 
     @property
@@ -727,7 +726,7 @@ class ScrollSkin(SkinPack):
     @property
     def horizontal(self) -> BarSkin: return BarSkin() if self._skins[1] is None else self._skins[1]
     @property
-    def button(self) -> ButtonPack: return ButtonPack(None, None, None, None) if self._skins[2] is None else self._skins[2]
+    def button(self) -> ButtonPack: return self._skins[2]
 
     def setBars(self, vertical:BarSkin = None, horizontal:BarSkin = None):
         if vertical: self._skins[0] = vertical
@@ -840,6 +839,6 @@ class Skinnable:
         # If skin provides no image, generate a Skin, utilizing the FilterSkin override for skins that useBgColors().
         if not self._skin.hasImages():
             self._skin._paths, self._skin._images, self._skin._resolutions = [], [], []
-            self._skin._expand(1)       # Sneaking in by private methods to avoid _use_bg_colors being overridden.
+            self._skin._expand(1)       # Sneaking in via private methods to preserve _use_bg_colors.
             self._skin._saveImage(tk.PhotoImage(width=self._geometry[2], height=self._geometry[3]), 0, "no image")
             self._skin.updateRecipients()
