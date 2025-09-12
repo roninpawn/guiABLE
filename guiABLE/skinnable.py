@@ -766,6 +766,7 @@ class Skinnable:
         self._scratch = None
         self._children = []
         self._geometry = (0, 0, 0, 0)
+        self.dirty = True
 
     @property
     def skin(self) -> CoreSkin: return self._skin
@@ -827,14 +828,17 @@ class Skinnable:
         else:
             self._children.insert(0, child)
 
-    # _update runs On instantiation, and when any tracked change takes place thereafter.
+    # _refresh runs on instantiation, and when any tracked change takes place thereafter.
     def _refresh(self, event=None):
         last_geometry = self._geometry
         self._geometry = getGeometry(self)
-        if last_geometry[2:] != self._geometry[2:]:
-            self._scratch = tk.PhotoImage(width=self._geometry[2], height=self._geometry[3])
-        if last_geometry[:2] != self._geometry[:2]:
+
+        if last_geometry != self._geometry:
+            if last_geometry[2:] != self._geometry[2:]:
+                self._scratch = tk.PhotoImage(width=self._geometry[2], height=self._geometry[3])
             self.redraw()
+            # If the parent changes, the children must refresh.
+            for child in self._children: self.after_idletasks(child.refresh)
 
         # If skin provides no image, generate a Skin, utilizing the FilterSkin override for skins that useBgColors().
         if not self._skin.hasImages():

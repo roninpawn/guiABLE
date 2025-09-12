@@ -258,5 +258,9 @@ class Backgroundable(Skinnable, Canvasable):
     def parent(self): return self._parent
 
     def redraw(self):
+        # If the skin that this widget uses has changed, all of its children must redraw.
         if self.skin.hasImages():
             self.render(self.skin.image())
+        if self.dirty:
+            for child in self._children: self.after_idletasks(child.redraw)
+            self.dirty = False

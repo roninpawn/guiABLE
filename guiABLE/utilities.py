@@ -1,4 +1,3 @@
-from math import isqrt
 from tkinter import PhotoImage, TclError, Canvas
 import os
 import sys
@@ -233,10 +232,7 @@ def rectsOverlap(a_xywh, b_xywh) -> bool:
 
 def pointOverlapsRect(x:int, y:int, rect:tuple[int,int,int,int]) -> bool:
     rx, ry, rw, rh = rect
-    return not (
-        rx + rw < x < rx or
-        ry + rh < y < y
-    )
+    return True if rx+rh > x >= rx and ry+rh > y >= ry else False
 
 def rectUnion(a_xywh, b_xywh) -> tuple[int,int,int,int]:
     ax, ay, aw, ah = a_xywh
@@ -263,15 +259,3 @@ def updateHover(widget):
             widget.mouseIn(None) if mouse_in else widget.mouseOut(None)
         else:
             widget.disable()
-
-def getDivisors(n: int):
-    """Yield divisors of n (positive integers)."""
-    if n <= 0: return []
-    small, large = [], []
-    r = int(isqrt(n))
-    for i in range(1, r+1):
-        if n % i == 0:
-            small.append(i)
-            j = n // i
-            if j != i: large.append(j)
-    return small + large[::-1]  # ascending order

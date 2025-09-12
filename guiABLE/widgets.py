@@ -3,8 +3,7 @@ from time import time
 from typing import Optional
 
 from guiABLE.skinnable import Skin, Skinnable, FilterSkin, BarSkin
-from guiABLE.utilities import limitMove, rectsOverlap, rectUnion, fastComposite, fastCrop, fastFlood, getLocalMouse, \
-    getGeometry
+from guiABLE.utilities import limitMove, rectsOverlap, rectUnion, fastComposite, fastCrop, getGeometry, pointOverlapsRect
 
 """
 Siblingable adds sibling awareness & overlap tracking to Skinnable. (MRO sucks, true inheritance is less brittle.)  
@@ -48,12 +47,12 @@ class Siblingable(Skinnable):
     # Override methods that change z-index, to track and report changes to all interested parties.
     def lift(self, above=None):
         tk.Misc.lift(self, above)
-        self.after_idle(self.master._raiseChildIndex, self, above)
-        self.after_idle(self._findOverlappingSiblings, self.master.getChildren())
+        self.after_idle(self.parent._raiseChildIndex, self, above)
+        self.after_idle(self._findOverlappingSiblings, self.parent.getChildren())
     def lower(self, below=None):
         tk.Misc.lower(self, below)
-        self.after_idle(self.master._lowerChildIndex, self, below)
-        self.after_idle(self._findOverlappingSiblings, self.master.getChildren())
+        self.after_idle(self.parent._lowerChildIndex, self, below)
+        self.after_idle(self._findOverlappingSiblings, self.parent.getChildren())
 
     # Find overlapping siblings and store them / register with them, for future tracking.
     def _findOverlappingSiblings(self, siblings_list):
@@ -67,8 +66,8 @@ class Siblingable(Skinnable):
                 else: self._siblings_atop.append(sibling)
 
     def _bond(self):
-        if isinstance(self, tk.Canvas): self.after_idle(self.master.registerChild, self)
-        self._findOverlappingSiblings(self.master.children)
+        if isinstance(self, tk.Canvas): self.after_idle(self.parent.registerChild, self)
+        self._findOverlappingSiblings(self.parent.children)
 
 
 """
@@ -106,7 +105,12 @@ class Baseable(Siblingable, tk.Canvas):
     @property
     def state(self): return self._img_state
 
-    def redraw(self): self.setState(self._img_state)
+    def redraw(self):
+        # If the skin that this widget uses has changed, all of its children must redraw.
+        self.setState(self._img_state)
+        if self.dirty:
+            for child in self._children: self.after_idletasks(child.redraw)
+            self.dirty = False
 
     def render(self, image:tk.PhotoImage, x:int = 0, y:int = 0):
         self._img = image
@@ -169,7 +173,7 @@ class Baseable(Siblingable, tk.Canvas):
         x, y, w, h = u_rect
 
         base = tk.PhotoImage(width=w, height=h)
-        fastCrop(base, self.master.skin.image(), *self.master.skin.resolution(), x, y, w, h)
+        fastCrop(base, self.parent.skin.image(), *self.parent.skin.resolution(), x, y, w, h)
 
         # Draw each layer to a base image and then crop from that base to each widget's surface, as we go.
         atop = False
@@ -224,15 +228,11 @@ class Hoverable(Baseable):
     def mouseIn(self, event):
         # If widget has child and mouse enters child AND parent at the same time, only change child's visual state.
         for child in self._children:
-            if isinstance(child, Hoverable) and getLocalMouse(child)[2]: return
+            if pointOverlapsRect(event.x, event.y, child.geometry): return
         self.setState(1)
         self.moused_over = True
 
     def mouseOut(self, event):
-        # If mouse exits widget INTO a parent Hoverable, set parent's state. (fighting Tkinter's jank)
-        if isinstance(self.master, Hoverable) and getLocalMouse(self.master)[2]:
-            self.moused_over = True
-            self.master.setState(1)
         self.moused_over = False
         self.setState(0)
 
@@ -461,7 +461,7 @@ class Draggable(LoneDraggable):
     def _splitAllSiblings(self):
         atop = False
         self._all_siblings_atop, self._all_siblings_beneath = set(), set()
-        for sibling in self.master.getChildren():
+        for sibling in self.parent.getChildren():
             if sibling is self: atop = True
             else:
                 if atop: self._all_siblings_atop.add(sibling)
