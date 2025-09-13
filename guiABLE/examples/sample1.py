@@ -21,11 +21,11 @@ def test_gui():
 
     # Create a Toggleable checkbox
     toggle_skin = Skin.fromSpriteSheet("../skins/default/checkbox-64.png", 64)
-    test_toggle1 = Toggleable(bg, True, lambda: print("Toggle1 state:", test_toggle1.state()), skin=toggle_skin,
+    test_toggle1 = Toggleable(bg, True, lambda: print("Toggle1 state:", test_toggle1.isTrue()), skin=toggle_skin,
                              width=64, height=64)
     test_toggle1.place(x=80, y=24)
 
-    test_toggle2 = Toggleable(bg, function=lambda: print("Toggle2 state:", test_toggle2.state()), skin=toggle_skin,
+    test_toggle2 = Toggleable(bg, function=lambda: print("Toggle2 state:", test_toggle2.isTrue()), skin=toggle_skin,
                              width=64, height=64)
     test_toggle2.place(x=144, y=24)
 
@@ -56,15 +56,6 @@ def test_gui():
     click_btn = Clickable(bg, function=lambda: print("Clicked instantly!"), width=80, height=40)
     click_btn.place(x=500, y=180)
 
-    # Create extra Togglables for above/below testing.
-    test_toggle3 = Toggleable(bg, True, lambda: print("Toggle1 state:", test_toggle3.state()), skin=toggle_skin,
-                             width=64, height=64)
-    test_toggle3.place(x=380, y=24)
-
-    test_toggle4 = Toggleable(bg, function=lambda: print("Toggle2 state:", test_toggle4.state()), skin=toggle_skin,
-                             width=64, height=64)
-    test_toggle4.place(x=444, y=24)
-
     from guiABLE.skinnable import BarSkin as BS
     trough_skin = Skin("../skins/default/square-48.png")
     cap_skin = Skin("../skins/default/up_glyph-48.png")
@@ -79,6 +70,16 @@ def test_gui():
     scroll_skin = ScrollSkin.fromSkins(cap_skin, trough_skin, None, True, cap_skin, "n")
     scroll_area = Scrollable(bg, 450, 280, scroll_skin, Skin.fromImages(bg_image))
     scroll_area.place(x=20, y=100)
+
+    # Create Togglables for changing the scrollbar settings.
+    test_toggle3 = Toggleable(bg, scroll_area.getScrollTypes()[0], skin=toggle_skin, width=64, height=64)
+    test_toggle3.function = (scroll_area.setScrollType, test_toggle3.isTrue)
+    test_toggle3.place(x=380, y=24)
+
+    test_toggle4 = Toggleable(bg, scroll_area.getSmoothScroll()[0],  skin=toggle_skin, width=64, height=64)
+    test_toggle4.function = (scroll_area.setSmoothScroll, test_toggle4.isTrue)
+    test_toggle4.place(x=444, y=24)
+
 
     nude_skin = BS()
     #nude_skin.usesBgColors(False)

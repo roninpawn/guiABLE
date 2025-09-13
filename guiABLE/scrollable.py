@@ -1,6 +1,6 @@
 import tkinter as tk
 
-from .utilities import getLocalMouse, rectsOverlap
+from .utilities import getLocalMouse, rectsOverlap, pointIsInRect, getGeometry
 from .windowing import Backgroundable
 from .skinnable import ScrollSkin, BarSkin, Skin, ButtonPack
 from .widgets import Repeatable, LoneDraggable
@@ -12,8 +12,10 @@ class Scrollable(tk.Frame):
 
         # ==OPTIONS==
         self.show_v, self.show_h = 2, 2     # Show scrollbars = 0:False, 1:True, 2:Automatic (if content exceeds frame)
-        self.smooth_scroll, self.smooth_rate, = True, 17
-        self.scroll_type, self.page_scale, self.line_size, self._page_size = True, [0.95, 0.9], [14, 14], [None, None]
+        self.smooth_rate, self.page_scale, self.line_size = 17, [0.95, 0.9], [16, 16]
+
+        self._page_size = [None, None]
+        self._scrollwheel_axis, self._scrollwheel_percent, self._scrollwheel_duration = True, 1.0, 51
 
         self._scroll_skin = scroll_skin
         v_breadth, h_breadth = self._scroll_skin.vertical.breadth, self._scroll_skin.horizontal.breadth
@@ -21,6 +23,7 @@ class Scrollable(tk.Frame):
 
         self._frame = ScrollFrame(self, bw, bh, skin)
         self._frame.place(x=0, y=0)
+        self.bind_all("<MouseWheel>", self.scrollByWheel, "+")
 
         # Place the scrollbars.
         self._v_bar = VerticalScrollbar(self, v_breadth, height, self._scroll_skin.vertical, None,
@@ -30,8 +33,10 @@ class Scrollable(tk.Frame):
                                           self._scroll_skin.button, h_breadth)
         self._h_bar.place(x=0, y=height - h_breadth)
 
-        self.setPageScrollDelay(153, 290)
-        self.setLineScrollDelay(68, 0)
+        # Scroll Defaults (based on 17ms (~60fps) animation rates.
+        self.setPageScroll(153, 290)
+        self.setLineScroll(51, 0)
+        self.setWheelScroll(68, 1.0, True)
 
     @property
     def skin(self): return self._frame.skin
@@ -42,18 +47,42 @@ class Scrollable(tk.Frame):
     @property
     def h_bar(self): return self._h_bar
 
-    def setPageScrollDelay(self, delay:int = None, extra_init_delay:int = None):
+    def getScrollTypes(self) -> tuple[bool, bool]: return self._h_bar.instant_scroll, self._v_bar.instant_scroll
+    def setScrollType(self, instant:bool): self.setScrollTypes(instant, instant)
+    def setScrollTypes(self, instant_horizontal:bool = None, instant_vertical:bool = None):
+        if instant_horizontal is not None: self._h_bar.instant_scroll = instant_horizontal
+        if instant_vertical is not None: self._v_bar.instant_scroll = instant_vertical
+
+    def getSmoothScroll(self) -> tuple[bool, bool]: return self._h_bar.smooth_scroll, self._v_bar.smooth_scroll
+    def setSmoothScroll(self, smooth:bool): self.setSmoothScrolls(smooth, smooth)
+    def setSmoothScrolls(self, smooth_horizontal:bool = None, smooth_vertical:bool = None):
+        if smooth_horizontal is not None: self._h_bar.smooth_scroll = smooth_horizontal
+        if smooth_vertical is not None: self._v_bar.smooth_scroll = smooth_vertical
+
+    def setPageScroll(self, delay:int = None, extra_init_delay:int = None):
         self._v_bar.setPageScrollDelay(delay, extra_init_delay)
         self._h_bar.setPageScrollDelay(delay, extra_init_delay)
 
-    def setLineScrollDelay(self, delay:int = None, extra_init_delay:int = None):
+    def setLineScroll(self, delay:int = None, extra_init_delay:int = None):
         self._v_bar.setLineScrollDelay(delay, extra_init_delay)
         self._h_bar.setLineScrollDelay(delay, extra_init_delay)
+
+    def setWheelScroll(self, smooth_duration:int, scroll_amount:float = 1.0, vertical:bool = None):
+        self._scrollwheel_duration, self._scrollwheel_percent = smooth_duration, scroll_amount
+        if vertical is not None: self._scrollwheel_axis = vertical
+        self._v_bar.resetWheel()
 
     def pageSize(self, axis:int) -> int:
         if self._page_size[axis] is None:
             self._page_size[axis] = int(self._frame.size[axis] * self.page_scale[axis])
         return self._page_size[axis]
+
+    def scrollByWheel(self, event):
+        if getLocalMouse(self)[2]:
+            delta = int(event.delta * self._scrollwheel_percent)
+            if self._scrollwheel_axis:
+                self._v_bar.mouseWheeled(delta, self._scrollwheel_duration)
+            else: self._h_bar.mouseWheeled(delta, self._scrollwheel_duration)
 
     def scrollByClick(self, delta_x:int, delta_y:int):
         if delta_x or delta_y:
@@ -146,6 +175,10 @@ class ScrollFrame(Backgroundable):
         # TODO: When and where we recalculate plate_geometry, it must be by the children's scroll_xy.
         child.scroll_xy = cx, cy
 
+    def mouseWheel(self, event=None):
+        self.parent.scrollByWheel(event)
+        super().mouseWheel(event)
+
     def _refresh(self, event=None):
         super()._refresh(event)
         self._scroll_range = None
@@ -179,9 +212,9 @@ class ScrollBar(Backgroundable):
         self._handle.place(x=0, y=0)
 
         # Scroll options
-        self.smooth_scroll, self.instant_scroll = True, True
+        self.smooth_scroll, self.instant_scroll = True, False
         self._anim_steps = []
-        self._line_steps, self._page_steps = None, None
+        self._line_steps, self._page_steps, self._wheel_steps = None, None, None
         self._anim_keyframe, self._anim_direction = 0, 0
 
         # Consolidate whiny IDE complaints about undefined variables here, instead of throughout the class.
@@ -210,6 +243,8 @@ class ScrollBar(Backgroundable):
                 self.button1.init_delay = delay + extra_init_delay
                 self.button2.init_delay = delay + extra_init_delay
             self._line_steps = None
+
+    def resetWheel(self): self._wheel_steps = None
 
     @property
     def vertical(self): return bool(self._orientation[0])
@@ -241,27 +276,39 @@ class ScrollBar(Backgroundable):
         if self.instant_scroll:
             handle_px = click[o] - (self._handle.geometry[o+2] // 2)
             per = handle_px / self._trough.scroll_range[o]
-            target = self.parent.frame.plate_geometry[o] + int(per * self.parent.frame.scroll_range[o])
+            destination = self.parent.frame.plate_geometry[o] + int(per * self.parent.frame.scroll_range[o])
             direction = -1
-        else: target = -page_size * direction
+        # Page scrolling progresses in percentage increments of the scroll frame. (ex: 90% of the viewable area)
+        else: destination = page_size
 
+        # Smooth scrolling animates travel to the destination by linear interpolation.
         if self.smooth_scroll:
             if self.instant_scroll:
-                self._beginAnimating(self._conformToAnimation(target, self._trough.delay), direction)
+                self._beginAnimating(self._conformToAnimation(destination, self._trough.delay), direction)
             else: self._beginAnimating(self.page_steps, direction)
+
+        # Simple scrolling goes directly to the destination requested.
         else:
             move = [0, 0]
-            move[o] = target
+            move[o] = destination * direction
             self.parent.scrollByClick(*move)
 
     def buttonClicked(self, direction:int):
-        o = self._orientation[0]
-
         if self.smooth_scroll:
             self._beginAnimating(self.line_steps, direction)
         else:
             move = [0, 0]
-            move[o] = self.parent.line_size[o] * direction
+            move[self._orientation[0]] = self.parent.line_size[self._orientation[0]] * direction
+            self.parent.scrollByClick(*move)
+
+    def mouseWheeled(self, delta:int, duration:int):
+        if self.smooth_scroll:
+            if self._wheel_steps is None:
+                self._wheel_steps = self._conformToAnimation(abs(delta), duration)
+            self._beginAnimating(self._wheel_steps, 1 if delta > 0 else -1)
+        else:
+            move = [0, 0]
+            move[self._orientation[0]] = delta
             self.parent.scrollByClick(*move)
 
     @property
@@ -309,9 +356,8 @@ class ScrollBar(Backgroundable):
         self._handle.place_configure(x=geo[0], y=geo[1], width=geo[2], height=geo[3])
         if geo[o2] == t: self.disable()
 
-
-    """ Conforms scroll timing to pixel-friendly, integer rate by choosing the nearest matching millisecond delay,
-        the nearest matching pixel delta, and distributing any remainder, evenly, as step-increases.
+    """ Conforms scroll timing to pixel-friendly, integer rate by choosing the nearest framerate-matching number of
+        steps, the nearest matching pixel delta, and then distributing any remainder, evenly, as step-increases.
         Returns: [p,p,p+1,p,p,p+1] or [p+1,p,p+1,p,p+1,p] """
     def _conformToAnimation(self, delta_px:int, delay_ms:int) -> tuple[int, ...]:
         steps = round(delay_ms / self.parent.smooth_rate)
@@ -329,7 +375,6 @@ class ScrollBar(Backgroundable):
             else: animation.append(base)
 
         return tuple(animation)
-
 
     def _spawnButtons(self, width:int, height:int) -> tuple[int,int,int,int]:
         self._buttons.usesBgColors(True)
@@ -366,8 +411,6 @@ class ScrollBar(Backgroundable):
         self.button1.place(x=0, y=0)
         self.button2.place(x=b2x, y=b2y)
 
-        # Match function delay to animation rate.
-        self._line_steps = self._conformToAnimation(self.parent.line_size[self._orientation[0]], self.button1.delay)
         return tx, ty, tw, th
 
     def _refresh(self, event=None):
@@ -468,16 +511,16 @@ class ScrollHandle(LoneDraggable):
     def __init__(self, parent:ScrollTrough, bar_skin:BarSkin = None, vertical:bool = True, **kwargs):
         self.vertical = vertical
         super().__init__(parent, skin=bar_skin or BarSkin(vertical=vertical), **kwargs)
-
-        self._middle = None
+        self._half = None
 
     @property
-    def middle(self) -> tuple[int, int]:
-        if self._middle is None:
-            x = self._geometry[0] + (self._geometry[2] * 0.5)
-            y = self._geometry[1] + (self._geometry[3] * 0.5)
-            self._middle = (x, y)
-        return self._middle
+    def middle(self) -> tuple[int, int]: return self.geometry[0] + self.half[0], self.geometry[1] + self.half[1]
+
+    @property
+    def half(self) -> tuple[int, int]:
+        if self._half is None:
+            self._half = self._geometry[2] // 2, self._geometry[3] // 2
+        return self._half
 
     def setState(self, state_index:int = 0):        # BarSkin Recipients redraw their bars at varying lengths.
         self._skin.image(state_index, self._geometry[2 + self.vertical])
@@ -489,4 +532,4 @@ class ScrollHandle(LoneDraggable):
 
     def _refresh(self, event=None):
         super()._refresh(event)
-        self._middle = None
+        if self._last_geometry[2:] != self._geometry[2:]: self._half = None

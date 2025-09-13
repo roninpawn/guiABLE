@@ -187,7 +187,6 @@ class Canvasable(tk.Text):
     def __init__(self, parent, **kwargs):
         super().__init__(parent, bd=0, padx=0, pady=0, state="disabled", cursor="arrow", **kwargs)
         self.configure(bg=self.cget("bg"))
-        self.bind("<MouseWheel>", self.mouseWheel)
 
     def configure(self, **kw):
         if "bg" in kw:      # Pass changes to bg through to the 'selectbackground' to maintain non-tk.Text() illusion.
@@ -204,8 +203,6 @@ class Canvasable(tk.Text):
 
     @property
     def size(self): return self.winfo_width(), self.winfo_height()
-
-    def mouseWheel(self, event=None): return 'break'
 
 
 class Frameable(tk.Frame):
@@ -239,10 +236,7 @@ class Backgroundable(Skinnable, Canvasable):
 
         self._parent = parent
         self.bind("<Configure>", self.refresh)
-        self.bind("<MouseWheel>", self.mouseWheel)
         self.place_configure(width=width, height=height)
-
-        self.after_idle(self.redraw)
 
     @classmethod
     def fromPath(cls, parent, width:int, height:int, image_path:str, **kwargs):
@@ -259,8 +253,12 @@ class Backgroundable(Skinnable, Canvasable):
 
     def redraw(self):
         # If the skin that this widget uses has changed, all of its children must redraw.
-        if self.skin.hasImages():
-            self.render(self.skin.image())
+        bg_size = self._skin.resolution(0)
+        if bg_size != (0,0) and bg_size != self.geometry[2:]:
+            self._skin = FilterSkin(self._skin, crop=(0, 0, *self.geometry[2:]) )
+            self.dirty = True
+
+        self.render(self.skin.image())
         if self.dirty:
-            for child in self._children: self.after_idletasks(child.redraw)
+            for child in self._children: child.redraw()
             self.dirty = False

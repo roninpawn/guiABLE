@@ -1,6 +1,6 @@
 import tkinter as tk
 from time import time
-from typing import Optional
+from typing import Optional, Callable
 
 from guiABLE.skinnable import Skin, Skinnable, FilterSkin, BarSkin
 from guiABLE.utilities import limitMove, rectsOverlap, rectUnion, fastComposite, fastCrop, getGeometry, pointIsInRect
@@ -36,17 +36,18 @@ class Siblingable(Skinnable):
     # Override all attachment methods to track z-order through parent. (and report overlap with siblings if Siblingable)
     def place(self, **kwargs):
         super().place(**kwargs)
-        self.after_idle(self._bond)
+        self._bond()
     def pack(self, **kwargs):
         super().pack(**kwargs)
-        self.after_idle(self._bond)
+        self._bond()
     def grid(self, **kwargs):
         super().grid(**kwargs)
-        self.after_idle(self._bond)
+        self._bond()
 
     # Override methods that change z-index, to track and report changes to all interested parties.
     def lift(self, above=None):
         tk.Misc.lift(self, above)
+        # TODO: All these after_idle()s are possibly the problem with lift/lowering.
         self.after_idle(self.parent._raiseChildIndex, self, above)
         self.after_idle(self._findOverlappingSiblings, self.parent.getChildren())
     def lower(self, below=None):
@@ -66,7 +67,8 @@ class Siblingable(Skinnable):
                 else: self._siblings_atop.append(sibling)
 
     def _bond(self):
-        if isinstance(self, tk.Canvas): self.after_idle(self.parent.registerChild, self)
+        if isinstance(self, tk.Canvas):
+            self.after_idle(self.parent.registerChild, self)
         self._findOverlappingSiblings(self.parent.children)
 
 
@@ -95,7 +97,6 @@ class Baseable(Siblingable, tk.Canvas):
         self._img_state = 0
         self._drop_list = set()
 
-        self.after_idle(self.after_idle,self.refresh)       # No really, this is necessary. Hi Tk!
         self.enable()
 
     @property
@@ -109,7 +110,7 @@ class Baseable(Siblingable, tk.Canvas):
         # If the skin that this widget uses has changed, all of its children must redraw.
         self.setState(self._img_state)
         if self.dirty:
-            for child in self._children: self.after_idletasks(child.redraw)
+            for child in self._children: child.redraw()
             self.dirty = False
 
     def render(self, image:tk.PhotoImage, x:int = 0, y:int = 0):
@@ -131,7 +132,7 @@ class Baseable(Siblingable, tk.Canvas):
         # If widget lacks geometry (has not fully spawned) wait until it has.
         x, y, w, h = self.geometry
         if w < 1 and h < 1:
-            self.after_idle(lambda : self.redraw())
+            self.after_idle(self.redraw)
             return
 
         self._img_state = state_index
@@ -251,13 +252,13 @@ class Hoverable(Baseable):
 
 """ Clickable adds left-click awareness and executes a passed function on mouse-down. (Instant-click button) """
 class Clickable(Hoverable):
-    def __init__(self, parent, function=lambda: None, skin=None, **kwargs):
+    def __init__(self, parent, function:tuple|Callable=lambda: None, skin=None, **kwargs):
         self.function = function
         super().__init__(parent, skin, **kwargs)
 
     def clicked(self, event):
         self.setState(2)
-        self.function()
+        self._call_function()
 
     def mouseUp(self, event):
         self.mouseIn(event) if self.moused_over else self.mouseOut(event)
@@ -271,6 +272,15 @@ class Clickable(Hoverable):
         super().disable()
         self.unbind("<Button-1>")
         self.unbind("<ButtonRelease-1>")
+
+    def _call_function(self):
+        if self.function is not None:
+            if callable(self.function): self.function()
+            elif len(self.function):
+                args = []
+                for arg in self.function[1:]:
+                    args.append(arg()) if callable(arg) else args.append(arg)
+                self.function[0](*args) if len(self.function) > 1 else self.function[0]()
 
 
 """ Pushable is a Clickable that executes its function on when the left mouse button is released. (Normal button) """
@@ -339,22 +349,22 @@ class Labelable(Pushable):
     skin to return states 0,1,2,3 for the False state of the Toggleable, and 4,5,6,7 for the True state. (Checkbox) """
 class Toggleable(Pushable):
     def __init__(self, parent, state:bool=False, function=lambda: None, skin:Skin = None, **kwargs):
-        self._state_offset = 0
+        self._state_offset, self._toggle_state = 0, state
         super().__init__(parent, function, skin, **kwargs)
-        self.after_idle(self.state, state)
+        self.after_idle(self.setTrue, state)
 
     def mouseUp(self, event):
         self._clicking = False
         if self.moused_over:
-            self.state(not self._toggle_state)
-            self.function()
+            self.setTrue(not self._toggle_state)
+            self._call_function()
         self.mouseIn(event) if self.moused_over else self.mouseOut(event)
 
-    def state(self, state:bool=None) -> Optional[bool]:
-        if isinstance(state, bool):
-            self._toggle_state = state
-            self._state_offset = self._toggle_state * 4
-            self.redraw()
+    def isTrue(self): return self._toggle_state
+    def setTrue(self, true:bool) -> bool:
+        self._toggle_state = true
+        self._state_offset = self._toggle_state * 4
+        self.redraw()
         return self._toggle_state
 
     def setState(self, state_index:int = 0): super().setState(state_index + self._state_offset)
@@ -400,7 +410,7 @@ class LoneDraggable(Holdable):
         self._bounds = None
 
         self._x_origin, self._y_origin = 0, 0
-        self.after_idle(self._refresh)
+        #self.after_idle(self._refresh)
 
     def setBounds(self, x1, y1, x2, y2): self._bounds = (x1, y1, x2, y2)
 
