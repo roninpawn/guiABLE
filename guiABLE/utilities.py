@@ -223,16 +223,16 @@ def rectsOverlap(a_xywh, b_xywh) -> bool:
     ax, ay, aw, ah = a_xywh
     bx, by, bw, bh = b_xywh
 
-    return not (
-        ax + aw <= bx or  # a is left of b
-        ax >= bx + bw or  # a is right of b
-        ay + ah <= by or  # a is above b
-        ay >= by + bh     # a is below b
+    return not (            # Inverse formula breaks out of testing if any one returns True.
+        ax + aw <= bx or    # a is left of b
+        ax >= bx + bw or    # a is right of b
+        ay + ah <= by or    # a is above b
+        ay >= by + bh       # a is below b
     )
 
-def pointOverlapsRect(x:int, y:int, rect:tuple[int,int,int,int]) -> bool:
+def pointIsInRect(x:int, y:int, rect:tuple[int,int,int,int]) -> bool:
     rx, ry, rw, rh = rect
-    return True if rx+rh > x >= rx and ry+rh > y >= ry else False
+    return rx+rw > x >= rx and ry+rh > y >= ry
 
 def rectUnion(a_xywh, b_xywh) -> tuple[int,int,int,int]:
     ax, ay, aw, ah = a_xywh
@@ -248,8 +248,8 @@ def getLocalMouse(widget:Canvas) -> (int, int, bool):
     px, py = widget.winfo_pointerxy()
     x = px - widget.winfo_rootx()
     y = py - widget.winfo_rooty()
-    if x < 0 or x > widget.winfo_width(): return x, y, False
-    if y < 0 or y > widget.winfo_height(): return x, y, False
+    if x < 0 or x >= widget.winfo_width(): return x, y, False
+    if y < 0 or y >= widget.winfo_height(): return x, y, False
     return x, y, True
 
 def updateHover(widget):

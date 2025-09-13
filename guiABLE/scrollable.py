@@ -13,7 +13,7 @@ class Scrollable(tk.Frame):
         # ==OPTIONS==
         self.show_v, self.show_h = 2, 2     # Show scrollbars = 0:False, 1:True, 2:Automatic (if content exceeds frame)
         self.smooth_scroll, self.smooth_rate, = True, 17
-        self.scroll_type, self.page_scale, self.line_size, self._page_size = True, [0.95, 0.9], [15, 15], [None, None]
+        self.scroll_type, self.page_scale, self.line_size, self._page_size = True, [0.95, 0.9], [14, 14], [None, None]
 
         self._scroll_skin = scroll_skin
         v_breadth, h_breadth = self._scroll_skin.vertical.breadth, self._scroll_skin.horizontal.breadth
@@ -31,7 +31,7 @@ class Scrollable(tk.Frame):
         self._h_bar.place(x=0, y=height - h_breadth)
 
         self.setPageScrollDelay(153, 290)
-        self.setLineScrollDelay(51, 0)
+        self.setLineScrollDelay(68, 0)
 
     @property
     def skin(self): return self._frame.skin
@@ -175,15 +175,16 @@ class ScrollBar(Backgroundable):
         self._trough = ScrollTrough(self, self._bar_skin, width=tw, height=th)
         self._handle = ScrollHandle(self._trough, handle_skin or BarSkin(vertical=bool(self._orientation[0]),
                                    breadth=breadth), bool(self._orientation[0]), width=breadth, height=breadth)
-
         self._trough.place(x=tx, y=ty)
         self._handle.place(x=0, y=0)
 
-        self._step_list = []
+        # Scroll options
+        self.smooth_scroll, self.instant_scroll = True, True
+        self._anim_steps = []
         self._line_steps, self._page_steps = None, None
-        self._anim_keyframe, self._anim_direction = -1, 0
+        self._anim_keyframe, self._anim_direction = 0, 0
 
-        # Consolidates whiny IDE complaints of undefined variables to here, instead of throughout the class.
+        # Consolidate whiny IDE complaints about undefined variables here, instead of throughout the class.
         self._directions, self._orientation = self._directions, self._orientation
 
     def enable(self):
@@ -236,19 +237,27 @@ class ScrollBar(Backgroundable):
         direction = 1 if click[o] < self._handle.middle[o] else -1
         page_size = self.parent.pageSize(o)
 
-        # If smooth_scrolling, prepare a complete list of interpolated animation stops.
-        if self.parent.smooth_scroll: self._beginAnimating(self.page_steps, direction)
+        # Instant scrolling goes straight to the point that was clicked.
+        if self.instant_scroll:
+            handle_px = click[o] - (self._handle.geometry[o+2] // 2)
+            per = handle_px / self._trough.scroll_range[o]
+            target = self.parent.frame.plate_geometry[o] + int(per * self.parent.frame.scroll_range[o])
+            direction = -1
+        else: target = -page_size * direction
 
-        # Otherwise just move frame directly to destination.
+        if self.smooth_scroll:
+            if self.instant_scroll:
+                self._beginAnimating(self._conformToAnimation(target, self._trough.delay), direction)
+            else: self._beginAnimating(self.page_steps, direction)
         else:
             move = [0, 0]
-            move[o] = page_size * direction       # If not smooth scrolling, just go to the destination.
+            move[o] = target
             self.parent.scrollByClick(*move)
 
     def buttonClicked(self, direction:int):
         o = self._orientation[0]
 
-        if self.parent.smooth_scroll:
+        if self.smooth_scroll:
             self._beginAnimating(self.line_steps, direction)
         else:
             move = [0, 0]
@@ -258,30 +267,30 @@ class ScrollBar(Backgroundable):
     @property
     def page_steps(self):
         if self._page_steps is None:
-            self._page_steps = self._pixelTimingsToAnimation(self.parent.pageSize(self._orientation[0]), self._trough.delay)
+            self._page_steps = self._conformToAnimation(self.parent.pageSize(self._orientation[0]), self._trough.delay)
         return self._page_steps
     @property
     def line_steps(self):
         if self._line_steps is None:
-           self._line_steps = self._pixelTimingsToAnimation(self.parent.line_size[self._orientation[0]], self.button1.delay)
+           self._line_steps = self._conformToAnimation(self.parent.line_size[self._orientation[0]], self.button1.delay)
         return self._line_steps
 
     def _beginAnimating(self, instructions:tuple, direction:int):
-        new_scroll = self._anim_keyframe == -1    # If animating a scroll already, just create new steps.
-        self._step_list = instructions
+        new_scroll = self._anim_keyframe >= len(self._anim_steps)
+        self._anim_steps = instructions
         self._anim_direction = direction
-        self._anim_keyframe = len(self._step_list) - 1
+        self._anim_keyframe = 0
 
-        if new_scroll: self._animationStep()
+        if new_scroll: self._animationStep()        # If animating a scroll already, just reset pointer.
 
     def _animationStep(self):
-        if self._anim_keyframe > -1:
+        if self._anim_keyframe < len(self._anim_steps):
             move = [0, 0]
-            move[self._orientation[0]] = self._step_list[self._anim_keyframe] * self._anim_direction
-            self.parent.scrollByClick(*move)
+            move[self._orientation[0]] = self._anim_steps[self._anim_keyframe] * self._anim_direction
+            self.parent.scrollByClick(*move)        # Request a scroll event.
 
-            if self._anim_keyframe > 0: self.after(self.parent.smooth_rate, self._animationStep)
-            self._anim_keyframe -= 1
+            self._anim_keyframe += 1                # Keep animating until end of animation steps.
+            if self._anim_keyframe < len(self._anim_steps): self.after(self.parent.smooth_rate, self._animationStep)
 
     def _recalcHandle(self):
         o, o1 = self._orientation[:2]
@@ -301,21 +310,26 @@ class ScrollBar(Backgroundable):
         if geo[o2] == t: self.disable()
 
 
-    """ Conforms scroll timing to pixel-friendly, integer rates by choosing the nearest matching millisecond delay,
-        the nearest matching pixel delta, and using any remainder to populate an extended list of increased steps.
-        Returns: [0,p+1,p+1,p+1,p+1,p,p,p] """
-    def _pixelTimingsToAnimation(self, delta_px:int, delay_ms:int) -> tuple[int, ...]:
-        if delta_px <= 0: return 0, 0
-
-        steps = round(delay_ms / self.parent.smooth_rate)   # 9
-        root = delta_px // steps    # 23
-        excess = delta_px % steps   # 1
-
+    """ Conforms scroll timing to pixel-friendly, integer rate by choosing the nearest matching millisecond delay,
+        the nearest matching pixel delta, and distributing any remainder, evenly, as step-increases.
+        Returns: [p,p,p+1,p,p,p+1] or [p+1,p,p+1,p,p+1,p] """
+    def _conformToAnimation(self, delta_px:int, delay_ms:int) -> tuple[int, ...]:
+        steps = round(delay_ms / self.parent.smooth_rate)
+        base = delta_px // steps
+        excess = delta_px % steps
         animation = []
-        for i in range(excess): animation.append(root+1)
-        for i in range(steps-excess): animation.append(root)
+
+        # Bresenham's distributed linear rasterization method.
+        error = 0
+        for i in range(steps):
+            error += excess
+            if error >= steps:
+                error -= steps
+                animation.append(base+1)
+            else: animation.append(base)
 
         return tuple(animation)
+
 
     def _spawnButtons(self, width:int, height:int) -> tuple[int,int,int,int]:
         self._buttons.usesBgColors(True)
@@ -353,7 +367,7 @@ class ScrollBar(Backgroundable):
         self.button2.place(x=b2x, y=b2y)
 
         # Match function delay to animation rate.
-        self._line_steps = self._pixelTimingsToAnimation(self.parent.line_size[self._orientation[0]], self.button1.delay)
+        self._line_steps = self._conformToAnimation(self.parent.line_size[self._orientation[0]], self.button1.delay)
         return tx, ty, tw, th
 
     def _refresh(self, event=None):
@@ -447,7 +461,6 @@ class ScrollTrough(ScrollRepeatable):
                     if not hy < my < hy+hh: self.parent.troughClicked(*getLocalMouse(self)[:2])
                 elif   not hx < mx < hx+hw: self.parent.troughClicked(*getLocalMouse(self)[:2])
 
-            print(self.delay)
             self.after(self.delay, self._keepClicking)
 
 

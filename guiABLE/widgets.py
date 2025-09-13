@@ -3,7 +3,7 @@ from time import time
 from typing import Optional
 
 from guiABLE.skinnable import Skin, Skinnable, FilterSkin, BarSkin
-from guiABLE.utilities import limitMove, rectsOverlap, rectUnion, fastComposite, fastCrop, getGeometry, pointOverlapsRect
+from guiABLE.utilities import limitMove, rectsOverlap, rectUnion, fastComposite, fastCrop, getGeometry, pointIsInRect
 
 """
 Siblingable adds sibling awareness & overlap tracking to Skinnable. (MRO sucks, true inheritance is less brittle.)  
@@ -226,9 +226,9 @@ class Hoverable(Baseable):
         self.redraw()
 
     def mouseIn(self, event):
-        # If widget has child and mouse enters child AND parent at the same time, only change child's visual state.
+        # If widget has a child and the mouse enters child & parent at the same time, only change child's visual state.
         for child in self._children:
-            if pointOverlapsRect(event.x, event.y, child.geometry): return
+            if pointIsInRect(event.x, event.y, child.geometry): return
         self.setState(1)
         self.moused_over = True
 
