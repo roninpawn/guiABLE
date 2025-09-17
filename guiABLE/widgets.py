@@ -9,8 +9,8 @@ from guiABLE.utilities import limitMove, rectsOverlap, rectUnion, fastComposite,
 Siblingable adds sibling awareness & overlap tracking to Skinnable. (MRO sucks, true inheritance is less brittle.)  
 """
 class Siblingable(Skinnable):
-    def __init__(self, skin:Skin|FilterSkin|BarSkin):
-        super().__init__(skin)
+    def __init__(self, skin:Skin|FilterSkin|BarSkin, **kwargs):
+        super().__init__(skin, **kwargs)
         self._siblings_atop, self._siblings_beneath = list(), list()     # Overlapping siblings, by below/above z-index.
 
     # Overlapping siblings track each other for the sake of compositing (faking transparency) during redraw.
@@ -84,10 +84,9 @@ class Baseable(Siblingable, tk.Canvas):
         # Setting the background of widgets to a middle gray reduces the appearance of pop-in while loading...
         kwargs["bg"] = "gray42"     # ...amd widget bg colors aren't used in guiABLE. Bg colors are set through skins.
 
-        Siblingable.__init__(self, skin)
+        Siblingable.__init__(self, skin, **kwargs)
         tk.Canvas.__init__(self, parent, highlightthickness=0, **kwargs)
-
-        self.bind("<Configure>", self.refresh)
+        self.bind("<Configure>", self._refresh)
 
         self.bench, self.benches = 0, 0
 
@@ -119,7 +118,7 @@ class Baseable(Siblingable, tk.Canvas):
         self.create_image(x, y, image=image, anchor="nw")
 
     def enable(self):
-        self.setState(self._img_state)
+        self.setState(0)
         self._enabled = True
 
     @property

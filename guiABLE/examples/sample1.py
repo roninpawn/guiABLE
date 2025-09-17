@@ -71,6 +71,8 @@ def test_gui():
     scroll_area = Scrollable(bg, 450, 280, scroll_skin, Skin.fromImages(bg_image))
     scroll_area.place(x=20, y=100)
 
+    #scroll_area.showBars(1, 0)
+
     # Create Togglables for changing the scrollbar settings.
     test_toggle3 = Toggleable(bg, scroll_area.getScrollTypes()[0], skin=toggle_skin, width=64, height=64)
     test_toggle3.function = (scroll_area.setScrollType, test_toggle3.isTrue)
@@ -86,7 +88,7 @@ def test_gui():
     nude_drag = Draggable(bg, skin=nude_skin, width=50, height=50)
     nude_drag.place(x=0, y=0)
 
-    for i in range(50):
+    for i in range(26):
         #label = Hoverable(scroll_area.scroll_plate, skin=btn_skin, height=24)
         label = Labelable(scroll_area.frame, function=lambda: print("Label clicked!"), skin=btn_skin,
                           text=f"Item {i + 1}", text_pos=(10, 5), font=("Arial", 12, "bold"), color="white",
@@ -95,9 +97,8 @@ def test_gui():
         label.place(x=10, y=30*i)
         #label.pack(padx=10, pady=10, fill="both")
 
-
     test_drag2 = Draggable(scroll_area.frame, skin=drag_skin, width=64, height=64)
-    test_drag2.place(x=190, y=285)
+    #test_drag2.place(x=190, y=285)
 
     # Prove lower/lift functionality    : Buggy right now.
     #click_btn.lift(test_toggle1)

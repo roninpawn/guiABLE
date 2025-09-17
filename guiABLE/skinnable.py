@@ -371,7 +371,7 @@ class DirtySkin:
         self.dirty = False
 
     # _draw is a method intended to be fully overridden by the child class.
-    def _draw(self, index:int, *args): pass
+    def _draw(self, index:int): pass
 
 
 """
@@ -432,7 +432,7 @@ class FilterSkin(DirtySkin, CoreSkin):
         else: super()._cleanSkin()
 
     def _draw(self, index:int):
-        image_index = index % len(self._images)
+        image_index = index % len(self._linked_skin._images)
         img = self._linked_skin.images[image_index]     # Acquire the original, unmodified image from linked_skin.
 
         if self.crop is not None:
@@ -707,38 +707,12 @@ class ScrollSkin(SkinPack):
         return (bar1, bar2) if vertical else (bar2, bar1)
 
 
-"""
-    Skinnable is a mixin that provides core Skin() functionality to guiABLE widgets. It requires a sibling class that
-    can make use of after_idletasks(), for its update() method.
-"""
-class Skinnable:
-    def __init__(self, skin:Skin|BarSkin|FilterSkin = None):
-        # Register widget as a user of skin, in case skin updates later and needs to issue a redraw of all users.
-        if skin is None:
-            try: self._skin = self._default_skin
-            except: self._skin = Skin()
-        else: self._skin = skin
-
-        self._skin.bindWidget(self)
-
-        self._scratch = None
-        self._children = []
-        self._geometry = (0, 0, 0, 0)
-        self.dirty = True
-
-    @property
-    def skin(self) -> CoreSkin: return self._skin
-
-    # Skin registration methods
-    def setSkin(self, skin:CoreSkin):
-        if self._skin:
-            self._skin.unbindWidget(self)
-        self._skin = skin
-        self._skin.bindWidget(self)
-
-    def dropSkin(self):
-        if self._skin: self._skin.unbindWidget(self)
-        self._skin = Skin()
+class Measurable:
+    def __init__(self, **kwargs):
+        w = kwargs['width'] if 'width' in kwargs else 0
+        h = kwargs['height'] if 'height' in kwargs else 0
+        self._geometry = (0, 0, w, h)
+        self._last_geometry = (-1, -1, -1, -1)
 
     # Geometry is tracked, providing much faster access than winfo_ methods can offer.
     @property
@@ -756,11 +730,61 @@ class Skinnable:
     @property
     def height(self): return self._geometry[3]
 
+    def place_configure(self, **kwargs):
+        x = kwargs['x'] if 'x' in kwargs else self.x
+        y = kwargs['y'] if 'y' in kwargs else self.y
+        w = kwargs['width'] if 'width' in kwargs else self.width
+        h = kwargs['height'] if 'height' in kwargs else self.height
+
+        self._geometry = (x, y, w, h)
+        super().place_configure(**kwargs)
+
+    # _refresh is meant to run on any <Configure> binded event.
+    def refresh(self, event=None): self._refresh(event)
+    def _refresh(self, event=None):
+        self._geometry = getGeometry(self)
+
+        if self._last_geometry != self._geometry: self._afterGeometryChanges()
+        self._last_geometry = self._geometry
+
+    def _afterGeometryChanges(self): pass
+
+
+"""
+    Skinnable is a mixin that provides core Skin() functionality to guiABLE widgets. It requires a sibling class that
+    can make use of after_idletasks(), for its update() method.
+"""
+class Skinnable(Measurable):
+    def __init__(self, skin:Skin|BarSkin|FilterSkin = None, **kwargs):
+        # Register widget as a user of skin, in case skin updates later and needs to issue a redraw of all users.
+        if skin is None:
+            try: self._skin = self._default_skin
+            except: self._skin = Skin()
+        else: self._skin = skin
+
+        self._skin.bindWidget(self)
+
+        super().__init__(**kwargs)
+        self._children = []
+        self._scratch = tk.PhotoImage(width=self.width, height=self.height)
+        self.dirty = True
+
+    @property
+    def skin(self) -> CoreSkin: return self._skin
+
+    # Skin registration methods
+    def setSkin(self, skin:CoreSkin):
+        if self._skin:
+            self._skin.unbindWidget(self)
+        self._skin = skin
+        self._skin.bindWidget(self)
+
+    def dropSkin(self):
+        if self._skin: self._skin.unbindWidget(self)
+        self._skin = Skin()
+
     # Persistent PhotoImage provides an INSTANT redraw canvas in compositing.
     def scratchImage(self): return self._scratch
-
-    # Public callable update event that waits until idletasks are complete. (scheduled changes have been applied)
-    def refresh(self, event=None): self._refresh(event)
 
     # Parents that host child widgets track their children and provide a list of those children's z-order.
     def getChildren(self): return self._children
@@ -788,19 +812,19 @@ class Skinnable:
 
     # _refresh runs on instantiation, and when any tracked change takes place thereafter.
     def _refresh(self, event=None):
-        last_geometry = self._geometry
-        self._geometry = getGeometry(self)
-
-        if last_geometry != self._geometry:
-            if last_geometry[2:] != self._geometry[2:]:
-                self._scratch = tk.PhotoImage(width=self._geometry[2], height=self._geometry[3])
-            self.redraw()
-            # If the parent changes, the children must refresh.
-            for child in self._children: child.refresh()
-
+        super()._refresh(event)
         # If skin provides no image, generate a Skin, utilizing the FilterSkin override for skins that useBgColors().
         if not self._skin.hasImages():
             self._skin._paths, self._skin._images, self._skin._resolutions = [], [], []
             self._skin._expand(1)       # Sneaking in via private methods to preserve _use_bg_colors.
             self._skin._saveImage(tk.PhotoImage(width=self._geometry[2], height=self._geometry[3]), 0, "no image")
             self._skin.updateRecipients()
+
+    def _afterGeometryChanges(self):
+        if self._last_geometry[2:] != self._geometry[2:]:
+            self._scratch = tk.PhotoImage(width=self._geometry[2], height=self._geometry[3])
+        self.redraw()
+        # If the parent changes, the children must refresh.
+        for child in self._children: child.refresh()
+
+

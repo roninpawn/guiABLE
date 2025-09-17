@@ -231,12 +231,16 @@ to abstract away the underlying duct-tape solution required to make tk.Canvas fu
 """
 class Backgroundable(Skinnable, Canvasable):
     def __init__(self, parent, width:int, height:int, skin:SingleSkin|FilterSkin = None, **kwargs):
-        Skinnable.__init__(self, skin if skin else SingleSkin())
+        Skinnable.__init__(self, skin if skin else SingleSkin(), width=width, height=height)
         Canvasable.__init__(self, parent, bg=self._skin.bgColor(), **kwargs)
+        self.bind("<Configure>", self._refresh)
 
         self._parent = parent
-        self.bind("<Configure>", self.refresh)
+        self._geometry = (0, 0, width, height)      # Populate geometry early with known values.
         self.place_configure(width=width, height=height)
+
+        # Because _geometry matches what <Configure> will see as the new geometry, we redraw manually.
+        self.redraw()
 
     @classmethod
     def fromPath(cls, parent, width:int, height:int, image_path:str, **kwargs):
