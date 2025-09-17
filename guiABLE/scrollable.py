@@ -14,6 +14,7 @@ class Scrollable(Measurable, tk.Frame):
 
         # ==OPTIONS==
         self.smooth_rate, self.page_scale, self.line_size = 17, [0.95, 0.9], [16, 16]
+        self.dominant_axis = 1
 
         self._page_size = [None, None]
         self._scrollwheel_axis, self._scrollwheel_percent, self._scrollwheel_duration = 1, 1.0, 51
@@ -90,9 +91,9 @@ class Scrollable(Measurable, tk.Frame):
 
     def hide(self, bar):
         bar_geo = list(bar.geometry)
-        area_geo = (0, 0, *self.size)
 
-        if rectsOverlap(area_geo, bar_geo):
+        # If bar is visible... (needs hidden)
+        if rectsOverlap((0, 0, *self.size), bar_geo):
             o, o1 = bar.orientation
 
             # Move the scrollbar just outside the drawable area.
@@ -100,18 +101,21 @@ class Scrollable(Measurable, tk.Frame):
             bar_geo[o1] = self.size[o1]
             self._bars[o].place_configure(x=bar_geo[0], y=bar_geo[1])
 
-            # Expand parent's scroll frame to occupy the new space.
-            frame_geo = list(self._frame.geometry)
-            frame_geo[o1+2] = bar_geo[o1]
-            self._frame.place_configure(width=frame_geo[2], height=frame_geo[3])
+            # Expand parent's scroll frame to occupy the new empty space.
+            frame_size = list(self._frame.size)
+            frame_size[o1] = bar_geo[o1]
+            self._frame.place_configure(width=frame_size[0], height=frame_size[1])
+
+            # Resize the non-dominant bar depending on presence of dominant bar.
+            self._applyDominance()
 
     def show(self, bar):
         bar_geo = list(bar.geometry)
         area_geo = (0, 0, *self.size)
 
+        # If bar is hidden... (needs shown)
         if not rectsOverlap(area_geo, bar_geo):
             o, o1 = bar.orientation
-            frame_geo = list(self._frame.geometry)
             o3 = o1+2
 
             # Move scrollbar into position.
@@ -119,15 +123,28 @@ class Scrollable(Measurable, tk.Frame):
             bar_geo[o1] = area_geo[o3] - bar_geo[o3]
             self._bars[o].place_configure(x=bar_geo[0], y=bar_geo[1])
 
-            # Redraw all children
-            self._h_bar.redraw()
-            self._v_bar.redraw()
+            # Contract scroll frame to not overlap with the bar.
+            frame_size = list(self._frame.size)
+            frame_size[o1] = bar_geo[o1]
+            self.frame.place_configure(width=frame_size[0], height=frame_size[1])
 
-            # Contract scroll frame.
-            frame_geo[o3] = bar_geo[o1]
-            self.frame.place_configure(width=frame_geo[2], height=frame_geo[3])
+            # Resize the non-dominant bar depending on presence of dominant bar.
+            self._applyDominance()
 
-            # Resize horizontal bar depending on presence of vertical.
+    def _applyDominance(self):
+        h_bar, v_bar = self._bars
+        h_visible = rectsOverlap((0,0,*self.size), h_bar.geometry)
+        v_visible = rectsOverlap((0,0,*self.size), v_bar.geometry)
+
+        if h_visible and v_visible:
+            if self.dominant_axis == 0:     # horizontal dominates
+                v_bar.resize(self.size[1] - h_bar.geometry[3])
+            else:                           # vertical dominates
+                h_bar.resize(self.size[0] - v_bar.geometry[2])
+        elif h_visible:
+            h_bar.resize(self.size[0])
+        elif v_visible:
+            v_bar.resize(self.size[1])
 
     def plateResized(self, size_per:tuple[int,int], location_per:tuple[int, int]):
         self._page_size = [None, None]
@@ -346,28 +363,56 @@ class ScrollBar(Backgroundable):
                 self.button2.init_delay = delay + extra_init_delay
             self._line_steps = None
 
+    def resize(self, length:int):
+        o = self.vertical
+        button_area = 0
+
+        # Calculate button area for trough displacement
+        if self.button1 is not None: button_area += self.button1.size[o]
+        if self.button2 is not None: button_area += self.button2.size[o]
+        length = max(length, 3 + button_area)
+
+        # Expand the Scrollbar itself
+        bar_size = list(self.size)
+        bar_size[o] = length
+        self.place_configure(width=bar_size[0], height=bar_size[1])
+
+        tl = length - button_area
+        trough_geo = list(self._trough.geometry)
+        o2 = o+2
+
+        # Resize the trough
+        if tl != trough_geo[o2]:
+            self._trough.resize(tl)
+
+            # Move button2
+            if self.button2 is not None:
+                b2_loc = [0,0]
+                b2_loc[o] = trough_geo[o] + tl
+                self.button2.place_configure(x=b2_loc[0], y=b2_loc[1])
+
     def resetWheel(self): self._wheel_steps = None
 
     @property
     def vertical(self): return bool(self._orientation[0])
 
     def handleDragged(self):
-        p = self._handle.geometry[self._orientation[0]]
-        s = self._trough.scroll_range[self._orientation[0]]
+        p = self._handle.geometry[self.vertical]
+        s = self._trough.scroll_range[self.vertical]
 
         per = [None, None]
-        per[self._orientation[0]] = p/-s if s else 0
+        per[self.vertical] = p/-s if s else 0
         self.parent.scrollByDrag(*per)
 
     def moveHandle(self, per:float):
-        o = self._orientation[0]
+        o = self.vertical
         move = list(self._handle.geometry[:2])
         move[o] = int(per * -self._trough.scroll_range[o])
 
         self._handle.move(*move)
 
     def troughClicked(self, click_x:int, click_y:int):
-        o = self._orientation[0]
+        o = self.vertical
         click = (click_x, click_y)
         direction = 1 if click[o] < self._handle.middle[o] else -1
         page_size = self.parent.pageSize(o)
@@ -398,7 +443,7 @@ class ScrollBar(Backgroundable):
             self._beginAnimating(self.line_steps, direction)
         else:
             move = [0, 0]
-            move[self._orientation[0]] = self.parent.line_size[self._orientation[0]] * direction
+            move[self.vertical] = self.parent.line_size[self.vertical] * direction
             self.parent.scrollByClick(*move)
 
     def mouseWheeled(self, delta:int, duration:int):
@@ -408,18 +453,18 @@ class ScrollBar(Backgroundable):
             self._beginAnimating(self._wheel_steps, 1 if delta > 0 else -1)
         else:
             move = [0, 0]
-            move[self._orientation[0]] = delta
+            move[self.vertical] = delta
             self.parent.scrollByClick(*move)
 
     @property
     def page_steps(self):
         if self._page_steps is None:
-            self._page_steps = self._conformToAnimation(self.parent.pageSize(self._orientation[0]), self._trough.delay)
+            self._page_steps = self._conformToAnimation(self.parent.pageSize(self.vertical), self._trough.delay)
         return self._page_steps
     @property
     def line_steps(self):
         if self._line_steps is None:
-           self._line_steps = self._conformToAnimation(self.parent.line_size[self._orientation[0]], self.button1.delay)
+           self._line_steps = self._conformToAnimation(self.parent.line_size[self.vertical], self.button1.delay)
         return self._line_steps
 
     def recalcHandle(self, size_per:float, location_per:float):
@@ -445,7 +490,7 @@ class ScrollBar(Backgroundable):
     def _animationStep(self):
         if self._anim_keyframe < len(self._anim_steps):
             move = [0, 0]
-            move[self._orientation[0]] = self._anim_steps[self._anim_keyframe] * self._anim_direction
+            move[self.vertical] = self._anim_steps[self._anim_keyframe] * self._anim_direction
             self.parent.scrollByClick(*move)        # Request a scroll event.
 
             self._anim_keyframe += 1                # Keep animating until end of animation steps.
@@ -564,6 +609,12 @@ class ScrollTrough(ScrollRepeatable):
             self._scroll_range = (  min(-self.geometry[2] + self._handle.geometry[2], 0),
                                     min(-self.geometry[3] + self._handle.geometry[3], 0) )
         return self._scroll_range
+
+    def resize(self, length:int):
+        size = list(self.size)
+        size[self._vertical] = length
+        self.place_configure(width=size[0], height=size[1])
+        self._handle.setBounds(0, 0, *size)
 
     def handleDragged(self): self.parent.handleDragged()
 
