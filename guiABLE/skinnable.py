@@ -736,7 +736,9 @@ class Measurable:
         w = kwargs['width'] if 'width' in kwargs else self.width
         h = kwargs['height'] if 'height' in kwargs else self.height
 
+        # 'skip=True' attempts to skip _afterGeometryChanges() by matching _last_geometry to the new geometry.
         self._geometry = (x, y, w, h)
+        if 'skip' in kwargs and kwargs.pop('skip') == True: self._last_geometry = self._geometry
         super().place_configure(**kwargs)
 
     # _refresh is meant to run on any <Configure> binded event.

@@ -128,19 +128,12 @@ class Baseable(Siblingable, tk.Canvas):
     def setState(self, state_index:int = 0):
         start = time()
 
-        # If widget lacks geometry (has not fully spawned) wait until it has.
-        x, y, w, h = self.geometry
-        if w < 1 and h < 1:
-            self.after_idle(self.redraw)
-            return
-
         self._img_state = state_index
 
         # Handle opaqueness vs transparency
         if self._skin.usesBgColors():       # Opaque skips siblings beneath it.
             siblings = [self]
-            #bg_color = self._skin.bgColor(self._img_state)
-        else:       # Transparent inherits parent's bg color if parent isn't using an image.
+        else:
             siblings = list(self._siblings_beneath)
             siblings.append(self)
 
@@ -193,7 +186,7 @@ class Baseable(Siblingable, tk.Canvas):
     # The ZImage() is a persistent render of what the widget looks like on its own. Only updated if something changed.
     def zImage(self) -> tk.PhotoImage:
         if self._z_state != self._img_state or self.dirty:
-            _, _, w, h = self.geometry
+            w, h = self.size
             self._z_img = tk.PhotoImage(width=w, height=h)
             fastComposite(self._z_img, w, h, self._skin.image(self._img_state), 0, 0,
                           *self._skin.resolution(self._img_state))
@@ -240,7 +233,7 @@ class Hoverable(Baseable):
         super().enable()
         self.bind("<Enter>", self.mouseIn)
         self.bind("<Leave>", self.mouseOut)
-        self.redraw()
+        #self.redraw()
 
     def disable(self):
         super().disable()
@@ -405,7 +398,6 @@ class Repeatable(Holdable):
 class LoneDraggable(Holdable):
     def __init__(self, parent, function=lambda:None, skin=None, **kwargs):
         super().__init__(parent, function, skin, **kwargs)
-        self._last_geometry = (None, None, None, None)
         self._bounds = None
 
         self._x_origin, self._y_origin = 0, 0
@@ -440,8 +432,6 @@ class LoneDraggable(Holdable):
         self._geometry = (x, y, w, h)
         if self._last_geometry != self._geometry:
             self.place_configure(x=x, y=y)
-            self._last_geometry = self._geometry
-            self.redraw()
             self.function()
 
     def _refresh(self, event=None):

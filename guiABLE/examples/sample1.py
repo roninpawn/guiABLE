@@ -71,8 +71,8 @@ def test_gui():
     scroll_area = Scrollable(bg, 450, 280, scroll_skin, Skin.fromImages(bg_image))
     scroll_area.place(x=20, y=100)
 
-    scroll_area.dominant_axis = 0
-    scroll_area.showBars(1, 1)
+    #scroll_area.dominant_axis = 0
+    #scroll_area.showBars(1, 1)
 
     # Create Togglables for changing the scrollbar settings.
     test_toggle3 = Toggleable(bg, scroll_area.getScrollTypes()[0], skin=toggle_skin, width=64, height=64)
@@ -89,8 +89,8 @@ def test_gui():
     nude_drag = Draggable(bg, skin=nude_skin, width=50, height=50)
     nude_drag.place(x=0, y=0)
 
-    for i in range(17):
-        #label = Hoverable(scroll_area.scroll_plate, skin=btn_skin, height=24)
+    for i in range(50):
+        #label = Hoverable(scroll_area.frame, skin=btn_skin, width=24, height=24)
         label = Labelable(scroll_area.frame, function=lambda: print("Label clicked!"), skin=btn_skin,
                           text=f"Item {i + 1}", text_pos=(10, 5), font=("Arial", 12, "bold"), color="white",
                           width=100, height=24)
@@ -99,7 +99,7 @@ def test_gui():
         #label.pack(padx=10, pady=10, fill="both")
 
     test_drag2 = Draggable(scroll_area.frame, skin=drag_skin, width=64, height=64)
-    #test_drag2.place(x=190, y=285)
+    test_drag2.place(x=190, y=285)
 
     # Prove lower/lift functionality    : Buggy right now.
     #click_btn.lift(test_toggle1)
@@ -118,14 +118,14 @@ def test_gui():
     app.fps = 0
     def tick():
         app.fps += 1
-        app.after(8, tick)
-    tick()
+        app.after(15, tick)
+    #tick()
 
     def update_fps():
         fps_label.configure(text=app.fps)
         app.fps = 0
         app.after(1000, update_fps)
-    update_fps()
+    #update_fps()
 
     app.mainloop()
 

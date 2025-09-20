@@ -1,3 +1,4 @@
+import time
 import tkinter as tk
 
 from .utilities import getLocalMouse, rectsOverlap, pointIsInRect, getGeometry
@@ -12,12 +13,10 @@ class Scrollable(Measurable, tk.Frame):
         tk.Frame.__init__(self, parent, width=width, height=height, **kwargs)
         self.bind("<Configure>", self._refresh)
 
-        # ==OPTIONS==
-        self.smooth_rate, self.page_scale, self.line_size = 17, [0.95, 0.9], [16, 16]
+        """ ==OPTIONS==
+            smooth_rate is subject to 'magic numbers' due to OS throttling. 15 is excellent on Windows. """
+        self.smooth_rate, self.page_scale, self.line_size = 15, [0.95, 0.9], [16, 16]
         self.dominant_axis = 1
-
-        self._page_size = [None, None]
-        self._scrollwheel_axis, self._scrollwheel_percent, self._scrollwheel_duration = 1, 1.0, 51
 
         self._scroll_skin = scroll_skin
         v_breadth, h_breadth = self._scroll_skin.vertical.breadth, self._scroll_skin.horizontal.breadth
@@ -37,9 +36,12 @@ class Scrollable(Measurable, tk.Frame):
 
         self._bars = (self._h_bar, self._v_bar)
 
+        self._page_size = [None, None]
+        self._scrollwheel_axis, self._scrollwheel_percent, self._scrollwheel_duration = 1, 1.0, 68
+
         # Scroll Defaults (based on 17ms (~60fps) animation rates.
-        self.setPageScroll(153, 290)
-        self.setLineScroll(51, 0)
+        self.setPageScroll(150, 300)
+        self.setLineScroll(100, 0)
         self.setWheelScroll(68, 1.0, True)
 
     @property
@@ -208,7 +210,7 @@ class Scrollable(Measurable, tk.Frame):
         if delta_y or delta_x: self._movePlate(delta_x, delta_y)
 
     def _movePlate(self, delta_x:int, delta_y:int):
-            self.update_idletasks()
+            #self.update_idletasks()
             px, py, pw, ph = self._frame.plate_geometry
             fw, fh = self._frame.geometry[2:]
 
@@ -228,14 +230,14 @@ class Scrollable(Measurable, tk.Frame):
 
                 # If the child will be visible after the requested scroll...
                 if rectsOverlap((new_x, new_y, cw, ch), (0, 0, fw, fh)):
-                    child._geometry = new_x, new_y, cw, ch      # Instant update avoids waiting for _refresh.
                     child.place_configure(x=new_x, y=new_y)
-                    child.redraw()
 
                 # If the child is exiting the screen.
                 elif live:
                     child.scroll_xy = -px + new_x, -py + new_y
-                    child.place_configure(x=0, y=-ch)
+                    child._geometry = (0, -ch, cw, ch)
+                    child.place_configure(x=0, y=-ch, skip=True)
+
 
 
 class ScrollFrame(Backgroundable):
@@ -291,8 +293,8 @@ class ScrollFrame(Backgroundable):
         self._scroll_range = None
 
         self.parent._page_size = [None, None]
-        self.parent.v_bar.refresh()
-        self.parent.h_bar.refresh()
+        #self.parent.v_bar.refresh()
+        #self.parent.h_bar.refresh()
 
 
 class ScrollBar(Backgroundable):
@@ -349,18 +351,22 @@ class ScrollBar(Backgroundable):
         self._enabled = False
 
     def setPageScrollDelay(self, delay:int = None, extra_init_delay:int = None):
-        if delay: self._trough.delay = delay
-        if extra_init_delay: self._trough.init_delay = delay + extra_init_delay
+        if delay:
+            self._trough.delay = round(delay / self.parent.smooth_rate) * self.parent.smooth_rate
+        if extra_init_delay:
+            self._trough.init_delay = self._trough.delay + round(extra_init_delay / self.parent.smooth_rate) * self.parent.smooth_rate
         self._page_steps = None
 
     def setLineScrollDelay(self, delay:int = None, extra_init_delay:int = None):
-        if self.button1 is not None and self.button2 is not None:
+        if self.button1 is not None or self.button2 is not None:
             if delay is not None:
-                self.button1.delay = delay
-                self.button2.delay = delay
+                delay = round(delay / self.parent.smooth_rate) * self.parent.smooth_rate
+                if self.button1 is not None: self.button1.delay = delay
+                if self.button2 is not None: self.button2.delay = delay
             if extra_init_delay is not None:
-                self.button1.init_delay = delay + extra_init_delay
-                self.button2.init_delay = delay + extra_init_delay
+                extra_init_delay = round(extra_init_delay / self.parent.smooth_rate) * self.parent.smooth_rate
+                if self.button1 is not None: self.button1.init_delay = self.button1.delay + extra_init_delay
+                if self.button2 is not None: self.button2.init_delay = self.button2.delay + extra_init_delay
             self._line_steps = None
 
     def resize(self, length:int):

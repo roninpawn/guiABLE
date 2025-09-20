@@ -170,9 +170,9 @@ class Windowable(tk.Tk):
     _heartbeat function uses Tk's .after() method to accomplish that. By simply calling itself once every 'n'
     milliseconds, Tk is awakened to process any events that have stacked up in the queue -- including Canvas operations.
 
-    A 2ms heartbeat is the fastest heartbeat that still throttles to zero CPU use, on any reasonably modern platform.
+    A 2ms heartbeat is the fastest heartbeat that still throttles to zero CPU use, on modern platforms.
     """
-    def _heartbeat(self): self.after(8, self._heartbeat)
+    def _heartbeat(self): self.after(2, self._heartbeat)
 
     def _update_offsets(self):
         self._offset_w = (self.winfo_width() - self.taskbar_handle.winfo_width()) // 2
@@ -236,11 +236,7 @@ class Backgroundable(Skinnable, Canvasable):
         self.bind("<Configure>", self._refresh)
 
         self._parent = parent
-        self._geometry = (0, 0, width, height)      # Populate geometry early with known values.
         self.place_configure(width=width, height=height)
-
-        # Because _geometry matches what <Configure> will see as the new geometry, we redraw manually.
-        self.redraw()
 
     @classmethod
     def fromPath(cls, parent, width:int, height:int, image_path:str, **kwargs):
