@@ -37,10 +37,10 @@ class Scrollable(Measurable, tk.Frame):
         self._bars = (self._h_bar, self._v_bar)
 
         self._page_size = [None, None]
-        self._scrollwheel_axis, self._scrollwheel_percent, self._scrollwheel_duration = 1, 1.0, 68
+        self._scrollwheel_axis, self._scrollwheel_percent, self._scrollwheel_duration = 1, 0.4, 150
 
         # Scroll Defaults (based on 17ms (~60fps) animation rates.
-        self.setPageScroll(150, 300)
+        self.setPageScroll(180, 300)
         self.setLineScroll(150, 0)
         self.setWheelScroll(150, .4, True)
 
@@ -54,8 +54,6 @@ class Scrollable(Measurable, tk.Frame):
     def v_bar(self): return self._v_bar
     @property
     def h_bar(self): return self._h_bar
-    @property
-    def geometry(self): return self._geometry
 
     def getScrollTypes(self) -> tuple[bool, bool]: return self._h_bar.instant_scroll, self._v_bar.instant_scroll
     def setScrollType(self, instant:bool): self.setScrollTypes(instant, instant)
@@ -69,29 +67,15 @@ class Scrollable(Measurable, tk.Frame):
         if smooth_horizontal is not None: self._h_bar.smooth_scroll = smooth_horizontal
         if smooth_vertical is not None: self._v_bar.smooth_scroll = smooth_vertical
 
-    def setPageScroll(self, delay:int = None, extra_init_delay:int = None):
-        self._v_bar.setPageScrollDelay(delay, extra_init_delay)
-        self._h_bar.setPageScrollDelay(delay, extra_init_delay)
-    def setLineScroll(self, delay:int = None, extra_init_delay:int = None):
-        self._v_bar.setLineScrollDelay(delay, extra_init_delay)
-        self._h_bar.setLineScrollDelay(delay, extra_init_delay)
+    def setPageScroll(self, delay:int = None, init_delay:int = None):
+        self._v_bar.setPageScrollDelay(delay, init_delay)
+        self._h_bar.setPageScrollDelay(delay, init_delay)
+    def setLineScroll(self, delay:int = None, init_delay:int = None):
+        self._v_bar.setLineScrollDelay(delay, init_delay)
+        self._h_bar.setLineScrollDelay(delay, init_delay)
     def setWheelScroll(self, smooth_duration:int, scroll_amount:float = 1.0, vertical:bool = None):
         self._scrollwheel_duration, self._scrollwheel_percent = smooth_duration, scroll_amount
         if vertical is not None: self._scrollwheel_axis = vertical
-        self._v_bar.resetWheel()
-
-    # 0 = Hidden; 1 = Shown; 2 = Automatic (hidden if unneeded)
-    def showBars(self, h_bar:int = None, v_bar:int = None):
-        self.update_idletasks()
-        show = h_bar, v_bar
-        for i in range(2):
-            bar = self._bars[i]
-            if show[i] is not None: bar.mode = show[i]
-            if bar.mode == 2:
-                if bar.enabled: self.show(bar)
-                else:           self.hide(bar)
-            elif bar.mode == 1: self.show(bar)
-            elif bar.mode == 0: self.hide(bar)
 
     def hide(self, bar):
         bar_geo = list(bar.geometry)
@@ -153,19 +137,19 @@ class Scrollable(Measurable, tk.Frame):
     def plateResized(self, size_per:tuple[int,int], location_per:tuple[int, int]):
         self._page_size = [None, None]
 
-        # Hide/Show and Enable/Disable bars, as requested.
+        # Hide/Show and Enable/Disable bars, as requested. 0=hide; 1=show; 2=auto (show if needed)
         for i in range(2):
             bar = self._bars[i]
             if bar.mode == 0: self.hide(bar)
             elif bar.mode == 1:
+                self.show(bar)
                 if size_per[i] < 1: bar.enable()
                 else:               bar.disable()
             elif bar.mode == 2:
                 if size_per[i] < 1:
-                    self.show(bar)
-                    if not bar.enabled: bar.enable()
-                else:
-                    self.hide(bar)
+                        self.show(bar)
+                        bar.enable()
+                else:   self.hide(bar)
 
             bar.recalcHandle(size_per[i], location_per[i])
 
@@ -174,90 +158,79 @@ class Scrollable(Measurable, tk.Frame):
             self._page_size[axis] = int(self._frame.size[axis] * self.page_scale[axis])
         return self._page_size[axis]
 
+    def scrollByDelta(self, delta_x:int, delta_y:int, move_handles:bool = True):
+        self._movePlate(delta_x, delta_y, move_handles)
+
+    def scrollByDest(self, dest_x:int|None, dest_y:int|None, move_handles:bool = True):
+        if dest_x is not None or dest_y is not None:
+            # Convert to delta and clamp to scroll range.
+            px, py, = self._frame.plate_geometry[:2]
+            delta_x = dest_x - px if dest_x is not None else 0
+            delta_y = dest_y - py if dest_y is not None else 0
+
+            self._movePlate(delta_x, delta_y, move_handles)
+
+    def scrollByPercent(self, x_per: float | None, y_per: float | None, move_handles:bool = True):
+        if x_per is not None or y_per is not None:
+            px, py = self._frame.plate_geometry[:2]
+            rx, ry = self._frame.scroll_range
+
+            # Convert percentages to pixels and then to the delta of change between them.
+            x = int(x_per * rx) if x_per is not None else px
+            y = int(y_per * ry) if y_per is not None else py
+            delta_x, delta_y = x - px, y - py
+
+            self._movePlate(delta_x, delta_y, move_handles)
+
+    # If mouse is within the boundaries of the Scrollable when wheeled, pass event to ScrollBar for animating.
     def scrollByWheel(self, event):
         if getLocalMouse(self)[2]:
-            delta = int(event.delta * self._scrollwheel_percent)
-            if self._scrollwheel_axis:
-                self._v_bar.mouseWheeled(delta, self._scrollwheel_duration)
-            else: self._h_bar.mouseWheeled(delta, self._scrollwheel_duration)
+            delta = int(event.delta * self._scrollwheel_percent)        # Adjust rate of change.
+            self._bars[self._scrollwheel_axis].mouseWheeled(delta, self._scrollwheel_duration)
 
-    def scrollByClick(self, delta_x:int, delta_y:int):
+    def _movePlate(self, delta_x:int, delta_y:int, move_handles:bool = True):
         if delta_x or delta_y:
-            sw, sh = self._frame.scroll_range
-            px, py, = self._frame.plate_geometry[:2]
-
-            # Clamp the new plate position inside logical bounds
-            new_x = max(min(px + delta_x, 0), sw)
-            new_y = max(min(py + delta_y, 0), sh)
-
-            # Recalculate deltas from the clamped target
-            delta_x, delta_y = new_x - px, new_y - py
-
-            # Update plate location
-            self._movePlate(delta_x, delta_y)
-            px, py, = self._frame.plate_geometry[:2]
-
-            # Move handles
-            if sw: self.h_bar.moveHandle(px / sw)
-            if sh: self.v_bar.moveHandle(py / sh)
-
-    def scrollByDest(self, dest_x:int|None, dest_y:int|None):
-        if dest_x is not None or dest_y is not None:
-            sw, sh = self._frame.scroll_range
-            px, py, = self._frame.plate_geometry[:2]
-
-            # Convert to delta and clamp to scroll range.
-            delta_x = max(sw, min(0, dest_x)) - px if dest_x is not None else 0
-            delta_y = max(sh, min(0, dest_y)) - py if dest_y is not None else 0
-
-            # Update plate location
-            self._movePlate(delta_x, delta_y)
-            px, py, = self._frame.plate_geometry[:2]
-
-            # Move handles
-            if sw: self.h_bar.moveHandle(px / sw)
-            if sh: self.v_bar.moveHandle(py / sh)
-
-    def scrollByDrag(self, x_per:float|None, y_per:float|None):
-        px, py, pw, ph = self._frame.plate_geometry
-        rx, ry = self._frame.scroll_range
-
-        # Convert percentages to pixels and then to the delta of change between them.
-        x = int(x_per * rx) if x_per is not None else px
-        y = int(y_per * ry) if y_per is not None else py
-        delta_x, delta_y = x - px, y - py
-
-        if delta_y or delta_x: self._movePlate(delta_x, delta_y)
-
-    def _movePlate(self, delta_x:int, delta_y:int):
-            #self.update_idletasks()
             px, py, pw, ph = self._frame.plate_geometry
-            fw, fh = self._frame.geometry[2:]
+            sw, sh = self._frame.scroll_range
 
-            # Move "plate" (imaginary)
-            px += delta_x
-            py += delta_y
-            self._frame.plate_geometry = (px, py, pw, ph)
+            # Conform deltas to land within scroll_range
+            if delta_x:
+                if px+delta_x < sw:     delta_x = sw-px
+                elif px+delta_x > 0:    delta_x = -px
+            if delta_y:
+                if py+delta_y < sh:     delta_y = sh-py
+                elif py+delta_y > 0:    delta_y = -py
 
-            # Move children
-            for child in self._frame.getChildren():
-                cx, cy, cw, ch = child.geometry
-                new_x, new_y = cx+delta_x, cy+delta_y
+            # If there's a non-zero delta after conforming...
+            if delta_x or delta_y:
+                # Move "plate" (imaginary)
+                px, py = px + delta_x, py + delta_y
+                self._frame.plate_geometry = (px, py, pw, ph)
 
-                # Is the child visible now -- before we apply the movement?
-                live = rectsOverlap((cx, cy, cw, ch), (0, 0, fw, fh))
-                if not live: new_x, new_y = px+child.scroll_xy[0], py+child.scroll_xy[1]
+                # Move children
+                fw, fh = self._frame.geometry[2:]
+                for child in self._frame.getChildren():
+                    cx, cy, cw, ch = child.geometry
+                    new_x, new_y = cx+delta_x, cy+delta_y
 
-                # If the child will be visible after the requested scroll...
-                if rectsOverlap((new_x, new_y, cw, ch), (0, 0, fw, fh)):
-                    child.place_configure(x=new_x, y=new_y)
+                    # Is the child visible now -- before we apply the movement?
+                    live = rectsOverlap((cx, cy, cw, ch), (0, 0, fw, fh))
+                    if not live: new_x, new_y = px+child.scroll_xy[0], py+child.scroll_xy[1]
 
-                # If the child is exiting the screen.
-                elif live:
-                    child.scroll_xy = -px + new_x, -py + new_y
-                    child._geometry = (0, -ch, cw, ch)
-                    child.place_configure(x=0, y=-ch, skip=True)
+                    # If the child will be visible after the requested scroll...
+                    if rectsOverlap((new_x, new_y, cw, ch), (0, 0, fw, fh)):
+                        child.place_configure(x=new_x, y=new_y)
 
+                    # If the child is exiting the screen.
+                    elif live:
+                        child.scroll_xy = -px + new_x, -py + new_y
+                        child._geometry = (0, -ch, cw, ch)
+                        child.place_configure(x=0, y=-ch, skip=True)
+
+                # Move scroll handles to match new plate position, if requested.
+                if move_handles:
+                    if sw: self.h_bar.moveHandle(px / sw)
+                    if sh: self.v_bar.moveHandle(py / sh)
 
 
 class ScrollFrame(Backgroundable):
@@ -342,7 +315,6 @@ class ScrollBar(Backgroundable):
 
         # Scroll options
         self.smooth_scroll, self.instant_scroll = True, False
-        self.drag_delay = 150
         self._animate = [0.0, 0, 1.0, 0, 0.0, None]     # start, origin, progress, destination, end, directionality
 
         # Consolidate whiny IDE complaints about undefined variables here, instead of throughout the class.
@@ -350,6 +322,7 @@ class ScrollBar(Backgroundable):
 
         # State helpers.
         self.mode, self._enabled = 2, True
+        self._scheduled_drag, self._next_drag = None, 0.0
 
     @property
     def directions(self): return self._directions
@@ -359,31 +332,30 @@ class ScrollBar(Backgroundable):
     @property
     def enabled(self): return self._enabled
     def enable(self):
-        self._trough.enable()
-        if self.button1: self.button1.enable()
-        if self.button2: self.button2.enable()
-        self._enabled = True
+        if not self._enabled:
+            self._trough.enable()
+            if self.button1: self.button1.enable()
+            if self.button2: self.button2.enable()
+            self._enabled = True
     def disable(self):
-        self._trough.disable()
-        if self.button1: self.button1.disable()
-        if self.button2: self.button2.disable()
-        self._enabled = False
+        if self._enabled:
+            self._trough.disable()
+            if self.button1: self.button1.disable()
+            if self.button2: self.button2.disable()
+            self._enabled = False
 
-    def setPageScrollDelay(self, delay:int = None, extra_init_delay:int = None):
-        if delay: self._trough.delay = delay
-        if extra_init_delay: self._trough.init_delay = self._trough.delay + extra_init_delay
+    def setPageScrollDelay(self, delay:int = None, init_delay:int = None):
+        if delay is not None: self._trough.delay = delay
+        if init_delay is not None: self._trough.init_delay = self._trough.delay + init_delay
 
-    def setLineScrollDelay(self, delay:int = None, extra_init_delay:int = None):
+    def setLineScrollDelay(self, delay:int = None, init_delay:int = None):
         if self.button1 is not None or self.button2 is not None:
             if delay is not None:
-                delay = round(delay / self.parent.smooth_rate) * self.parent.smooth_rate
                 if self.button1 is not None: self.button1.delay = delay
                 if self.button2 is not None: self.button2.delay = delay
-            if extra_init_delay is not None:
-                extra_init_delay = round(extra_init_delay / self.parent.smooth_rate) * self.parent.smooth_rate
-                if self.button1 is not None: self.button1.init_delay = self.button1.delay + extra_init_delay
-                if self.button2 is not None: self.button2.init_delay = self.button2.delay + extra_init_delay
-            self._line_steps = None
+            if init_delay is not None:
+                if self.button1 is not None: self.button1.init_delay = self.button1.delay + init_delay
+                if self.button2 is not None: self.button2.init_delay = self.button2.delay + init_delay
 
     def resize(self, length:int):
         o = self.vertical
@@ -413,8 +385,6 @@ class ScrollBar(Backgroundable):
                 b2_loc[o] = trough_geo[o] + tl
                 self.button2.place_configure(x=b2_loc[0], y=b2_loc[1])
 
-    def resetWheel(self): self._wheel_steps = None
-
     @property
     def vertical(self): return bool(self._orientation[0])
 
@@ -424,7 +394,20 @@ class ScrollBar(Backgroundable):
 
         per = [None, None]
         per[self.vertical] = p/-s if s else 0
-        self.parent.scrollByDrag(*per)
+
+        # Restrict drawing handle movement to the parent's smooth rate. (or less)
+        now = time()
+        remains = round((self._next_drag - now) * 1000)
+        if remains > 0:
+            if self._scheduled_drag is not None: self.after_cancel(self._scheduled_drag)
+            self._scheduled_drag = self.after(remains, self._call_drag, per)
+        else:
+            self._call_drag(per, now)
+
+    def _call_drag(self, per:list, now:float = None) -> None:
+        self.parent.scrollByPercent(*per)
+        self._scheduled_drag = None
+        self._next_drag = (now or time()) + (self.parent.smooth_rate * 2 / 1000)
 
     def moveHandle(self, per:float):
         o = self.vertical
@@ -454,7 +437,7 @@ class ScrollBar(Backgroundable):
         else:
             move = [0, 0]
             move[o] = destination
-            self.parent.scrollByClick(*move)
+            self.parent.scrollByDelta(*move)
 
     def buttonClicked(self, direction:int):
         if self.smooth_scroll:
@@ -462,7 +445,7 @@ class ScrollBar(Backgroundable):
         else:
             move = [0, 0]
             move[self.vertical] = self.parent.line_size[self.vertical] * direction
-            self.parent.scrollByClick(*move)
+            self.parent.scrollByDelta(*move)
 
     def mouseWheeled(self, delta:int, duration:int):
         if self.smooth_scroll:
@@ -470,7 +453,7 @@ class ScrollBar(Backgroundable):
         else:
             move = [0, 0]
             move[self.vertical] = delta
-            self.parent.scrollByClick(*move)
+            self.parent.scrollByDelta(*move)
 
     def recalcHandle(self, size_per:float, location_per:float):
         o, o1 = self._orientation
@@ -541,16 +524,12 @@ class ScrollBar(Backgroundable):
         tw, th = tsize
 
         # Make and place buttons
-        self.button1 = ScrollRepeatable(self, lambda: self.buttonClicked(1), bskin1, width=b1wh[0], height=b1wh[1])
-        self.button2 = ScrollRepeatable(self, lambda: self.buttonClicked(-1), bskin2, width=b2wh[0], height=b2wh[1])
+        self.button1 = Repeatable(self, lambda: self.buttonClicked(1), bskin1, width=b1wh[0], height=b1wh[1])
+        self.button2 = Repeatable(self, lambda: self.buttonClicked(-1), bskin2, width=b2wh[0], height=b2wh[1])
         self.button1.place(x=0, y=0)
         self.button2.place(x=b2x, y=b2y)
 
         return tx, ty, tw, th
-
-    def _refresh(self, event=None):
-        super()._refresh(event)
-        self._line_steps, self._page_steps, self._wheel_steps = None, None, None
 
 
 class VerticalScrollbar(ScrollBar):
@@ -569,20 +548,7 @@ class HorizontalScrollbar(ScrollBar):
         super().__init__(parent, width, height, bar_skin, handle_skin, button_pack, breadth, **kwargs)
 
 
-class ScrollRepeatable(Repeatable):
-    def __init__(self, parent:ScrollBar, function = lambda: None, skin:Skin = None, delay:int=80,
-                 extra_init_delay:int=370, **kwargs):
-        self._init_delay = delay + extra_init_delay
-        super().__init__(parent, function, skin, delay, delay+extra_init_delay, **kwargs)
-
-    # Ensure init_delay is always equal to or greater than the pulsing delay. Otherwise, scroll animations could desync.
-    @property
-    def init_delay(self): return self._init_delay
-    @init_delay.setter
-    def init_delay(self, delay:int): self._init_delay = self.delay + delay
-
-
-class ScrollTrough(ScrollRepeatable):
+class ScrollTrough(Repeatable):
     def __init__(self, parent:ScrollBar, skin:BarSkin = None, **kwargs):
         self._vertical = parent.vertical
         self._default_skin = BarSkin()
@@ -630,10 +596,6 @@ class ScrollTrough(ScrollRepeatable):
     def _refresh(self, event=None):
         super()._refresh(event)
         self._scroll_range = None
-
-    def _getHandlePercents(self):
-        x, y, w, h = self._handle.geometry
-        return (None, y / (self._geometry[3]-h)) if self._vertical else (x / (self.geometry[2] - w), None)
 
     def _keepClicking(self):
         if self._clicking:
