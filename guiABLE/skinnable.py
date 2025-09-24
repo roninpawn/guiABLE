@@ -707,12 +707,18 @@ class ScrollSkin(SkinPack):
         return (bar1, bar2) if vertical else (bar2, bar1)
 
 
+"""
+    Measureable captures geometry events and provides convenient points of access for that info. By tracking as much as
+    possible, internally, slow winfo_() calls are avoided, and values are pollable without needing to update idletasks. 
+"""
 class Measurable:
-    def __init__(self, **kwargs):
+    def __init__(self, *args, **kwargs):
         w = kwargs['width'] if 'width' in kwargs else 0
         h = kwargs['height'] if 'height' in kwargs else 0
         self._geometry = (0, 0, w, h)
         self._last_geometry = (-1, -1, -1, -1)
+
+        super().__init__(*args, **kwargs)
 
     # Geometry is tracked, providing much faster access than winfo_ methods can offer.
     @property
@@ -749,7 +755,7 @@ class Measurable:
         if self._last_geometry != self._geometry: self._afterGeometryChanges()
         self._last_geometry = self._geometry
 
-    def _afterGeometryChanges(self): pass
+    def _afterGeometryChanges(self): pass       # Override this function in child classes.
 
 
 """
@@ -757,16 +763,12 @@ class Measurable:
     can make use of after_idletasks(), for its update() method.
 """
 class Skinnable(Measurable):
-    def __init__(self, skin:Skin|BarSkin|FilterSkin = None, **kwargs):
+    def __init__(self, *args, skin:Skin|BarSkin|FilterSkin = None, **kwargs):
         # Register widget as a user of skin, in case skin updates later and needs to issue a redraw of all users.
-        if skin is None:
-            try: self._skin = self._default_skin
-            except: self._skin = Skin()
-        else: self._skin = skin
-
+        self._skin = skin or getattr(self, "_default_skin", Skin())
         self._skin.bindWidget(self)
 
-        super().__init__(**kwargs)
+        super().__init__(*args, **kwargs)
         self._children = []
         self._scratch = tk.PhotoImage(width=self.width, height=self.height)
         self.dirty = True

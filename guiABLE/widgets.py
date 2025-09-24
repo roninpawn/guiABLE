@@ -5,12 +5,11 @@ from typing import Optional, Callable
 from guiABLE.skinnable import Skin, Skinnable, FilterSkin, BarSkin
 from guiABLE.utilities import limitMove, rectsOverlap, rectUnion, fastComposite, fastCrop, getGeometry, pointIsInRect
 
-"""
-Siblingable adds sibling awareness & overlap tracking to Skinnable. (MRO sucks, true inheritance is less brittle.)  
-"""
-class Siblingable(Skinnable):
-    def __init__(self, skin:Skin|FilterSkin|BarSkin, **kwargs):
-        super().__init__(skin, **kwargs)
+
+""" Siblingable is a mixin that provides sibling awareness & overlap tracking.  """
+class Siblingable:
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
         self._siblings_atop, self._siblings_beneath = list(), list()     # Overlapping siblings, by below/above z-index.
 
     # Overlapping siblings track each other for the sake of compositing (faking transparency) during redraw.
@@ -76,16 +75,14 @@ class Siblingable(Skinnable):
     Baseable is the foundation of all guiABLE's widgets. It defines how to render images to the surface of the widget,
     and establishes the concept of state-tracking.
 """
-class Baseable(Siblingable, tk.Canvas):
-    def __init__(self, parent, skin=None, **kwargs):
+class Baseable(Skinnable, Siblingable, tk.Canvas):
+    def __init__(self, parent, *args, skin=None, **kwargs):
         self._parent = parent
         self._enabled = False
 
-        # Setting the background of widgets to a middle gray reduces the appearance of pop-in while loading...
-        kwargs["bg"] = "gray42"     # ...amd widget bg colors aren't used in guiABLE. Bg colors are set through skins.
+        kwargs["bg"] = "gray42"     # Neutral background color to reduce visual pop-in.
 
-        Siblingable.__init__(self, skin, **kwargs)
-        tk.Canvas.__init__(self, parent, highlightthickness=0, **kwargs)
+        super().__init__(parent, *args, skin=skin, highlightthickness=0, **kwargs)
         self.bind("<Configure>", self._refresh)
 
         self.bench, self.benches = 0, 0
@@ -198,7 +195,7 @@ class Baseable(Siblingable, tk.Canvas):
 """ Imageable simply displays an image. """
 class Imageable(Baseable):
     def __init__(self, parent, skin=None, **kwargs):
-        super().__init__(parent, skin, **kwargs)
+        super().__init__(parent, skin=skin, **kwargs)
         self._skin.setBGColors('gray')      # Eliminate interactive colors for simple image.
 
     def changeImage(self, img_number): self.setState(img_number)
@@ -212,7 +209,7 @@ class Imageable(Baseable):
 class Hoverable(Baseable):
     def __init__(self, parent, skin=None, **kwargs):
         self.moused_over = False
-        super().__init__(parent, skin, **kwargs)
+        super().__init__(parent, skin=skin, **kwargs)
 
     def setSkin(self, skin):
         super().setSkin(skin)
@@ -395,13 +392,15 @@ class Repeatable(Holdable):
             self.after(self.delay, self._keepClicking)
 
 
+""" LoneDraggable is dragged by the mouse while left click is held. It remains within its parent's boundaries by default, 
+    but its bounds can be overridden using setBounds(). It does not have sibling awareness and is expected to be the 
+    only child of its parent widget. (like a ScrollHandle) For correct redraw, moving objects like Draggable must be
+    drawn atop a Canvasable. Otherwise, tkinter's stale draw rectangle issue creates ghosting/visual stretching."""
 class LoneDraggable(Holdable):
     def __init__(self, parent, function=lambda:None, skin=None, **kwargs):
         super().__init__(parent, function, skin, **kwargs)
         self._bounds = None
-
         self._x_origin, self._y_origin = 0, 0
-        #self.after_idle(self._refresh)
 
     def setBounds(self, x1, y1, x2, y2): self._bounds = (x1, y1, x2, y2)
 
@@ -440,9 +439,7 @@ class LoneDraggable(Holdable):
             self._bounds = (0, 0, *self.parent.geometry[2:])
 
 
-""" Draggable is dragged by the mouse while left click is held. It remains within its parent's boundaries by default, 
-    but its bounds can be overridden using setBounds(). For correct redraw, moving objects like Draggable must be drawn
-    atop a Canvasable. Otherwise, tkinter's stale draw rectangle issue creates ghosting/visual stretching. """
+""" Draggable adds sibling awareness to LoneDraggable, allowing it to composite transparencies with other widgets. """
 class Draggable(LoneDraggable):
     def __init__(self, parent, function=lambda:None, skin=None, **kwargs):
         super().__init__(parent, function, skin, **kwargs)

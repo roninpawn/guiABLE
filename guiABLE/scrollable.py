@@ -407,7 +407,7 @@ class ScrollBar(Backgroundable):
     def _call_drag(self, per:list, now:float = None) -> None:
         self.parent.scrollByPercent(*per)
         self._scheduled_drag = None
-        self._next_drag = (now or time()) + (self.parent.smooth_rate * 2 / 1000)
+        self._next_drag = (now or time()) + (self.parent.smooth_rate / 1000)
 
     def moveHandle(self, per:float):
         o = self.vertical

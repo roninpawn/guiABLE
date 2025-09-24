@@ -231,8 +231,7 @@ to abstract away the underlying duct-tape solution required to make tk.Canvas fu
 """
 class Backgroundable(Skinnable, Canvasable):
     def __init__(self, parent, width:int, height:int, skin:SingleSkin|FilterSkin = None, **kwargs):
-        Skinnable.__init__(self, skin if skin else SingleSkin(), width=width, height=height)
-        Canvasable.__init__(self, parent, bg=self._skin.bgColor(), **kwargs)
+        super().__init__(parent, width=width, height=height, skin=skin, **kwargs)
         self.bind("<Configure>", self._refresh)
 
         self._parent = parent
