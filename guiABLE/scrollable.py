@@ -4,7 +4,7 @@ import tkinter as tk
 from .utilities import getLocalMouse, rectsOverlap
 from .windowing import Backgroundable
 from .skinnable import ScrollSkin, BarSkin, Skin, ButtonPack, Measurable
-from .widgets import Repeatable, LoneDraggable
+from .widgets import RepeatButton, LoneDrag
 
 
 class Scrollable(Measurable, tk.Frame):
@@ -524,8 +524,8 @@ class ScrollBar(Backgroundable):
         tw, th = tsize
 
         # Make and place buttons
-        self.button1 = Repeatable(self, lambda: self.buttonClicked(1), bskin1, width=b1wh[0], height=b1wh[1])
-        self.button2 = Repeatable(self, lambda: self.buttonClicked(-1), bskin2, width=b2wh[0], height=b2wh[1])
+        self.button1 = RepeatButton(self, lambda: self.buttonClicked(1), bskin1, width=b1wh[0], height=b1wh[1])
+        self.button2 = RepeatButton(self, lambda: self.buttonClicked(-1), bskin2, width=b2wh[0], height=b2wh[1])
         self.button1.place(x=0, y=0)
         self.button2.place(x=b2x, y=b2y)
 
@@ -548,7 +548,7 @@ class HorizontalScrollbar(ScrollBar):
         super().__init__(parent, width, height, bar_skin, handle_skin, button_pack, breadth, **kwargs)
 
 
-class ScrollTrough(Repeatable):
+class ScrollTrough(RepeatButton):
     def __init__(self, parent:ScrollBar, skin:BarSkin = None, **kwargs):
         self._vertical = parent.vertical
         self._default_skin = BarSkin()
@@ -609,7 +609,7 @@ class ScrollTrough(Repeatable):
             self.after(self.delay, self._keepClicking)
 
 
-class ScrollHandle(LoneDraggable):
+class ScrollHandle(LoneDrag):
     def __init__(self, parent:ScrollTrough, bar_skin:BarSkin = None, vertical:bool = True, **kwargs):
         self.vertical = vertical
         super().__init__(parent, skin=bar_skin or BarSkin(vertical=vertical), **kwargs)

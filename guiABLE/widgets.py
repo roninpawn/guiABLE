@@ -9,6 +9,7 @@ from guiABLE.utilities import limitMove, rectsOverlap, rectUnion, fastComposite,
 """ Siblingable is a mixin that provides sibling awareness & overlap tracking.  """
 class Siblingable:
     def __init__(self, *args, **kwargs):
+        print(args, kwargs)
         super().__init__(*args, **kwargs)
         self._siblings_atop, self._siblings_beneath = list(), list()     # Overlapping siblings, by below/above z-index.
 
@@ -71,10 +72,8 @@ class Siblingable:
         self._findOverlappingSiblings(self.parent.children)
 
 
-"""
-    Baseable is the foundation of all guiABLE's widgets. It defines how to render images to the surface of the widget,
-    and establishes the concept of state-tracking.
-"""
+""" Baseable is the foundation of all guiABLE's widgets. It defines how to render images to the surface of the widget,
+    and establishes the concept of state-tracking. """
 class Baseable(Skinnable, Siblingable, tk.Canvas):
     def __init__(self, parent, *args, skin=None, **kwargs):
         self._parent = parent
@@ -193,23 +192,19 @@ class Baseable(Skinnable, Siblingable, tk.Canvas):
 
 
 """ Imageable simply displays an image. """
-class Imageable(Baseable):
-    def __init__(self, parent, skin=None, **kwargs):
-        super().__init__(parent, skin=skin, **kwargs)
+class Imageable:
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
         self._skin.setBGColors('gray')      # Eliminate interactive colors for simple image.
 
     def changeImage(self, img_number): self.setState(img_number)
 
-    def disable(self):
-        super().disable()
-        self.setState(3)
-
 
 """ Hoverable adds mouse-over awareness and triggers state-change/redraws on mouse-in and mouse-out. """
-class Hoverable(Baseable):
-    def __init__(self, parent, skin=None, **kwargs):
+class Hoverable:
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
         self.moused_over = False
-        super().__init__(parent, skin=skin, **kwargs)
 
     def setSkin(self, skin):
         super().setSkin(skin)
@@ -241,9 +236,9 @@ class Hoverable(Baseable):
 
 """ Clickable adds left-click awareness and executes a passed function on mouse-down. (Instant-click button) """
 class Clickable(Hoverable):
-    def __init__(self, parent, function:tuple|Callable=lambda: None, skin=None, **kwargs):
+    def __init__(self, parent, function:tuple|Callable=lambda: None, **kwargs):
+        super().__init__(parent, **kwargs)
         self.function = function
-        super().__init__(parent, skin, **kwargs)
 
     def clicked(self, event):
         self.setState(2)
@@ -274,9 +269,9 @@ class Clickable(Hoverable):
 
 """ Pushable is a Clickable that executes its function on when the left mouse button is released. (Normal button) """
 class Pushable(Clickable):
-    def __init__(self, parent, function=lambda: None, skin=None, **kwargs):
+    def __init__(self, *args, **kwargs):
         self._clicking = False
-        super().__init__(parent, function, skin, **kwargs)
+        super().__init__(*args, **kwargs)
 
     def clicked(self, event):
         self._clicking = True
@@ -297,11 +292,11 @@ class Pushable(Clickable):
 
 
 class Labelable(Pushable):
-    def __init__(self, parent, function=lambda: None, skin=None, text="", text_pos=(0,0), font="Times", color="gray",
-                 drop_pos=(0, 0), drop_color="black", **kwargs):
+    def __init__(self, *args, text="", text_pos=(0,0), font="Times", color="gray", drop_pos=(0, 0), drop_color="black",
+                 **kwargs):
         self.text, self.text_pos, self.color, self.font = text, text_pos, color, font
         self.drop_pos, self.drop_color, = drop_pos, drop_color
-        super().__init__(parent, function, skin, **kwargs)
+        super().__init__(*args, **kwargs)
 
     def drawText(self):
         x, y = self.text_pos
@@ -337,9 +332,9 @@ class Labelable(Pushable):
 """ Toggleable stores a true/false state and redirects image() calls by index+_state_offset when true. This allows the
     skin to return states 0,1,2,3 for the False state of the Toggleable, and 4,5,6,7 for the True state. (Checkbox) """
 class Toggleable(Pushable):
-    def __init__(self, parent, state:bool=False, function=lambda: None, skin:Skin = None, **kwargs):
+    def __init__(self, *args, state:bool=False, **kwargs):
         self._state_offset, self._toggle_state = 0, state
-        super().__init__(parent, function, skin, **kwargs)
+        super().__init__(*args, **kwargs)
         self.after_idle(self.setTrue, state)
 
     def mouseUp(self, event):
@@ -359,8 +354,6 @@ class Toggleable(Pushable):
     def setState(self, state_index:int = 0): super().setState(state_index + self._state_offset)
 
 
-""" Holdable is a Pushable that triggers its function instantly, and then again after every n milliseconds. It supports
-    a first-click, initial-delay that can be longer or shorter than the continuous delay thereafter."""
 class Holdable(Pushable):
     def mouseOut(self, event):
         if self._clicking: self.moused_over = False
@@ -375,9 +368,11 @@ class Holdable(Pushable):
         self.function()
 
 
+""" Repeatable is a Holdable that triggers its function instantly, and then again after every n milliseconds. It
+    supports a first-click, initial-delay that can be longer or shorter than the continuous delay thereafter."""
 class Repeatable(Holdable):
-    def __init__(self, parent, function=lambda: None, skin=None, delay=150, init_delay=400, **kwargs):
-        super().__init__(parent, function, skin, **kwargs)
+    def __init__(self, *args, delay=150, init_delay=400, **kwargs):
+        super().__init__(*args, **kwargs)
         self.delay = delay
         self.init_delay = init_delay
 
@@ -397,8 +392,8 @@ class Repeatable(Holdable):
     only child of its parent widget. (like a ScrollHandle) For correct redraw, moving objects like Draggable must be
     drawn atop a Canvasable. Otherwise, tkinter's stale draw rectangle issue creates ghosting/visual stretching."""
 class LoneDraggable(Holdable):
-    def __init__(self, parent, function=lambda:None, skin=None, **kwargs):
-        super().__init__(parent, function, skin, **kwargs)
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
         self._bounds = None
         self._x_origin, self._y_origin = 0, 0
 
@@ -441,8 +436,8 @@ class LoneDraggable(Holdable):
 
 """ Draggable adds sibling awareness to LoneDraggable, allowing it to composite transparencies with other widgets. """
 class Draggable(LoneDraggable):
-    def __init__(self, parent, function=lambda:None, skin=None, **kwargs):
-        super().__init__(parent, function, skin, **kwargs)
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
         self._all_siblings_atop, self._all_siblings_beneath = list(), list()
 
     def clicked(self, event):
@@ -472,3 +467,30 @@ class Draggable(LoneDraggable):
                 output_list.append(sibling)
                 sibling.trackSibling(self, atop)
 
+
+# 3 types of Buttons could be an option under a Button class that returns an object of the correct type.
+# 2 types of Drag could be an option...
+class Hover(Hoverable, Baseable):
+    def __init__(self, parent, skin=None, **kwargs):
+        super().__init__(parent, skin=skin, **kwargs)
+class InstantButton(Clickable, Baseable):
+    def __init__(self, parent, function=lambda:None, skin=None, **kwargs):
+        super().__init__(parent, function, skin=skin, **kwargs)
+class NormalButton(Pushable, Baseable):
+    def __init__(self, parent, function=lambda:None, skin=None, **kwargs):
+        super().__init__(parent, function, skin=skin, **kwargs)
+class Label(Labelable, Baseable):
+    def __init__(self, parent, text="", font=("Arial", 12, "bold"), skin=None, function=lambda:None, **kwargs):
+        super().__init__(parent, function, skin=skin, text=text, font=font, **kwargs)
+class Checkbox(Toggleable, Baseable):
+    def __init__(self, parent, state=False, function=lambda:None, skin=None, **kwargs):
+        super().__init__(parent, function, state=state, skin=skin, **kwargs)
+class RepeatButton(Repeatable, Baseable):
+    def __init__(self, parent, function=lambda:None, skin=None, delay=150, init_delay=400, **kwargs):
+        super().__init__(parent, function, skin=skin, delay=delay, init_delay=init_delay, **kwargs)
+class LoneDrag(LoneDraggable, Baseable):
+    def __init__(self, parent, function=lambda:None, skin=None, **kwargs):
+        super().__init__(parent, function, skin=skin, **kwargs)
+class Drag(Draggable, Baseable):
+    def __init__(self, parent, function=lambda:None, skin=None, **kwargs):
+        super().__init__(parent, function, skin=skin, **kwargs)
