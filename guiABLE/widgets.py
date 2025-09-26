@@ -1,15 +1,13 @@
 import tkinter as tk
 from time import time
-from typing import Optional, Callable
+from typing import Callable
 
-from guiABLE.skinnable import Skin, Skinnable, FilterSkin, BarSkin
-from guiABLE.utilities import limitMove, rectsOverlap, rectUnion, fastComposite, fastCrop, getGeometry, pointIsInRect
-
+from guiABLE.skinnable import Skinnable
+from guiABLE.utilities import limitMove, rectsOverlap, rectUnion, getGeometry, pointIsInRect, fastBlit
 
 """ Siblingable is a mixin that provides sibling awareness & overlap tracking.  """
 class Siblingable:
     def __init__(self, *args, **kwargs):
-        print(args, kwargs)
         super().__init__(*args, **kwargs)
         self._siblings_atop, self._siblings_beneath = list(), list()     # Overlapping siblings, by below/above z-index.
 
@@ -162,7 +160,8 @@ class Baseable(Skinnable, Siblingable, tk.Canvas):
         x, y, w, h = u_rect
 
         base = tk.PhotoImage(width=w, height=h)
-        fastCrop(base, self.parent.skin.image(), *self.parent.skin.resolution(), x, y, w, h)
+        iw, ih = self.parent.skin.resolution()
+        fastBlit(base, w, h, self.parent.skin.image(), iw, ih, 0, 0, w, h, x, y)
 
         # Draw each layer to a base image and then crop from that base to each widget's surface, as we go.
         atop = False
@@ -170,10 +169,10 @@ class Baseable(Skinnable, Siblingable, tk.Canvas):
             if sibling == self: atop = True
             sx, sy, sw, sh = sibling.geometry
             dx, dy = sx-x, sy-y
-            fastComposite(base, w, h, sibling.zImage(), dx, dy, sw, sh)
+            fastBlit(base, w, h, sibling.zImage(), sw, sh, dx, dy, sw, sh)
             final = sibling.scratchImage()
             if atop:
-                fastCrop(final, base, w, h, dx, dy, sw, sh)
+                fastBlit(final, sw, sh, base, w, h, 0, 0, sw, sh, dx, dy)
                 sibling.render(final)
             if not rectsOverlap(self.geometry, sibling.geometry):
                 sibling.dropSibling(self)
@@ -184,8 +183,8 @@ class Baseable(Skinnable, Siblingable, tk.Canvas):
         if self._z_state != self._img_state or self.dirty:
             w, h = self.size
             self._z_img = tk.PhotoImage(width=w, height=h)
-            fastComposite(self._z_img, w, h, self._skin.image(self._img_state), 0, 0,
-                          *self._skin.resolution(self._img_state))
+            iw, ih = self._skin.resolution(self._img_state)
+            fastBlit(self._z_img, w, h, self._skin.image(self._img_state), iw, ih, 0, 0, iw, ih)
             self._z_state = self._img_state
             self.dirty = False
         return self._z_img

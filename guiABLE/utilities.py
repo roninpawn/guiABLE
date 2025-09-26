@@ -114,12 +114,19 @@ def fastBlit(dest: PhotoImage, dest_w: int, dest_h: int,            src: PhotoIm
     # Bail out if the region is invalid
     if blit_w <= 0 or blit_h <= 0: return
 
+    src_x = min(src.width(), src_x)
+    src_y = min(src.height(), src_y)
     from_w = min(src.width(), src_x+blit_w)
     from_h = min(src.height(), src_y+blit_h)
 
     # Perform the blit
     dest.copy_replace( src, from_coords=(src_x, src_y, from_w, from_h), to=(dest_x, dest_y) )
 
+def cropImage(image: PhotoImage, x: int, y: int, width: int, height: int) -> PhotoImage:
+    cropped = PhotoImage(width=width, height=height)
+    iw, ih = image.width(), image.height()
+    fastBlit(cropped, width, height, image, iw, ih, 0, 0, iw, ih, x, y)
+    return cropped
 
 
 def fastTile(brush:PhotoImage, bw:int, bh:int, canvas:PhotoImage, cw:int, ch:int, bbox:tuple[int,int,int,int]):
@@ -137,36 +144,6 @@ def fastTile(brush:PhotoImage, bw:int, bh:int, canvas:PhotoImage, cw:int, ch:int
 
 def tileImage(brush:PhotoImage, canvas:PhotoImage, bbox:tuple[int,int,int,int]):
     fastTile(brush, brush.width(), brush.height(), canvas, canvas.width(), canvas.height(), bbox)
-
-
-def fastCrop(crop_to: PhotoImage, crop_from: PhotoImage, from_w: int, from_h: int,
-             crop_x: int, crop_y: int, crop_w: int, crop_h: int) -> PhotoImage:
-    fastBlit(   dest=crop_to, dest_w=crop_w, dest_h=crop_h,
-                src=crop_from, src_w=from_w, src_h=from_h,
-                dest_x=0, dest_y=0, blit_w=crop_w, blit_h=crop_h,
-                src_x=crop_x, src_y=crop_y )
-    return crop_to
-
-
-def cropImage(image: PhotoImage, x: int, y: int, width: int, height: int) -> PhotoImage:
-    cropped = PhotoImage(width=width, height=height)
-    return fastCrop(cropped, image, image.width(), image.height(), x, y, width, height)
-
-
-def fastComposite(base_image: PhotoImage, base_w: int, base_h: int,
-                  overlay_image: PhotoImage, dest_x: int, dest_y: int,
-                  overlay_w: int, overlay_h: int,
-                  src_x: int = 0, src_y: int = 0):
-    fastBlit(   dest=base_image, dest_w=base_w, dest_h=base_h,
-                src=overlay_image, src_w=overlay_w, src_h=overlay_h,
-                dest_x=dest_x, dest_y=dest_y, blit_w=overlay_w, blit_h=overlay_h,
-                src_x=src_x, src_y=src_y )
-
-
-def compositeImage(base_image: PhotoImage, overlay_image: PhotoImage, x: int, y: int) -> PhotoImage:
-    fastComposite(  base_image, base_image.width(), base_image.height(),
-                    overlay_image, x, y, overlay_image.width(), overlay_image.height() )
-    return base_image
 
 
 """

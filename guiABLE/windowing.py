@@ -259,5 +259,5 @@ class Backgroundable(Skinnable, Canvasable):
 
         self.render(self.skin.image())
         if self.dirty:
-            for child in self._children: child.redraw()
+            for child in self._children: self.after_idle(child.redraw)
             self.dirty = False
