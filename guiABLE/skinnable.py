@@ -792,7 +792,7 @@ class Skinnable(Measurable):
     # Parents that host child widgets track their children and provide a list of those children's z-order.
     def getChildren(self): return self._children
     def registerChild(self, child):
-        if child not in self._children: self._children.append(child)
+        if child not in self._children: self._children.insert(0, child)
     def dropChild(self, child):
         if child in self._children: self._children.remove(child)
 

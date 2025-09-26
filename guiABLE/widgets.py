@@ -10,6 +10,7 @@ class Siblingable:
     def __init__(self, parent, *args, **kwargs):
         super().__init__(parent, *args, **kwargs)
         self.bind("<Map>", self._bond)
+
         self._parent = parent
         self._siblings_atop, self._siblings_beneath = list(), list()     # Overlapping siblings, by below/above z-index.
 
@@ -20,7 +21,7 @@ class Siblingable:
     @property
     def siblingsBeneath(self): return self._siblings_beneath
     @property
-    def siblingsAbove(self): return self._siblings_above
+    def siblingsAtop(self): return self._siblings_atop
     def trackSibling(self, sibling, z_above: bool):
         if z_above:
             if sibling not in self._siblings_atop:
@@ -58,9 +59,8 @@ class Siblingable:
                 if above: self._siblings_beneath.append(sibling)
                 else: self._siblings_atop.append(sibling)
 
-    def _bond(self, event):
-        if isinstance(self, tk.Canvas):
-            self._parent.registerChild(self)
+    def _bond(self, event=None):
+        if isinstance(self, tk.Canvas): self.after_idle(self._parent.registerChild, self)
         self._findOverlappingSiblings(self._parent.getChildren())
 
 
@@ -116,7 +116,7 @@ class Baseable(Skinnable, Siblingable, tk.Canvas):
                 siblings.extend(self._siblings_atop)
                 break
 
-        # If any sibling has below-siblings, unknown to the caller, add them to the job, beneath that sibling.
+        # If any sibling has siblings below them, unknown to the caller, add them to the job.
         # (Ensures all lower widgets are included in final composite -- No disappearing siblings on hover.)
         out_siblings = []
         for sibling in siblings:
@@ -154,8 +154,6 @@ class Baseable(Skinnable, Siblingable, tk.Canvas):
             if atop:
                 fastBlit(final, sw, sh, base, w, h, 0, 0, sw, sh, dx, dy)
                 sibling.render(final)
-                if sibling != self: print(sibling)
-                else: print(self)
             if not rectsOverlap(self.geometry, sibling.geometry):
                 sibling.dropSibling(self)
                 self.dropSibling(sibling)
@@ -433,9 +431,14 @@ class Draggable(LoneDraggable):
         self._splitAllSiblings()
 
     def mouseDrag(self, event=None):
-        super().mouseDrag(event)
-        self._populateOverlappingSiblings(self._siblings_atop, self._all_siblings_atop, False)
-        self._populateOverlappingSiblings(self._siblings_beneath, self._all_siblings_beneath, True)
+        x, y, w, h = self._geometry
+        x = event.x - self._x_origin + x
+        y = event.y - self._y_origin + y
+        new_geom = (x, y, w, h)
+
+        self._populateOverlappingSiblings(self._siblings_atop, self._all_siblings_atop, new_geom, False)
+        self._populateOverlappingSiblings(self._siblings_beneath, self._all_siblings_beneath, new_geom, True)
+        self.move(x, y)
 
     def _splitAllSiblings(self):
         atop = False
@@ -446,10 +449,10 @@ class Draggable(LoneDraggable):
                 if atop: self._all_siblings_atop.add(sibling)
                 else: self._all_siblings_beneath.add(sibling)
 
-    def _populateOverlappingSiblings(self, output_list:list, source_list:list, atop:bool):
+    def _populateOverlappingSiblings(self, output_list:list, source_list:list, geom:tuple[int,int,int,int], atop:bool):
         output_list.clear()
         # Using the union of the last position and current position ensures final redraw of just-exited siblings.
-        movement_union = rectUnion(self._geometry, self._last_geometry)
+        movement_union = rectUnion(geom, self._geometry)
         for sibling in source_list:
             if rectsOverlap(movement_union, sibling.geometry):
                 output_list.append(sibling)
