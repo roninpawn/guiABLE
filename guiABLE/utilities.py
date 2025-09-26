@@ -1,12 +1,6 @@
 from tkinter import PhotoImage, TclError, Canvas
-import os
-import sys
-from typing import NamedTuple
-
-
-class Overlap(NamedTuple):
-    crop: tuple[int,int,int,int]   # (x,y,w,h) of other's coords -- to crop from
-    insert: tuple[int,int]         # (x,y) in self coords -- position to composite to
+from os import path as osPath
+from sys import argv as sysArgV
 
 
 def warnPrint(message:any, *, level:str = "warning"):
@@ -19,24 +13,27 @@ def warnPrint(message:any, *, level:str = "warning"):
     print(f"{color}[guiABLE {level.upper()}]\033[0m {message}")
 
 
-# ---------- Path Functions ----------
-def isAbsolute(path:str) -> bool: return os.path.isabs(path)
-def appRootDir() -> str: return os.path.dirname(os.path.abspath(sys.argv[0]))    # Return directory of app/entrypoint
+"""
+ ---------- Path Functions ----------
+"""
+def appRootDir() -> str: return osPath.dirname(osPath.abspath(sysArgV[0]))    # Return directory of app/entrypoint
 
 def resolvePath(path:str, default_root:str=None) -> str | None:
     if not path or not isinstance(path, str): return None
-    path = os.path.normpath(path)           # Normalize slashes, strip weirdness
-    if os.path.exists(path) or os.path.isabs(path):     # If it exists of its absolute (but wrong) return unchanged.
+    path = osPath.normpath(path)           # Normalize slashes, strip weirdness
+    if osPath.exists(path) or osPath.isabs(path):     # If it exists of its absolute (but wrong) return unchanged.
         return path
 
-    alt_path = os.path.join(appRootDir() if default_root is None else default_root, path)
-    if os.path.exists(alt_path): return alt_path
+    alt_path = osPath.join(appRootDir() if default_root is None else default_root, path)
+    if osPath.exists(alt_path): return alt_path
 
     warnPrint(f"Resource not found: '{path}'")
     return path
 
 
-# ---------- Image Functions ----------
+"""
+ ---------- Image Functions ----------
+"""
 def loadImageByPath(image_path:str) -> PhotoImage | None:
     try: return PhotoImage(file=image_path)
     except TclError: warnPrint(f"Image not found: {image_path}")
@@ -147,16 +144,16 @@ def tileImage(brush:PhotoImage, canvas:PhotoImage, bbox:tuple[int,int,int,int]):
 
 
 """
----------- Widget Utility Functions ----------
+ ---------- Widget Utility Functions ----------
 getGeometry() fetches Winfo_ geometry by string and parses the string into ints. This was found to be slightly faster
 than polling the 4x equivalent Winfo_ (x,y,width,height) access points. replace().split() was also found faster than
 regex, .partition(), and .find() with index slicing.
 """
-def getGeometry(widget) -> (int, int, int, int):
-        w, h, x, y = widget.winfo_geometry().replace("x", "+", 1).split("+")
-        return int(x), int(y), int(w), int(h)
+def getGeometry(widget) -> tuple[int, int, int, int]:
+    w, h, x, y = widget.winfo_geometry().replace("x", "+", 1).split("+")
+    return int(x), int(y), int(w), int(h)
 
-# geometryFromString() is useful in parsing geometry passed as an argument, before its been handled or applied.
+""" geometryFromString() is useful in parsing geometry passed as an argument, before its been handled or applied. """
 def geometryFromString(geometry:str) -> tuple[int, int, int, int]:
     try:
         parts = geometry.split("+", 1)
@@ -172,30 +169,8 @@ def geometryFromString(geometry:str) -> tuple[int, int, int, int]:
     except Exception:
         raise ValueError(f"Invalid geometry string: '{geometry}'")
 
-""" 
-getOverlap() returns the overlapping area of 'other' along with the x, y point in self where the overlap begins.
-Passing order is important. The return of this function is used as 'instructions' for cropping the overlapping area from
-'other' and compositing them onto 'self' in sibling-transparency.    
-"""
-def getOverlap(self_xywh:tuple, other_xywh:tuple) -> Overlap | None:
-    sx, sy, sw, sh = self_xywh
-    ox, oy, ow, oh = other_xywh
 
-    ix  = max(sx, ox)
-    iy  = max(sy, oy)
-    fx  = min(sx+sw, ox+ow)
-    fy  = min(sy+sh, oy+oh)
-    if fx <= ix or fy <= iy: return None
-
-    return Overlap(
-        crop=(ix-ox, iy-oy, fx-ix, fy-iy),
-        insert=(ix-sx, iy-sy),
-    )
-
-"""
-rectsOverlap() was found to be the fastest method for finding whether two areas overlap each other. It is 2-3x faster
-than getOverlap, and therefore suitable as a pre-test to determine which areas need getOverlap().
-"""
+""" rectsOverlap() is the fastest method for finding whether two areas overlap each other. """
 def rectsOverlap(a_xywh, b_xywh) -> bool:
     ax, ay, aw, ah = a_xywh
     bx, by, bw, bh = b_xywh
@@ -228,11 +203,3 @@ def getLocalMouse(widget:Canvas) -> (int, int, bool):
     if x < 0 or x >= widget.winfo_width(): return x, y, False
     if y < 0 or y >= widget.winfo_height(): return x, y, False
     return x, y, True
-
-def updateHover(widget):
-    if isinstance(widget, Canvas):
-        x, y, mouse_in = getLocalMouse(widget)
-        if widget.enabled:
-            widget.mouseIn(None) if mouse_in else widget.mouseOut(None)
-        else:
-            widget.disable()
