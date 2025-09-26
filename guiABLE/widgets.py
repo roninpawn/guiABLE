@@ -2,8 +2,10 @@ import tkinter as tk
 from time import time
 from typing import Callable
 
-from guiABLE.skinnable import Skinnable
-from guiABLE.utilities import limitMove, rectsOverlap, rectUnion, getGeometry, pointIsInRect, fastBlit
+from guiABLE.windowing import FakeCanvas
+from guiABLE.skinnable import Skinnable, FilterSkin, SingleSkin
+from guiABLE.utilities import limitMove, rectsOverlap, rectUnion, pointIsInRect, fastBlit
+
 
 """ Siblingable is a mixin that provides parent/sibling awareness & overlap tracking.  """
 class Siblingable:
@@ -64,8 +66,8 @@ class Siblingable:
         self._findOverlappingSiblings(self._parent.getChildren())
 
 
-""" Baseable defines how to render images to the surface of the tk.Canvas. """
-class Baseable(Skinnable, Siblingable, tk.Canvas):
+""" Canvas defines how to render images to the surface of the tk.Canvas to support parent & sibling transparency. """
+class Canvas(Skinnable, Siblingable, tk.Canvas):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, highlightthickness=0, **kwargs)
         self.bind("<Configure>", self._refresh)
@@ -74,6 +76,7 @@ class Baseable(Skinnable, Siblingable, tk.Canvas):
 
         self.dirty = True
         self._z_state, self._z_img = None, None
+        self._img_state = 0
 
     def redraw(self):
         # If the skin that this widget uses has changed, all of its children must redraw.
@@ -159,6 +162,63 @@ class Baseable(Skinnable, Siblingable, tk.Canvas):
                 self.dropSibling(sibling)
 
 
+class TextCanvas(Skinnable, FakeCanvas):
+    def __init__(self, parent, *args, **kwargs):
+        super().__init__(parent, *args, **kwargs)
+
+        self.bind("<Configure>", self._refresh)
+        self._img_state = 0
+        self._parent = parent
+
+        self.bench, self.benches = 0, 0
+
+    @property
+    def parent(self): return self._parent
+
+    def setState(self, state_index:int = 0):
+        start = time()
+
+        self._img_state = state_index
+
+        img_size = self._skin.resolution(0)
+        canvas_size = self._geometry[2:]
+
+        if img_size != (0,0) and img_size != canvas_size:
+            self._skin = FilterSkin(self._skin, crop=(0, 0, *canvas_size) )
+            self.dirty = True
+
+        self.render(self._skin.image(self._img_state))
+
+        self.bench += time() - start
+        self.benches += 1
+        if self.benches >= 100:
+            print(f"{round(self.bench / 100, 5)}s per draw. (TextCanvas)")
+            self.bench, self.benches = 0, 0
+
+    def redraw(self):
+        self.setState(self._img_state)
+        if self.dirty:
+            for child in self._children: child.redraw()
+            self.dirty = False
+
+"""
+A Backgroundable is a simple, static, one-image canvas to serve as the stage for attaching widgets. 
+"""
+class Backgroundable:
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+
+    @classmethod
+    def fromPath(cls, parent, width:int, height:int, image_path:str, **kwargs):
+        bg_able = cls(parent, width, height, SingleSkin(image_path), **kwargs)
+        return bg_able
+
+    @classmethod
+    def fromImage(cls, parent, width:int, height:int, image:tk.PhotoImage, **kwargs):
+        bg_able = cls(parent, width, height, SingleSkin.fromImage(image), **kwargs)
+        return bg_able
+
+
 """ Imageable simply displays an image. """
 class Imageable:
     def __init__(self, *args, **kwargs):
@@ -172,11 +232,11 @@ class Imageable:
 class Widgetable:
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
-        self._enabled = False
 
         kwargs["bg"] = "gray42"     # Neutral background color reduces visual pop-in.
 
         self._img_state = 0
+        self._enabled = False
         self.enable()
 
     @property
@@ -461,27 +521,33 @@ class Draggable(LoneDraggable):
 
 # 3 types of Buttons could be an option under a Button class that returns an object of the correct type.
 # 2 types of Drag could be an option...
-class Hover(Hoverable, Baseable):
+class Background(Backgroundable, TextCanvas):
+    def __init__(self, parent, width:int, height:int, skin:SingleSkin=None, **kwargs):
+        super().__init__(parent, width, height, skin=skin, **kwargs)
+class Hover(Hoverable, Canvas):
     def __init__(self, parent, skin=None, **kwargs):
         super().__init__(parent, skin=skin, **kwargs)
-class InstantButton(Clickable, Baseable):
+class InstantButton(Clickable, Canvas):
     def __init__(self, parent, function=lambda:None, skin=None, **kwargs):
         super().__init__(parent, function, skin=skin, **kwargs)
-class NormalButton(Pushable, Baseable):
+class Button(Pushable, Canvas):
     def __init__(self, parent, function=lambda:None, skin=None, **kwargs):
         super().__init__(parent, function, skin=skin, **kwargs)
-class Label(Labelable, Baseable):
+class Label(Labelable, Canvas):
     def __init__(self, parent, text="", font=("Arial", 12, "bold"), skin=None, function=lambda:None, **kwargs):
         super().__init__(parent, function, skin=skin, text=text, font=font, **kwargs)
-class Checkbox(Toggleable, Baseable):
+class Checkbox(Toggleable, Canvas):
     def __init__(self, parent, state=False, function=lambda:None, skin=None, **kwargs):
         super().__init__(parent, function, state=state, skin=skin, **kwargs)
-class RepeatButton(Repeatable, Baseable):
+class RepeatButton(Repeatable, Canvas):
     def __init__(self, parent, function=lambda:None, skin=None, delay=150, init_delay=400, **kwargs):
         super().__init__(parent, function, skin=skin, delay=delay, init_delay=init_delay, **kwargs)
-class LoneDrag(LoneDraggable, Baseable):
+class LoneDrag(LoneDraggable, Canvas):
     def __init__(self, parent, function=lambda:None, skin=None, **kwargs):
         super().__init__(parent, function, skin=skin, **kwargs)
-class Drag(Draggable, Baseable):
+class Drag(Draggable, Canvas):
     def __init__(self, parent, function=lambda:None, skin=None, **kwargs):
         super().__init__(parent, function, skin=skin, **kwargs)
+class TroughButton(Repeatable, TextCanvas):
+    def __init__(self, parent, function=lambda:None, skin=None, delay=150, init_delay=400, **kwargs):
+        super().__init__(parent, function, skin=skin, delay=delay, init_delay=init_delay, **kwargs)

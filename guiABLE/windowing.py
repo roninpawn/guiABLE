@@ -162,8 +162,8 @@ class Windowable(tk.Tk):
             self.taskbar_handle.wm_iconify()
 
     """
-    _framerate(): Tk's update/idletasks system throttles itself aggressively, preferring to "hibernate" at all costs.
-    This induces a kind of stop-and-go stuttering to Tk's overall performance that isn't usually perceivable by a user. 
+    _heartbeat(): Tk's update/idletasks system throttles aggressively, preferring to "hibernate" at all costs. This
+    induces a kind of stop-and-go stuttering to Tk's overall performance that isn't usually perceivable by a user.
     But because guiABLE is rendering images at high speeds, the stuttering becomes visible in canvas draws.  
 
     To achieve a steady canvas 'frame rate,' Tk's idletasks system must be explicitly awakened, on a schedule. This
@@ -172,21 +172,24 @@ class Windowable(tk.Tk):
 
     A 2ms heartbeat is the fastest heartbeat that still throttles to zero CPU use, on modern platforms.
     """
-    def _heartbeat(self): self.after(2, self._heartbeat)
+    def _heartbeat(self): self.after(5, self._heartbeat)
 
     def _update_offsets(self):
         self._offset_w = (self.winfo_width() - self.taskbar_handle.winfo_width()) // 2
         self._offset_h = (self.winfo_height() - self.taskbar_handle.winfo_height()) // 2
 
+
 """
-A Canvasable is a tk.Text window configured to eliminate all of its text-features and provide us with a clean canvas. 
+A FakeCanvas is a tk.Text window configured to eliminate all of its text-features and provide us with a clean canvas. 
 This is necessary because tkinter's tk.Canvas does not track and update its 'dirty' redraw rectangles correctly. The
 issue of slow/wrong redraws was solved in the tk.Text widget, but nowhere else. So we use tk.Text as a render canvas.
 """
-class Canvasable(tk.Text):
-    def __init__(self, parent, **kwargs):
+class FakeCanvas(tk.Text):
+    def __init__(self, parent, width:int, height:int, **kwargs):
         super().__init__(parent, bd=0, padx=0, pady=0, state="disabled", cursor="arrow", **kwargs)
+
         self.configure(bg=self.cget("bg"))
+        self.place_configure(width=width, height=height)
 
     def configure(self, **kw):
         if "bg" in kw:      # Pass changes to bg through to the 'selectbackground' to maintain non-tk.Text() illusion.
@@ -201,63 +204,3 @@ class Canvasable(tk.Text):
         self.image_create("end", image=image, padx=pad_x, pady=pad_y)
         self.configure(state="disabled")
 
-    @property
-    def size(self): return self.winfo_width(), self.winfo_height()
-
-
-class Frameable(tk.Frame):
-    def __init__(self, parent, width, height, bg='gray', **kwargs):
-        tk.Frame.__init__(self, parent, width=width, height=height)
-
-        self._inner = Canvasable(self, bg=bg, **kwargs)     # A Frameable's skin() is its Canvasable's
-        self.pack_propagate(False)
-        self._inner.pack(expand=True, fill='both')
-
-    @property
-    def inner(self): return self._inner
-    def bind(self, *args): self._inner.bind(*args)
-    def unbind(self, *args): self._inner.unbind(*args)
-    def configure(self, **kwargs): self._inner.configure(**kwargs)
-
-    def empty(self):
-        for child in self.inner.winfo_children(): child.destroy()
-        self.inner.configure(width=1, height=1)
-
-
-"""
-A Backgroundable is a tk.Frame containing a .inner Canvasable() that serves as the canvas. It provides a more library-
-standard interface for handling the unique configuration calls required to conform the tk.Text widget. And it attempts 
-to abstract away the underlying duct-tape solution required to make tk.Canvas function. 
-"""
-class Backgroundable(Skinnable, Canvasable):
-    def __init__(self, parent, width:int, height:int, skin:SingleSkin|FilterSkin = None, **kwargs):
-        super().__init__(parent, width=width, height=height, skin=skin, **kwargs)
-        self.bind("<Configure>", self._refresh)
-
-        self._parent = parent
-        self.place_configure(width=width, height=height)
-
-    @classmethod
-    def fromPath(cls, parent, width:int, height:int, image_path:str, **kwargs):
-        bg_able = cls(parent, width, height, SingleSkin(image_path), **kwargs)
-        return bg_able
-
-    @classmethod
-    def fromImage(cls, parent, width:int, height:int, image:tk.PhotoImage, **kwargs):
-        bg_able = cls(parent, width, height, SingleSkin.fromImage(image), **kwargs)
-        return bg_able
-
-    @property
-    def parent(self): return self._parent
-
-    def redraw(self):
-        # If the skin that this widget uses has changed, all of its children must redraw.
-        bg_size = self._skin.resolution(0)
-        if bg_size != (0,0) and bg_size != self.geometry[2:]:
-            self._skin = FilterSkin(self._skin, crop=(0, 0, *self.geometry[2:]) )
-            self.dirty = True
-
-        self.render(self.skin.image())
-        if self.dirty:
-            for child in self._children: self.after_idle(child.redraw)
-            self.dirty = False

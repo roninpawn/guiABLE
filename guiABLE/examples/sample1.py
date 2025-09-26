@@ -1,22 +1,18 @@
 from guiABLE import *
-from guiABLE.skinnable import ScrollSkin
-from guiABLE.utilities import cropImage, loadImage
-from guiABLE.widgets import InstantButton, NormalButton, Label, Checkbox, Drag, RepeatButton
 
 
 def test_gui():
     app = Windowable(geometry="600x400+420+180", title="guiABLE Testbed")
     bg_image, _ = loadImage("../skins/default/bg-600x400.png")
-    bg = Backgroundable.fromImage(app, 600, 400, bg_image)
+    bg = Background.fromImage(app, 600, 400, bg_image)
     bg.place(x=0, y=0)
 
     # Make app Drag by grabbing the background.
-    bg.configure(cursor="fleur")
     app.bindDrag(bg)
 
     # Create a test Button
     btn_skin = Skin("../skins/default/cog.png", "../skins/default/cog_mo.png", "../skins/default/cog_red.png")
-    test_btn = NormalButton(bg, lambda: print("Button clicked!"), skin=btn_skin, width=140, height=24)
+    test_btn = Button(bg, lambda: print("Button clicked!"), skin=btn_skin, width=140, height=24)
     test_btn.place(x=60, y=0)
 
     # Create a Checkbox
@@ -45,7 +41,7 @@ def test_gui():
     x_sprite = Skin.fromImages(cropImage(tk.PhotoImage(file='../skins/default/window-glyphs-40.png'), 80, 0, 40, 40))
     x_sprite.usesBgColors(True)
     x_sprite.setBGColor("red", 2)
-    exit_button = NormalButton(bg, function=app.quit, skin=x_sprite, width=40, height=40)
+    exit_button = Button(bg, function=app.quit, skin=x_sprite, width=40, height=40)
     exit_button.place(x=550, y=10)
 
     # Create a Holdable button

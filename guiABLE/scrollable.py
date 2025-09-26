@@ -2,9 +2,8 @@ from time import time
 import tkinter as tk
 
 from .utilities import getLocalMouse, rectsOverlap
-from .windowing import Backgroundable
 from .skinnable import ScrollSkin, BarSkin, Skin, ButtonPack, Measurable
-from .widgets import RepeatButton, LoneDrag
+from .widgets import RepeatButton, TroughButton, LoneDrag, Background
 
 
 class Scrollable(Measurable, tk.Frame):
@@ -233,7 +232,7 @@ class Scrollable(Measurable, tk.Frame):
                     if sh: self.v_bar.moveHandle(py / sh)
 
 
-class ScrollFrame(Backgroundable):
+class ScrollFrame(Background):
     def __init__(self, parent:Scrollable, width:int, height:int, skin=None, **kwargs):
         super().__init__(parent, width, height, skin, **kwargs)
         self._plate_geometry = (0, 0, 0, 0)
@@ -288,7 +287,7 @@ class ScrollFrame(Backgroundable):
         self.parent._page_size = [None, None]
 
 
-class ScrollBar(Backgroundable):
+class ScrollBar(Background):
     def __init__(self, parent:Scrollable, width:int, height:int, bar_skin:BarSkin|None = None,
                  handle_skin:BarSkin|None = None, button_pack:ButtonPack|None = None, breadth:int = 0, **kwargs):
         self._bar_skin = bar_skin or BarSkin()
@@ -393,7 +392,7 @@ class ScrollBar(Backgroundable):
         per = [None, None]
         per[self.vertical] = p/-s if s else 0
 
-        # Restrict drawing handle movement to the parent's smooth rate. (or less)
+        # Restrict the frequency of drawing scroll changes to some factor of the parent's smooth rate.
         now = time()
         remains = round((self._next_drag - now) * 1000)
         if remains > 0:
@@ -403,9 +402,9 @@ class ScrollBar(Backgroundable):
             self._call_drag(per, now)
 
     def _call_drag(self, per:list, now:float = None) -> None:
-        self.parent.scrollByPercent(*per)
+        self.parent.scrollByPercent(*per, False)
         self._scheduled_drag = None
-        self._next_drag = (now or time()) + (self.parent.smooth_rate / 1000)
+        self._next_drag = (now or time()) + (self.parent.smooth_rate * 2 / 1000)    # Half the smooth_rate.
 
     def moveHandle(self, per:float):
         o = self.vertical
@@ -546,7 +545,7 @@ class HorizontalScrollbar(ScrollBar):
         super().__init__(parent, width, height, bar_skin, handle_skin, button_pack, breadth, **kwargs)
 
 
-class ScrollTrough(RepeatButton):
+class ScrollTrough(TroughButton):
     def __init__(self, parent:ScrollBar, skin:BarSkin = None, **kwargs):
         self._vertical = parent.vertical
         self._default_skin = BarSkin()
@@ -627,6 +626,7 @@ class ScrollHandle(LoneDrag):
 
     def mouseDrag(self, event=None):
         super().mouseDrag(event)
+        self.update_idletasks()
         self.parent.handleDragged()
 
     def _refresh(self, event=None):
