@@ -5,11 +5,16 @@ from typing import Callable
 from guiABLE.skinnable import Skinnable
 from guiABLE.utilities import limitMove, rectsOverlap, rectUnion, getGeometry, pointIsInRect, fastBlit
 
-""" Siblingable is a mixin that provides sibling awareness & overlap tracking.  """
+""" Siblingable is a mixin that provides parent/sibling awareness & overlap tracking.  """
 class Siblingable:
-    def __init__(self, *args, **kwargs):
-        super().__init__(*args, **kwargs)
+    def __init__(self, parent, *args, **kwargs):
+        super().__init__(parent, *args, **kwargs)
+        self.bind("<Map>", self._bond)
+        self._parent = parent
         self._siblings_atop, self._siblings_beneath = list(), list()     # Overlapping siblings, by below/above z-index.
+
+    @property
+    def parent(self): return self._parent
 
     # Overlapping siblings track each other for the sake of compositing (faking transparency) during redraw.
     @property
@@ -31,17 +36,6 @@ class Siblingable:
         if sibling in self._siblings_atop: self._siblings_atop.remove(sibling)
         elif sibling in self._siblings_beneath: self._siblings_beneath.remove(sibling)
 
-    # Override all attachment methods to track z-order through parent. (and report overlap with siblings if Siblingable)
-    def place(self, **kwargs):
-        super().place(**kwargs)
-        self._bond()
-    def pack(self, **kwargs):
-        super().pack(**kwargs)
-        self._bond()
-    def grid(self, **kwargs):
-        super().grid(**kwargs)
-        self._bond()
-
     # Override methods that change z-index, to track and report changes to all interested parties.
     def lift(self, above=None):
         tk.Misc.lift(self, above)
@@ -58,46 +52,28 @@ class Siblingable:
         above = True        # z-order state of self in reference to sibling
         for sibling in siblings_list:
             if sibling is self: above = False
-            elif isinstance(sibling, tk.Canvas) and rectsOverlap(self.geometry, getGeometry(sibling)):
+            elif isinstance(sibling, Siblingable) and rectsOverlap(self._geometry, sibling.geometry):
                 if sibling in self._siblings_atop or sibling in self._siblings_beneath: sibling.dropSibling(self)
                 sibling.trackSibling(self, above)
                 if above: self._siblings_beneath.append(sibling)
                 else: self._siblings_atop.append(sibling)
 
-    def _bond(self):
+    def _bond(self, event):
         if isinstance(self, tk.Canvas):
-            self.after_idle(self.parent.registerChild, self)
-        self._findOverlappingSiblings(self.parent.children)
+            self._parent.registerChild(self)
+        self._findOverlappingSiblings(self._parent.getChildren())
 
 
-""" Baseable is the foundation of all guiABLE's widgets. It defines how to render images to the surface of the widget,
-    and establishes the concept of state-tracking. """
+""" Baseable defines how to render images to the surface of the tk.Canvas. """
 class Baseable(Skinnable, Siblingable, tk.Canvas):
-    def __init__(self, parent, *args, skin=None, **kwargs):
-        self._parent = parent
-        self._enabled = False
-
-        kwargs["bg"] = "gray42"     # Neutral background color to reduce visual pop-in.
-
-        super().__init__(parent, *args, skin=skin, highlightthickness=0, **kwargs)
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, highlightthickness=0, **kwargs)
         self.bind("<Configure>", self._refresh)
 
         self.bench, self.benches = 0, 0
 
         self.dirty = True
-        self._z_state = None
-        self._img, self._z_img = None, None
-        self._img_state = 0
-        self._drop_list = set()
-
-        self.enable()
-
-    @property
-    def parent(self): return self._parent
-    @property
-    def image(self): return self._img
-    @property
-    def state(self): return self._img_state
+        self._z_state, self._z_img = None, None
 
     def redraw(self):
         # If the skin that this widget uses has changed, all of its children must redraw.
@@ -107,17 +83,20 @@ class Baseable(Skinnable, Siblingable, tk.Canvas):
             self.dirty = False
 
     def render(self, image:tk.PhotoImage, x:int = 0, y:int = 0):
-        self._img = image
         self.delete("all")
         self.create_image(x, y, image=image, anchor="nw")
 
-    def enable(self):
-        self.setState(0)
-        self._enabled = True
+    # The ZImage() is a persistent render of what the widget looks like on its own. Only updated if something changed.
+    def zImage(self) -> tk.PhotoImage:
+        if self._z_state != self._img_state or self.dirty:
+            w, h = self.size
+            self._z_img = tk.PhotoImage(width=w, height=h)
+            iw, ih = self._skin.resolution(self._img_state)
+            fastBlit(self._z_img, w, h, self._skin.image(self._img_state), iw, ih, 0, 0, iw, ih)
 
-    @property
-    def enabled(self) -> bool : return self._enabled
-    def disable(self): self._enabled = False
+            self._z_state = self._img_state
+            self.dirty = False
+        return self._z_img
 
     def setState(self, state_index:int = 0):
         start = time()
@@ -146,7 +125,7 @@ class Baseable(Skinnable, Siblingable, tk.Canvas):
                     out_siblings.append(sb)
             out_siblings.append(sibling)
 
-        self.compositeUnion(out_siblings)
+        self._compositeUnion(out_siblings)
 
         self.bench += time() - start
         self.benches += 1
@@ -154,14 +133,15 @@ class Baseable(Skinnable, Siblingable, tk.Canvas):
             print(f"{round(self.bench / 100, 5)}s per draw.")
             self.bench, self.benches = 0, 0
 
-    def compositeUnion(self, siblings:list):
+    def _compositeUnion(self, siblings:list):
         u_rect = self.geometry
         for sibling in siblings: u_rect = rectUnion(u_rect, sibling.geometry)
         x, y, w, h = u_rect
 
+        # TODO: Test whether its faster to maintain a scratch the size of the parent, or make a new image each time.
         base = tk.PhotoImage(width=w, height=h)
-        iw, ih = self.parent.skin.resolution()
-        fastBlit(base, w, h, self.parent.skin.image(), iw, ih, 0, 0, w, h, x, y)
+        iw, ih = self._parent.skin.resolution()
+        fastBlit(base, w, h, self._parent.skin.image(), iw, ih, 0, 0, w, h, x, y)
 
         # Draw each layer to a base image and then crop from that base to each widget's surface, as we go.
         atop = False
@@ -174,20 +154,11 @@ class Baseable(Skinnable, Siblingable, tk.Canvas):
             if atop:
                 fastBlit(final, sw, sh, base, w, h, 0, 0, sw, sh, dx, dy)
                 sibling.render(final)
+                if sibling != self: print(sibling)
+                else: print(self)
             if not rectsOverlap(self.geometry, sibling.geometry):
                 sibling.dropSibling(self)
                 self.dropSibling(sibling)
-
-    # The ZImage() is a persistent render of what the widget looks like on its own. Only updated if something changed.
-    def zImage(self) -> tk.PhotoImage:
-        if self._z_state != self._img_state or self.dirty:
-            w, h = self.size
-            self._z_img = tk.PhotoImage(width=w, height=h)
-            iw, ih = self._skin.resolution(self._img_state)
-            fastBlit(self._z_img, w, h, self._skin.image(self._img_state), iw, ih, 0, 0, iw, ih)
-            self._z_state = self._img_state
-            self.dirty = False
-        return self._z_img
 
 
 """ Imageable simply displays an image. """
@@ -199,8 +170,30 @@ class Imageable:
     def changeImage(self, img_number): self.setState(img_number)
 
 
+""" Widgetable establishes the base of the widget chain, providing basic access methods and on/off states. """
+class Widgetable:
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self._enabled = False
+
+        kwargs["bg"] = "gray42"     # Neutral background color reduces visual pop-in.
+
+        self._img_state = 0
+        self.enable()
+
+    @property
+    def state(self): return self._img_state
+
+    @property
+    def enabled(self) -> bool : return self._enabled
+    def enable(self):
+        self.setState(0)
+        self._enabled = True
+    def disable(self): self._enabled = False
+
+
 """ Hoverable adds mouse-over awareness and triggers state-change/redraws on mouse-in and mouse-out. """
-class Hoverable:
+class Hoverable(Widgetable):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.moused_over = False
@@ -396,7 +389,7 @@ class LoneDraggable(Holdable):
         self._bounds = None
         self._x_origin, self._y_origin = 0, 0
 
-    def setBounds(self, x1, y1, x2, y2): self._bounds = (x1, y1, x2, y2)
+    def setBounds(self, bbox:tuple[int,int,int,int]|None): self._bounds = bbox
 
     def enable(self):
         self.bind("<B1-Motion>", self.mouseDrag)
@@ -419,18 +412,14 @@ class LoneDraggable(Holdable):
 
     def move(self, x:int, y:int):
         w, h = self._geometry[2:]
-        x = limitMove(x, w, self._bounds[0], self._bounds[2])
-        y = limitMove(y, h, self._bounds[1], self._bounds[3])
+        bbox = (0, 0, *self.parent.geometry[2:]) if self._bounds is None else self._bounds
+        x = limitMove(x, w, bbox[0], bbox[2])
+        y = limitMove(y, h, bbox[1], bbox[3])
 
         self._geometry = (x, y, w, h)
         if self._last_geometry != self._geometry:
             self.place_configure(x=x, y=y)
             self.function()
-
-    def _refresh(self, event=None):
-        super()._refresh(event)
-        if self._bounds is None and self.parent.geometry[2:] != (0, 0):
-            self._bounds = (0, 0, *self.parent.geometry[2:])
 
 
 """ Draggable adds sibling awareness to LoneDraggable, allowing it to composite transparencies with other widgets. """
@@ -451,7 +440,7 @@ class Draggable(LoneDraggable):
     def _splitAllSiblings(self):
         atop = False
         self._all_siblings_atop, self._all_siblings_beneath = set(), set()
-        for sibling in self.parent.getChildren():
+        for sibling in self._parent.getChildren():
             if sibling is self: atop = True
             else:
                 if atop: self._all_siblings_atop.add(sibling)

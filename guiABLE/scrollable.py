@@ -286,8 +286,6 @@ class ScrollFrame(Backgroundable):
         self._scroll_range = None
 
         self.parent._page_size = [None, None]
-        #self.parent.v_bar.refresh()
-        #self.parent.h_bar.refresh()
 
 
 class ScrollBar(Backgroundable):
@@ -575,7 +573,6 @@ class ScrollTrough(RepeatButton):
         size = list(self.size)
         size[self._vertical] = length
         self.place_configure(width=size[0], height=size[1])
-        self._handle.setBounds(0, 0, *size)
 
     def handleDragged(self): self.parent.handleDragged()
 
