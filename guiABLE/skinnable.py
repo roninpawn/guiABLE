@@ -757,10 +757,7 @@ class Measurable:
     def _afterGeometryChanges(self): pass       # Override this function in child classes.
 
 
-"""
-    Skinnable is a mixin that provides core Skin() functionality to guiABLE widgets. It requires a sibling class that
-    can make use of after_idletasks(), for its update() method.
-"""
+""" Skinnable is a mixin that provides core Skin() handling functionality to guiABLE widgets. """
 class Skinnable(Measurable):
     def __init__(self, *args, skin:Skin|BarSkin|FilterSkin = None, **kwargs):
         # Register widget as a user of skin, in case skin updates later and needs to issue a redraw of all users.

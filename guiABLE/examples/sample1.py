@@ -12,16 +12,16 @@ def test_gui():
 
     # Create a test Button
     btn_skin = Skin("../skins/default/cog.png", "../skins/default/cog_mo.png", "../skins/default/cog_red.png")
-    test_btn = Button(bg, lambda: print("Button clicked!"), skin=btn_skin, width=140, height=24)
+    test_btn = Button(bg, btn_skin, lambda: print("Button clicked!"), width=140, height=24)
     test_btn.place(x=60, y=0)
 
     # Create a Checkbox
     toggle_skin = Skin.fromSpriteSheet("../skins/default/checkbox-64.png", 64)
-    test_toggle1 = Checkbox(bg, True, lambda: print("Toggle1 state:", test_toggle1.isTrue()), skin=toggle_skin,
+    test_toggle1 = Checkbox(bg, toggle_skin, lambda: print("Toggle1 state:", test_toggle1.isTrue()), True,
                              width=64, height=64)
     test_toggle1.place(x=80, y=24)
 
-    test_toggle2 = Checkbox(bg, function=lambda: print("Toggle2 state:", test_toggle2.isTrue()), skin=toggle_skin,
+    test_toggle2 = Checkbox(bg, toggle_skin, function=lambda: print("Toggle2 state:", test_toggle2.isTrue()),
                              width=64, height=64)
     test_toggle2.place(x=144, y=24)
 
@@ -31,7 +31,7 @@ def test_gui():
     test_drag.place(x=260, y=24)
 
     # Create a Label (button with text overlay)
-    test_label = Label(bg, function=lambda: print("Label clicked!"), skin=btn_skin,
+    test_label = Label(bg, btn_skin, function=lambda: print("Label clicked!"),
                            text="Hello", text_pos=(10, 5), font=("Arial", 12, "bold"), color="white",
                            width=100, height=24)
 
@@ -71,14 +71,13 @@ def test_gui():
     #scroll_area.showBars(1, 1)
 
     # Create Togglables for changing the scrollbar settings.
-    test_toggle3 = Checkbox(bg, scroll_area.getScrollTypes()[0], skin=toggle_skin, width=64, height=64)
+    test_toggle3 = Checkbox(bg, toggle_skin, scroll_area.getScrollTypes()[0], width=64, height=64)
     test_toggle3.function = (scroll_area.setScrollType, test_toggle3.isTrue)
     test_toggle3.place(x=380, y=24)
 
-    test_toggle4 = Checkbox(bg, scroll_area.getSmoothScroll()[0],  skin=toggle_skin, width=64, height=64)
+    test_toggle4 = Checkbox(bg, toggle_skin, scroll_area.getSmoothScroll()[0], True, width=64, height=64)
     test_toggle4.function = (scroll_area.setSmoothScroll, test_toggle4.isTrue)
     test_toggle4.place(x=444, y=24)
-
 
     nude_skin = BS()
     #nude_skin.usesBgColors(False)
@@ -86,7 +85,7 @@ def test_gui():
     nude_drag.place(x=0, y=0)
 
     for i in range(50):
-        #label = Hoverable(scroll_area.frame, skin=btn_skin, width=24, height=24)
+        #label = Button(scroll_area.frame, function=lambda: print(f"Label clicked!"), skin=btn_skin, width=24, height=24)
         label = Label(scroll_area.frame, function=lambda: print("Label clicked!"), skin=btn_skin,
                           text=f"Item {i + 1}", text_pos=(10, 5), font=("Arial", 12, "bold"), color="white",
                           width=100, height=24)
@@ -115,13 +114,13 @@ def test_gui():
     def tick():
         app.fps += 1
         app.after(15, tick)
-    #tick()
+    tick()
 
     def update_fps():
         fps_label.configure(text=app.fps)
         app.fps = 0
         app.after(1000, update_fps)
-    #update_fps()
+    update_fps()
 
     app.mainloop()
 

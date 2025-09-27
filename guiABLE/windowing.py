@@ -177,30 +177,3 @@ class Windowable(tk.Tk):
     def _update_offsets(self):
         self._offset_w = (self.winfo_width() - self.taskbar_handle.winfo_width()) // 2
         self._offset_h = (self.winfo_height() - self.taskbar_handle.winfo_height()) // 2
-
-
-"""
-A FakeCanvas is a tk.Text window configured to eliminate all of its text-features and provide us with a clean canvas. 
-This is necessary because tkinter's tk.Canvas does not track and update its 'dirty' redraw rectangles correctly. The
-issue of slow/wrong redraws was solved in the tk.Text widget, but nowhere else. So we use tk.Text as a render canvas.
-"""
-class FakeCanvas(tk.Text):
-    def __init__(self, parent, width:int, height:int, **kwargs):
-        super().__init__(parent, bd=0, padx=0, pady=0, state="disabled", cursor="arrow", **kwargs)
-
-        self.configure(bg=self.cget("bg"))
-        self.place_configure(width=width, height=height)
-
-    def configure(self, **kw):
-        if "bg" in kw:      # Pass changes to bg through to the 'selectbackground' to maintain non-tk.Text() illusion.
-            kw["selectbackground"] = kw["bg"]
-        if "background" in kw:
-            kw["selectbackground"] = kw["background"]
-        super().configure(**kw)
-
-    def render(self, image:tk.PhotoImage, pad_x:int=0, pad_y:int=0):
-        self.configure(state="normal")
-        self.delete(1.0, "end")
-        self.image_create("end", image=image, padx=pad_x, pady=pad_y)
-        self.configure(state="disabled")
-

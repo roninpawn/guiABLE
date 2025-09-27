@@ -521,8 +521,8 @@ class ScrollBar(Background):
         tw, th = tsize
 
         # Make and place buttons
-        self.button1 = RepeatButton(self, lambda: self.buttonClicked(1), bskin1, width=b1wh[0], height=b1wh[1])
-        self.button2 = RepeatButton(self, lambda: self.buttonClicked(-1), bskin2, width=b2wh[0], height=b2wh[1])
+        self.button1 = RepeatButton(self, bskin1, lambda: self.buttonClicked(1), width=b1wh[0], height=b1wh[1])
+        self.button2 = RepeatButton(self, bskin2, lambda: self.buttonClicked(-1), width=b2wh[0], height=b2wh[1])
         self.button1.place(x=0, y=0)
         self.button2.place(x=b2x, y=b2y)
 

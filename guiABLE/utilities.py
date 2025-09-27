@@ -1,4 +1,4 @@
-from tkinter import PhotoImage, TclError, Canvas
+from tkinter import PhotoImage, TclError, Widget
 from os import path as osPath
 from sys import argv as sysArgV
 
@@ -196,7 +196,7 @@ def rectUnion(a_xywh, b_xywh) -> tuple[int,int,int,int]:
 def limitMove(pos:int, extent:int, min_val:int, max_val:int) -> int:
     return max(min_val, min(pos, max_val - extent))
 
-def getLocalMouse(widget:Canvas) -> (int, int, bool):
+def getLocalMouse(widget:Widget) -> tuple[int, int, bool]:
     px, py = widget.winfo_pointerxy()
     x = px - widget.winfo_rootx()
     y = py - widget.winfo_rooty()

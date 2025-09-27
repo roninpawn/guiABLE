@@ -2,7 +2,6 @@ import tkinter as tk
 from time import time
 from typing import Callable
 
-from guiABLE.windowing import FakeCanvas
 from guiABLE.skinnable import Skinnable, FilterSkin, SingleSkin
 from guiABLE.utilities import limitMove, rectsOverlap, rectUnion, pointIsInRect, fastBlit
 
@@ -162,45 +161,6 @@ class Canvas(Skinnable, Siblingable, tk.Canvas):
                 self.dropSibling(sibling)
 
 
-class TextCanvas(Skinnable, FakeCanvas):
-    def __init__(self, parent, *args, **kwargs):
-        super().__init__(parent, *args, **kwargs)
-
-        self.bind("<Configure>", self._refresh)
-        self._img_state = 0
-        self._parent = parent
-
-        self.bench, self.benches = 0, 0
-
-    @property
-    def parent(self): return self._parent
-
-    def setState(self, state_index:int = 0):
-        start = time()
-
-        self._img_state = state_index
-
-        img_size = self._skin.resolution(0)
-        canvas_size = self._geometry[2:]
-
-        if img_size != (0,0) and img_size != canvas_size:
-            self._skin = FilterSkin(self._skin, crop=(0, 0, *canvas_size) )
-            self.dirty = True
-
-        self.render(self._skin.image(self._img_state))
-
-        self.bench += time() - start
-        self.benches += 1
-        if self.benches >= 100:
-            print(f"{round(self.bench / 100, 5)}s per draw. (TextCanvas)")
-            self.bench, self.benches = 0, 0
-
-    def redraw(self):
-        self.setState(self._img_state)
-        if self.dirty:
-            for child in self._children: child.redraw()
-            self.dirty = False
-
 """
 A Backgroundable is a simple, static, one-image canvas to serve as the stage for attaching widgets. 
 """
@@ -229,7 +189,7 @@ class Imageable:
 
 
 """ Widgetable establishes the base of the widget chain, providing basic access methods and on/off states. """
-class Widgetable:
+class Stateable:
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
 
@@ -251,7 +211,7 @@ class Widgetable:
 
 
 """ Hoverable adds mouse-over awareness and triggers state-change/redraws on mouse-in and mouse-out. """
-class Hoverable(Widgetable):
+class Hoverable(Stateable):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.moused_over = False
@@ -519,33 +479,103 @@ class Draggable(LoneDraggable):
                 sibling.trackSibling(self, atop)
 
 
-# 3 types of Buttons could be an option under a Button class that returns an object of the correct type.
-# 2 types of Drag could be an option...
+"""
+A FakeCanvas is a tk.Text window configured to eliminate all text-features and provide a simple canvas. This is needed
+because tkinter's tk.Canvas does not track/update its 'dirty' rectangle correctly. This issue of slow/wrong redraws
+was solved in the Text widget, but nowhere else. So tk.Text is used as a render-floor for moving other widgets atop.
+"""
+class FakeCanvas(tk.Text):
+    def __init__(self, parent, width:int, height:int, **kwargs):
+        super().__init__(parent, bd=0, padx=0, pady=0, state="disabled", cursor="arrow", **kwargs)
+
+        self.configure(bg=self.cget("bg"))
+        self.place_configure(width=width, height=height)
+
+    def configure(self, **kw):
+        if "bg" in kw:      # Pass changes to bg through to the 'selectbackground' to maintain non-tk.Text() illusion.
+            kw["selectbackground"] = kw["bg"]
+        if "background" in kw:
+            kw["selectbackground"] = kw["background"]
+        super().configure(**kw)
+
+    def render(self, image:tk.PhotoImage, pad_x:int=0, pad_y:int=0):
+        self.configure(state="normal")
+        self.delete(1.0, "end")
+        self.image_create("end", image=image, padx=pad_x, pady=pad_y)
+        self.configure(state="disabled")
+
+
+""" TextCanvas utilizes FakeCanvas to create an alternate widget-chain base. Other [widget]able types can be mixed-in
+    with TextCanvas to create an animation-friendly floor, that has all the features of that [widget]able. As a floor-
+    widget, TextCanvas does not provide a transparent view of its parent. It is meant to be the visual bottom. """
+class TextCanvas(Skinnable, FakeCanvas):
+    def __init__(self, parent, *args, **kwargs):
+        super().__init__(parent, *args, **kwargs)
+
+        self.bind("<Configure>", self._refresh)
+        self._img_state = 0
+        self._parent = parent
+
+        self.bench, self.benches = 0, 0
+
+    @property
+    def parent(self): return self._parent
+
+    def setState(self, state_index:int = 0):
+        start = time()
+
+        self._img_state = state_index
+
+        img_size = self._skin.resolution(0)
+        canvas_size = self._geometry[2:]
+
+        if img_size != (0,0) and img_size != canvas_size:
+            self._skin = FilterSkin(self._skin, crop=(0, 0, *canvas_size) )
+            self.dirty = True
+
+        self.render(self._skin.image(self._img_state))
+
+        self.bench += time() - start
+        self.benches += 1
+        if self.benches >= 100:
+            print(f"{round(self.bench / 100, 5)}s per draw. (TextCanvas)")
+            self.bench, self.benches = 0, 0
+
+    def redraw(self):
+        self.setState(self._img_state)
+        if self.dirty:
+            for child in self._children: child.redraw()
+            self.dirty = False
+
+
+""" Public Classes and IDE-Helper Definitions """
 class Background(Backgroundable, TextCanvas):
     def __init__(self, parent, width:int, height:int, skin:SingleSkin=None, **kwargs):
         super().__init__(parent, width, height, skin=skin, **kwargs)
 class Hover(Hoverable, Canvas):
     def __init__(self, parent, skin=None, **kwargs):
         super().__init__(parent, skin=skin, **kwargs)
-class InstantButton(Clickable, Canvas):
-    def __init__(self, parent, function=lambda:None, skin=None, **kwargs):
-        super().__init__(parent, function, skin=skin, **kwargs)
 class Button(Pushable, Canvas):
-    def __init__(self, parent, function=lambda:None, skin=None, **kwargs):
+    def __init__(self, parent, skin=None, function=lambda:None, **kwargs):
         super().__init__(parent, function, skin=skin, **kwargs)
+class InstantButton(Clickable, Canvas):
+    def __init__(self, parent, skin=None, function=lambda:None, **kwargs):
+        super().__init__(parent, function, skin=skin, **kwargs)
+class RepeatButton(Repeatable, Canvas):
+    def __init__(self, parent, skin=None, function=lambda:None, delay=150, init_delay=400, **kwargs):
+        super().__init__(parent, function, skin=skin, delay=delay, init_delay=init_delay, **kwargs)
 class Label(Labelable, Canvas):
-    def __init__(self, parent, text="", font=("Arial", 12, "bold"), skin=None, function=lambda:None, **kwargs):
+    def __init__(self, parent, skin=None, text="", font=("Arial", 12, "bold"), function=lambda:None, **kwargs):
         super().__init__(parent, function, skin=skin, text=text, font=font, **kwargs)
 class Checkbox(Toggleable, Canvas):
-    def __init__(self, parent, state=False, function=lambda:None, skin=None, **kwargs):
+    def __init__(self, parent, skin=None, function=lambda:None, state=False, **kwargs):
         super().__init__(parent, function, state=state, skin=skin, **kwargs)
-class RepeatButton(Repeatable, Canvas):
-    def __init__(self, parent, function=lambda:None, skin=None, delay=150, init_delay=400, **kwargs):
-        super().__init__(parent, function, skin=skin, delay=delay, init_delay=init_delay, **kwargs)
-class LoneDrag(LoneDraggable, Canvas):
-    def __init__(self, parent, function=lambda:None, skin=None, **kwargs):
-        super().__init__(parent, function, skin=skin, **kwargs)
 class Drag(Draggable, Canvas):
+    def __init__(self, parent, skin=None, function=lambda:None, **kwargs):
+        super().__init__(parent, function, skin=skin, **kwargs)
+
+# Specialized Widgets
+class LoneDrag(LoneDraggable, Canvas):
     def __init__(self, parent, function=lambda:None, skin=None, **kwargs):
         super().__init__(parent, function, skin=skin, **kwargs)
 class TroughButton(Repeatable, TextCanvas):
