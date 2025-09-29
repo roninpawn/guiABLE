@@ -76,6 +76,7 @@ class Canvas(Skinnable, Siblingable, tk.Canvas):
         self.dirty = True
         self._z_state, self._z_img = None, None
         self._img_state = 0
+        self._img = self.create_image(0, 0, anchor="nw")
 
     def redraw(self):
         # If the skin that this widget uses has changed, all of its children must redraw.
@@ -84,9 +85,8 @@ class Canvas(Skinnable, Siblingable, tk.Canvas):
             for child in self._children: child.redraw()
             self.dirty = False
 
-    def render(self, image:tk.PhotoImage, x:int = 0, y:int = 0):
-        self.delete("all")
-        self.create_image(x, y, image=image, anchor="nw")
+    def render(self, image:tk.PhotoImage):
+        self.itemconfig(self._img, image=image)
 
     # The ZImage() is a persistent render of what the widget looks like on its own. Only updated if something changed.
     def zImage(self) -> tk.PhotoImage:
@@ -105,21 +105,42 @@ class Canvas(Skinnable, Siblingable, tk.Canvas):
 
         self._img_state = state_index
 
-        # Handle opaqueness vs transparency
-        if self._skin.usesBgColors():       # Opaque skips siblings beneath it.
-            siblings = [self]
-        else:
-            siblings = list(self._siblings_beneath)
-            siblings.append(self)
+        # TODO: Reduce draw area to caller's last and new geometry. Small crops to existing surfaces, not full blits.
+        union = rectUnion(self._geometry, self._last_geometry)
+        # Get overlapping siblings
+            # Prepare list of rectangles describing how each sibling overlaps the union
+            # If former sibling nolonger overlaps, stop tracking sibling.
+        # Cull by visibility
+            # If an opaque sibling (or multiple together) fully obscure(s) a sibling beneath, cull beneath from list.
+                # decimateRect()
+                # Function that subtracts from one rectangle, dividing into multiple rects as needed, from a list of
+                # other rects, one by one. If any rectangle remains at the end, its still visible. Else, obscured.
+                # Append top opaque rects to a blocking-list until a transparent sibling is found, then test against
+                # all. Then find next opaque and append until another transparent is reached.
+                # Test top opaque(s) against all beneath; then append next opaque and test all beneath the pair; and so on.
+
+        # Create a base image, of union size, to blit background and zImages to.
+        # Determine the VISIBLE area of background.
+            # Get union of transparent widgets only.
+            # Test list of all opaque siblings against the visible area and reduce again.
+        # Blit VISIBLE area of background to base, if necessary.
+        # For each sibling in list
+            # Crop the visible portion of its zImage to the base.
+            # If atop (including self) crop its visible portion from base to surface of sibling.
+
+        # TODO: Cull siblings by true visibility. (Is fully blocked by opaque element atop?)
+        siblings = list(self._siblings_beneath)
+        siblings.append(self)
 
         # Add all atop-siblings if any one of them is transparent.
         for sibling in self._siblings_atop:
-            if not sibling.skin.usesBgColors():
+            if not sibling.isOpaque():
                 siblings.extend(self._siblings_atop)
                 break
 
         # If any sibling has siblings below them, unknown to the caller, add them to the job.
         # (Ensures all lower widgets are included in final composite -- No disappearing siblings on hover.)
+        # TODO: Why add step-siblings from beneath siblings that are below self? If below and unseen, why draw?
         out_siblings = []
         for sibling in siblings:
             for sb in sibling.siblingsBeneath:
@@ -136,29 +157,34 @@ class Canvas(Skinnable, Siblingable, tk.Canvas):
             self.bench, self.benches = 0, 0
 
     def _compositeUnion(self, siblings:list):
+        # Determine what the unioned area will be, by finding the toppest left and bottomest right of all siblings.
         u_rect = self.geometry
         for sibling in siblings: u_rect = rectUnion(u_rect, sibling.geometry)
         x, y, w, h = u_rect
+        base = tk.PhotoImage(width=w, height=h)     # Make a base image to draw all sibling images onto.
 
-        # TODO: Test whether its faster to maintain a scratch the size of the parent, or make a new image each time.
-        base = tk.PhotoImage(width=w, height=h)
-        iw, ih = self._parent.skin.resolution()
-        fastBlit(base, w, h, self._parent.skin.image(), iw, ih, 0, 0, w, h, x, y)
+        # If only drawing self and self's skin is opaque, the background can't be seen, so skip it.
+        if len(siblings) > 1 or not self.isOpaque():
+            iw, ih = self._parent.skin.resolution()     # Copy the parent's image to the base.
+            fastBlit(base, w, h, self._parent.skin.image(), iw, ih, 0, 0, w, h, x, y)
 
         # Draw each layer to a base image and then crop from that base to each widget's surface, as we go.
         atop = False
         for sibling in siblings:
-            if sibling == self: atop = True
-            sx, sy, sw, sh = sibling.geometry
+            sx, sy, sw, sh = sibling.geometry       # Composite the sibling's own image onto the base image.
             dx, dy = sx-x, sy-y
             fastBlit(base, w, h, sibling.zImage(), sw, sh, dx, dy, sw, sh)
-            final = sibling.scratchImage()
-            if atop:
+
+            # Start rendering to the surface of self and any widgets atop once we've drawn up to the calling widget.
+            if sibling == self: atop = True
+            if atop and (sibling == self or not sibling.isOpaque()):    # Skip if widget atop is opaque.
+                final = sibling.scratchImage()      # Render to surface of widget.
                 fastBlit(final, sw, sh, base, w, h, 0, 0, sw, sh, dx, dy)
                 sibling.render(final)
+
             if not rectsOverlap(self.geometry, sibling.geometry):
                 sibling.dropSibling(self)
-                self.dropSibling(sibling)
+                self.dropSibling(sibling)       # Siblings stop tracking each other when they cease to overlap.
 
 
 """
@@ -201,6 +227,8 @@ class Stateable:
 
     @property
     def state(self): return self._img_state
+    def isOpaque(self):         return (self.skin.usesBgColors() or self.skin.isOpaque(self.state)) \
+                                        and self.skin.resolution(self.state) == self.size
 
     @property
     def enabled(self) -> bool : return self._enabled
@@ -302,20 +330,26 @@ class Pushable(Clickable):
 
 
 class Labelable(Pushable):
-    def __init__(self, *args, text="", text_pos=(0,0), font="Times", color="gray", drop_pos=(0, 0), drop_color="black",
+    def __init__(self, *args, text="", text_pos=(0,0), font="Times", color="gray", drop_pos=(2, 2), drop_color="gray25",
                  **kwargs):
         self.text, self.text_pos, self.color, self.font = text, text_pos, color, font
         self.drop_pos, self.drop_color, = drop_pos, drop_color
+        self._img_text, self._img_text_shadow = None, None
         super().__init__(*args, **kwargs)
 
     def drawText(self):
         x, y = self.text_pos
         dx, dy = self.drop_pos
-        self.create_text(x + dx, y + dy, text=self.text, fill=self.drop_color, font=self.font, anchor="nw")
-        self.create_text(x, y, text=self.text, fill=self.color, font=self.font, anchor="nw")
 
-    def render(self, image:tk.PhotoImage, x:int = 0, y:int = 0):
-        super().render(image, x, y)
+        # If text has not been rendered yet, create text layers.
+        if self._img_text_shadow is None:
+            self._img_text_shadow = self.create_text(x + dx, y + dy, text=self.text, fill=self.drop_color,
+                                                     font=self.font, anchor="nw")
+        if self._img_text is None:
+            self._img_text = self.create_text(x, y, text=self.text, fill=self.color, font=self.font, anchor="nw")
+
+    def render(self, image:tk.PhotoImage):
+        super().render(image)
         self.drawText()
 
     def mouseOut(self, event):

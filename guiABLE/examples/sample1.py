@@ -30,6 +30,9 @@ def test_gui():
     test_drag = Drag(bg, skin=drag_skin, width=64, height=64)
     test_drag.place(x=260, y=24)
 
+    opaque_test = Button(bg, btn_skin, lambda: print("Opaque clicked!"), width=22, height=23)
+    opaque_test.place(x=280, y=45)
+
     # Create a Label (button with text overlay)
     test_label = Label(bg, btn_skin, function=lambda: print("Label clicked!"),
                            text="Hello", text_pos=(10, 5), font=("Arial", 12, "bold"), color="white",

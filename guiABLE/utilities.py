@@ -143,6 +143,13 @@ def tileImage(brush:PhotoImage, canvas:PhotoImage, bbox:tuple[int,int,int,int]):
     fastTile(brush, brush.width(), brush.height(), canvas, canvas.width(), canvas.height(), bbox)
 
 
+def isOpaque(image:PhotoImage) -> bool:
+    for y in range(image.height()):
+        for x in range(image.width()):
+            if image.transparency_get(x, y): return False
+    return True
+
+
 """
  ---------- Widget Utility Functions ----------
 getGeometry() fetches Winfo_ geometry by string and parses the string into ints. This was found to be slightly faster

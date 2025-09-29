@@ -1,7 +1,7 @@
 import tkinter as tk
 
 from guiABLE.utilities import (warnPrint, resolvePath, cropImage, loadImage, getGeometry,
-                               fastFlood, fastTile, flipImage, rotateImage, fastBlit)
+                               fastFlood, fastTile, flipImage, rotateImage, fastBlit, isOpaque)
 
 
 """ Receivable is a base class that lets widgets register with it, and provides methods for updating those recipients. """
@@ -27,7 +27,7 @@ class Receivable:
 class CoreSkin(Receivable):
     def __init__(self):
         super().__init__()
-        self._paths, self._images, self._resolutions = [], [], []
+        self._paths, self._images, self._resolutions, self._is_opaque = [], [], [], []
         self._empty_image = tk.PhotoImage()
         self._default_colors = ['gray42', 'gray51', 'gray78', 'gray27']
         self._bg_colors = self._default_colors
@@ -43,7 +43,7 @@ class CoreSkin(Receivable):
 
     @property
     def images(self) -> list[tk.PhotoImage]: return self._images
-    def image(self, index: int = 0) -> tk.PhotoImage:
+    def image(self, index:int = 0) -> tk.PhotoImage:
         if self._images:
             # If bg_colors in use, use FilterSkin to composite, cache, and return without corrupting held images.
             if self._use_bg_colors:
@@ -59,6 +59,14 @@ class CoreSkin(Receivable):
             image_index %= len(self._resolutions)
             return self._resolutions[image_index]
         return 0, 0
+
+    @property
+    def opaqueList(self) -> list[bool]: return self._is_opaque
+    def isOpaque(self, image_index: int=0) -> bool:
+        if any(self._is_opaque):
+            image_index %= len(self._resolutions)
+            return self._is_opaque[image_index]
+        return False
 
     @property
     def bg_colors(self) -> list[str]: return self._bg_colors
@@ -96,6 +104,7 @@ class CoreSkin(Receivable):
             self._resolutions[index] = (image.width(), image.height()) if isinstance(image, tk.PhotoImage) else (0,0)
         else: self._resolutions[index] = resolution
         self._paths[index] = path
+        self._is_opaque[index] = isOpaque(image)
 
     @staticmethod
     def _fillList(in_list:list) -> list:
@@ -112,6 +121,7 @@ class CoreSkin(Receivable):
             if len(self._paths) < size:         self._paths.append(None)
             if len(self._images) < size:        self._images.append(None)
             if len(self._resolutions) < size:   self._resolutions.append((0,0))
+            if len(self._is_opaque) < size:     self._is_opaque.append(False)
 
 
 """ SingleSkin is a minimal skin container for holding one image. Used with static images and backgrounds. """
@@ -121,6 +131,7 @@ class SingleSkin (CoreSkin):
         self._default_colors = ['gray23']
         self._bg_colors = self._default_colors
         self._expand(1)
+        self._work_image = None
 
         self._paths = [resolvePath(path)]
         if path: self._saveImage(self._imageByPath(self._paths[0]), 0, self._paths[0])
@@ -143,6 +154,13 @@ class SingleSkin (CoreSkin):
         self._paths = [resolvePath(path)]
         if path: self._saveImage(self._imageByPath(self._paths[0]), 0, self._paths[0])
     def setColor(self, color:str, index:int = 0): self._bg_colors = [color]
+
+    def workImage(self, index:int = 0) -> tk.PhotoImage:
+        if self._work_image is None and self._images:
+            w, h = self._images[0].width(), self._images[0].height()
+            self._work_image = tk.PhotoImage(width=w, height=h)
+            fastBlit(self._work_image, w, h, self._images[0], w, h, 0, 0, w, h)
+        return self._work_image
 
 
 """
@@ -592,6 +610,7 @@ class BarSkin(DirtySkin, ColorSkin):
             if len(self._paths) < size:         self._paths.append(None)
             if len(self._images) < size:        self._images.append(True)       # True appears as though hasImages()
             if len(self._resolutions) < size:   self._resolutions.append((0,0))
+            if len(self._is_opaque) < size:     self._is_opaque.append(False)
 
 
 """ SkinPack is a container class for holding multiple skins, that exists only to be extended by its children. """
@@ -715,7 +734,7 @@ class Measurable:
         w = kwargs['width'] if 'width' in kwargs else 0
         h = kwargs['height'] if 'height' in kwargs else 0
         self._geometry = (0, 0, w, h)
-        self._last_geometry = (-1, -1, -1, -1)
+        self._last_geometry = (0, 0, 0, 0)
 
         super().__init__(*args, **kwargs)
 

@@ -162,7 +162,7 @@ class Scrollable(Measurable, tk.Frame):
 
     def scrollByDest(self, dest_x:int|None, dest_y:int|None, move_handles:bool = True):
         if dest_x is not None or dest_y is not None:
-            # Convert to delta and clamp to scroll range.
+            # Convert to delta.
             px, py, = self._frame.plate_geometry[:2]
             delta_x = dest_x - px if dest_x is not None else 0
             delta_y = dest_y - py if dest_y is not None else 0
@@ -206,6 +206,11 @@ class Scrollable(Measurable, tk.Frame):
                 px, py = px + delta_x, py + delta_y
                 self._frame.plate_geometry = (px, py, pw, ph)
 
+                # Move scroll handles to match new plate position, if requested.
+                if move_handles:
+                    if sw: self.h_bar.moveHandle(px / sw)
+                    if sh: self.v_bar.moveHandle(py / sh)
+
                 # Move children
                 fw, fh = self._frame.geometry[2:]
                 for child in self._frame.getChildren():
@@ -225,11 +230,6 @@ class Scrollable(Measurable, tk.Frame):
                         child.scroll_xy = -px + new_x, -py + new_y
                         child._geometry = (0, -ch, cw, ch)
                         child.place_configure(x=0, y=-ch, skip=True)
-
-                # Move scroll handles to match new plate position, if requested.
-                if move_handles:
-                    if sw: self.h_bar.moveHandle(px / sw)
-                    if sh: self.v_bar.moveHandle(py / sh)
 
 
 class ScrollFrame(Background):
@@ -325,6 +325,8 @@ class ScrollBar(Background):
     def directions(self): return self._directions
     @property
     def orientation(self): return self._orientation
+    @property
+    def vertical(self): return bool(self._orientation[0])
 
     @property
     def enabled(self): return self._enabled
@@ -382,9 +384,6 @@ class ScrollBar(Background):
                 b2_loc[o] = trough_geo[o] + tl
                 self.button2.place_configure(x=b2_loc[0], y=b2_loc[1])
 
-    @property
-    def vertical(self): return bool(self._orientation[0])
-
     def handleDragged(self):
         p = self._handle.geometry[self.vertical]
         s = self._trough.scroll_range[self.vertical]
@@ -413,13 +412,13 @@ class ScrollBar(Background):
 
         self._handle.move(*move)
 
-    def troughClicked(self, click_x:int, click_y:int, duration:int):
+    def troughClicked(self, button_clicked: int, click_x:int, click_y:int, duration:int):
         o = self.vertical
         click = (click_x, click_y)
         direction = 1 if click[o] < self._handle.middle[o] else -1
 
         # Instant scrolling goes straight to the point that was clicked.
-        if self.instant_scroll:
+        if self.instant_scroll and button_clicked == 1 or not self.instant_scroll and button_clicked == 2:
             handle_px = click[o] - (self._handle.geometry[o+2] // 2)
             per = handle_px / self._trough.scroll_range[o]
             destination = -(self.parent.frame.plate_geometry[o] + int(per * self.parent.frame.scroll_range[o]))
@@ -556,9 +555,13 @@ class ScrollTrough(TroughButton):
 
     def enable(self):
         super().enable()
+        self.bind("<Button-2>", self.clicked)
+        self.bind("<ButtonRelease-2>", self.mouseUp)
         if self._handle: self._handle.enable()
     def disable(self):
         super().disable()
+        self.unbind("<Button-2>")
+        self.unbind("<ButtonRelease-2>")
         if self._handle: self._handle.disable()
 
     @property
@@ -580,9 +583,9 @@ class ScrollTrough(TroughButton):
         super().setState(state_index)
 
     def clicked(self, event):
-        self._clicking = True
+        self._clicking = event.num
         self.setState(2)
-        self.parent.troughClicked(event.x, event.y, self.delay)     # Pass click event to parent ScrollBar for handling.
+        self.parent.troughClicked(event.num, event.x, event.y, self.delay)      # Pass to parent ScrollBar for handling.
         self.after(self.init_delay, self._keepClicking)
 
     def registerChild(self, child):
@@ -599,8 +602,8 @@ class ScrollTrough(TroughButton):
                 mx, my, _ = getLocalMouse(self)
                 hx, hy, hw, hh = self._handle.geometry
                 if self._vertical:
-                    if not hy < my < hy+hh: self.parent.troughClicked(*getLocalMouse(self)[:2], self.delay)
-                elif   not hx < mx < hx+hw: self.parent.troughClicked(*getLocalMouse(self)[:2], self.delay)
+                    if not hy < my < hy+hh: self.parent.troughClicked(self._clicking, *getLocalMouse(self)[:2], self.delay)
+                elif   not hx < mx < hx+hw: self.parent.troughClicked(self._clicking, *getLocalMouse(self)[:2], self.delay)
 
             self.after(self.delay, self._keepClicking)
 
