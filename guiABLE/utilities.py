@@ -1,6 +1,12 @@
 from tkinter import PhotoImage, TclError, Widget
 from os import path as osPath
 from sys import argv as sysArgV
+from typing import NamedTuple
+
+
+class Overlap(NamedTuple):
+    crop: tuple[int,int,int,int]   # (x,y,w,h) of other's coords -- to crop from
+    insert: tuple[int,int]         # (x,y) in self coords -- position to composite to
 
 
 def warnPrint(message:any, *, level:str = "warning"):
@@ -176,8 +182,28 @@ def geometryFromString(geometry:str) -> tuple[int, int, int, int]:
     except Exception:
         raise ValueError(f"Invalid geometry string: '{geometry}'")
 
+""" 
+getOverlap() returns the overlapping area of 'other' along with the x, y point in self where the overlap begins.
+Passing order is important. The return of this function is used as 'instructions' for cropping the overlapping area from
+'other' and compositing them onto 'self' in sibling-transparency.    
+"""
+def getOverlap(self_xywh:tuple, other_xywh:tuple) -> Overlap | None:
+    inter = rectIntersect(self_xywh, other_xywh)
+    if not inter: return None
 
-""" rectsOverlap() is the fastest method for finding whether two areas overlap each other. """
+    ix, iy, iw, ih = inter
+    sx, sy = self_xywh[:2]
+    ox, oy = other_xywh[:2]
+
+    return Overlap(
+        crop=(ix - ox, iy - oy, iw, ih),        # Overlap region in other's coords, for cropping from other
+        insert=(ix - sx, iy - sy)               # Insert location in self's coords
+    )
+
+"""
+rectsOverlap() was found to be the fastest method for finding whether two areas overlap each other. It is 2-3x faster
+than getOverlap, and therefore suitable as a pre-test to determine which areas need getOverlap().
+"""
 def rectsOverlap(a_xywh, b_xywh) -> bool:
     ax, ay, aw, ah = a_xywh
     bx, by, bw, bh = b_xywh
@@ -189,15 +215,69 @@ def rectsOverlap(a_xywh, b_xywh) -> bool:
         ay >= by + bh       # a is below b
     )
 
+def rectIntersect(a_xywh:tuple, b_xywh:tuple) -> tuple|None:
+    ax, ay, aw, ah = a_xywh
+    bx, by, bw, bh = b_xywh
+
+    ix = max(ax, bx)
+    iy = max(ay, by)
+    fx = min(ax + aw, bx + bw)
+    fy = min(ay + ah, by + bh)
+
+    if fx <= ix or fy <= iy: return None
+    return ix, iy, fx - ix, fy - iy     # (x,y,w,h)
+
 def pointIsInRect(x:int, y:int, rect:tuple[int,int,int,int]) -> bool:
     rx, ry, rw, rh = rect
     return rx+rw > x >= rx and ry+rh > y >= ry
 
-def rectUnion(a_xywh, b_xywh) -> tuple[int,int,int,int]:
+def rectUnion(a_xywh:tuple[int,int,int,int], b_xywh:tuple[int,int,int,int]) -> tuple[int,int,int,int]:
     ax, ay, aw, ah = a_xywh
     bx, by, bw, bh = b_xywh
     ox, oy = min(ax, bx), min(ay, by)
     return ox, oy, max(ax+aw, bx+bw)-ox, max(ay+ah, by+bh)-oy
+
+def rectsUnion(*args:tuple[int,int,int,int]) -> tuple[int,int,int,int]:
+    out = args[0]
+    if len(args) > 1:
+        for rect in args[1:]:
+            out = rectUnion(out, rect)
+    return out
+
+def subtractRect(base_xywh, cutter_xywh):
+    bx, by, bw, bh = base_xywh
+    cx, cy, cw, ch = cutter_xywh
+
+    # Convert to outer edges
+    b_left, b_top, b_right, b_bottom = bx, by, bx + bw, by + bh
+    c_left, c_top, c_right, c_bottom = cx, cy, cx + cw, cy + ch
+
+    # Base survives unchanged if no overlap.
+    if c_right <= b_left or c_left >= b_right or c_bottom <= b_top or c_top >= b_bottom: return [base_xywh]
+    # Base is completely destroyed if fully overlapped.
+    if c_left <= b_left and c_right >= b_right and c_top <= b_top and c_bottom >= b_bottom: return []
+
+    rects = []
+    clip_top = max(b_top, c_top)
+    clip_bottom = min(b_bottom, c_bottom)
+    clip_height = clip_bottom - clip_top
+
+    if c_top > b_top: rects.append((b_left, b_top, bw, c_top - b_top))                          # Top strip
+    if c_bottom < b_bottom: rects.append((b_left, c_bottom, bw, b_bottom - c_bottom))           # Bottom strip
+    if c_left > b_left: rects.append((b_left, clip_top, c_left - b_left, clip_height))          # Left strip
+    if c_right < b_right: rects.append((c_right, clip_top, b_right - c_right, clip_height))     # Right strip
+
+    return [r for r in rects if r[2] > 0 and r[3] > 0]
+
+def decimateRect(rect_xywh, cutter_rects):
+    survivors = [rect_xywh]
+    for cutter in cutter_rects:
+        new_survivors = []
+        for s in survivors: new_survivors.extend(subtractRect(s, cutter))
+        survivors = new_survivors
+        if not survivors: break
+    return survivors
+
 
 # Below are old utility methods that could probably be rewritten or deprecated entirely.
 def limitMove(pos:int, extent:int, min_val:int, max_val:int) -> int:

@@ -2,9 +2,11 @@ import tkinter as tk
 from time import time
 from typing import Callable
 
-from guiABLE.skinnable import Skinnable, FilterSkin, SingleSkin
-from guiABLE.utilities import limitMove, rectsOverlap, rectUnion, pointIsInRect, fastBlit
+from pygments.lexers import q
 
+from guiABLE.skinnable import Skinnable, FilterSkin, SingleSkin, Measurable
+from guiABLE.utilities import limitMove, rectsOverlap, rectUnion, pointIsInRect, fastBlit, getOverlap, decimateRect, \
+    rectIntersect, rectsUnion
 
 """ Siblingable is a mixin that provides parent/sibling awareness & overlap tracking.  """
 class Siblingable:
@@ -13,30 +15,21 @@ class Siblingable:
         self.bind("<Map>", self._bond)
 
         self._parent = parent
-        self._siblings_atop, self._siblings_beneath = list(), list()     # Overlapping siblings, by below/above z-index.
+        self._siblings = []
 
     @property
     def parent(self): return self._parent
 
     # Overlapping siblings track each other for the sake of compositing (faking transparency) during redraw.
-    @property
-    def siblingsBeneath(self): return self._siblings_beneath
-    @property
-    def siblingsAtop(self): return self._siblings_atop
-    def trackSibling(self, sibling, z_above: bool):
-        if z_above:
-            if sibling not in self._siblings_atop:
-                self._siblings_atop.append(sibling)
-            if sibling in self._siblings_beneath:
-                self._siblings_beneath.remove(sibling)
-        else:
-            if sibling not in self._siblings_beneath:
-                self._siblings_beneath.append(sibling)
-            if sibling in self._siblings_atop:
-                self._siblings_atop.remove(sibling)
+    def trackSibling(self, new_sibling):
+        if new_sibling not in self._siblings:
+            family = list(self.parent.getChildren())
+            for i in range(len(family)-1, -1, -1):
+                if family[i] not in self._siblings and family[i] != new_sibling: family.pop(i)
+            self._siblings = family
+
     def dropSibling(self, sibling):
-        if sibling in self._siblings_atop: self._siblings_atop.remove(sibling)
-        elif sibling in self._siblings_beneath: self._siblings_beneath.remove(sibling)
+        if sibling in self._siblings: self._siblings.remove(sibling)
 
     # Override methods that change z-index, to track and report changes to all interested parties.
     def lift(self, above=None):
@@ -50,19 +43,22 @@ class Siblingable:
         self.after_idle(self._findOverlappingSiblings, self.parent.getChildren())
 
     # Find overlapping siblings and store them / register with them, for future tracking.
-    def _findOverlappingSiblings(self, siblings_list):
-        above = True        # z-order state of self in reference to sibling
-        for sibling in siblings_list:
-            if sibling is self: above = False
-            elif isinstance(sibling, Siblingable) and rectsOverlap(self._geometry, sibling.geometry):
-                if sibling in self._siblings_atop or sibling in self._siblings_beneath: sibling.dropSibling(self)
-                sibling.trackSibling(self, above)
-                if above: self._siblings_beneath.append(sibling)
-                else: self._siblings_atop.append(sibling)
+    def _findOverlappingSiblings(self, siblings_list = None):
+        new_siblings = []
+        if siblings_list is None: siblings_list = self._parent.getChildren()
+
+        for sibling in list(siblings_list):
+            if isinstance(sibling, Measurable) and rectsOverlap(self._geometry, sibling.geometry):
+                new_siblings.append(sibling)
+                if isinstance(sibling, Siblingable) and sibling not in self._siblings:
+                    sibling.trackSibling(self)
+
+        self._siblings = new_siblings
 
     def _bond(self, event=None):
-        if isinstance(self, tk.Canvas): self.after_idle(self._parent.registerChild, self)
-        self._findOverlappingSiblings(self._parent.getChildren())
+        self._parent.registerChild(self)
+        self._findOverlappingSiblings()
+        self.after_idle(self.setState, 0)
 
 
 """ Canvas defines how to render images to the surface of the tk.Canvas to support parent & sibling transparency. """
@@ -102,53 +98,55 @@ class Canvas(Skinnable, Siblingable, tk.Canvas):
 
     def setState(self, state_index:int = 0):
         start = time()
-
         self._img_state = state_index
 
-        # TODO: Reduce draw area to caller's last and new geometry. Small crops to existing surfaces, not full blits.
+        # Prevent moving widgets from "staining" siblings they pass under by drawing to new location AND last location.
         union = rectUnion(self._geometry, self._last_geometry)
-        # Get overlapping siblings
-            # Prepare list of rectangles describing how each sibling overlaps the union
-            # If former sibling nolonger overlaps, stop tracking sibling.
-        # Cull by visibility
-            # If an opaque sibling (or multiple together) fully obscure(s) a sibling beneath, cull beneath from list.
-                # decimateRect()
-                # Function that subtracts from one rectangle, dividing into multiple rects as needed, from a list of
-                # other rects, one by one. If any rectangle remains at the end, its still visible. Else, obscured.
-                # Append top opaque rects to a blocking-list until a transparent sibling is found, then test against
-                # all. Then find next opaque and append until another transparent is reached.
-                # Test top opaque(s) against all beneath; then append next opaque and test all beneath the pair; and so on.
 
-        # Create a base image, of union size, to blit background and zImages to.
-        # Determine the VISIBLE area of background.
-            # Get union of transparent widgets only.
-            # Test list of all opaque siblings against the visible area and reduce again.
-        # Blit VISIBLE area of background to base, if necessary.
-        # For each sibling in list
-            # Crop the visible portion of its zImage to the base.
-            # If atop (including self) crop its visible portion from base to surface of sibling.
+        """ Reduce union and siblings to only what is visible and necessary to draw. """
+        # Reduce union to the visible boundaries of the caller's parent. (Don't draw what is off screen.)
+        if isinstance(self.parent, Measurable): union = rectIntersect(union, (0, 0, *self.parent.size))
+        if union is None: return
 
-        # TODO: Cull siblings by true visibility. (Is fully blocked by opaque element atop?)
-        siblings = list(self._siblings_beneath)
-        siblings.append(self)
+        # Cull caller's siblings by overlap and visibility, and generate a list of any opaque-sibling's geometries.
+        siblings, overlaps, opaque_rects = self._cull_siblings(self._siblings, union)
 
-        # Add all atop-siblings if any one of them is transparent.
-        for sibling in self._siblings_atop:
-            if not sibling.isOpaque():
-                siblings.extend(self._siblings_atop)
-                break
+        # Determine if the union can be shrunk again, due to opaque siblings blocking whole axes of the union's surface.
+        union_remains = decimateRect((0, 0, *union[2:]), opaque_rects)
+        if union_remains:
+            local_union = rectsUnion(*union_remains) if len(union_remains) > 1 else union_remains[0]
+            new_union = (union[0] + local_union[0], union[1] + local_union[1], *local_union[2:])
+            # If the union can shrink, shrink it and recalculate how the remaining siblings overlap the union.
+            if union != new_union:
+                union = new_union
+                siblings.reverse()
+                siblings, overlaps, opaque_rects = self._cull_siblings(siblings, union)
 
-        # If any sibling has siblings below them, unknown to the caller, add them to the job.
-        # (Ensures all lower widgets are included in final composite -- No disappearing siblings on hover.)
-        # TODO: Why add step-siblings from beneath siblings that are below self? If below and unseen, why draw?
-        out_siblings = []
-        for sibling in siblings:
-            for sb in sibling.siblingsBeneath:
-                if sb not in siblings:
-                    out_siblings.append(sb)
-            out_siblings.append(sibling)
+        """ Composite to base and then blit from the base to the surface of the necessary siblings """
+        # Make a base image to composite all sibling zImages onto.
+        x, y, w, h = union
+        base = tk.PhotoImage(width=w, height=h)
 
-        self._compositeUnion(out_siblings)
+        # Blit the parent's background to the base, if it is not fully obscured.
+        if decimateRect((0, 0, w, h), opaque_rects):
+            bgw, bgh = self._parent.skin.resolution()
+            fastBlit(base, w, h, self._parent.skin.image(), bgw, bgh, 0, 0, w, h, x, y)
+
+        # Process each sibling in the list.
+        atop = False
+        for i in range(len(siblings)-1, -1, -1):
+            sibling, overlap = siblings[i], overlaps[i]
+            cx, cy, cw, ch = overlap.crop
+            sw, sh = sibling.size
+            # Composite each sibling's own image onto the base image.
+            fastBlit(base, w, h, sibling.zImage(), sw, sh, *overlap.insert, cw, ch, cx, cy)
+
+            # Start rendering to the surface of self and any widgets atop once we've drawn up to the calling widget.
+            if sibling == self: atop = True
+            if atop:
+                final = sibling.scratchImage()      # Render to surface of widget.
+                fastBlit(final, sw, sh, base, w, h, cx, cy, cw, ch, *overlap.insert)
+                sibling.render(final)
 
         self.bench += time() - start
         self.benches += 1
@@ -156,35 +154,30 @@ class Canvas(Skinnable, Siblingable, tk.Canvas):
             print(f"{round(self.bench / 100, 5)}s per draw.")
             self.bench, self.benches = 0, 0
 
-    def _compositeUnion(self, siblings:list):
-        # Determine what the unioned area will be, by finding the toppest left and bottomest right of all siblings.
-        u_rect = self.geometry
-        for sibling in siblings: u_rect = rectUnion(u_rect, sibling.geometry)
-        x, y, w, h = u_rect
-        base = tk.PhotoImage(width=w, height=h)     # Make a base image to draw all sibling images onto.
+    def _cull_siblings(self, siblings, union):
+        new_siblings, overlaps, opaque_rects, atop = [], [], [], True
 
-        # If only drawing self and self's skin is opaque, the background can't be seen, so skip it.
-        if len(siblings) > 1 or not self.isOpaque():
-            iw, ih = self._parent.skin.resolution()     # Copy the parent's image to the base.
-            fastBlit(base, w, h, self._parent.skin.image(), iw, ih, 0, 0, w, h, x, y)
+        # Prepare list of rectangles describing how each sibling overlaps the union
+        for i in range(len(siblings)-1, -1, -1):
+            sib = siblings[i]
+            overlap = getOverlap(union, sib.geometry)
+            if overlap is None:     # If former sibling nolonger overlaps, stop tracking sibling.
+                sib.dropSibling(self)
+                self.dropSibling(sib)
+                continue
 
-        # Draw each layer to a base image and then crop from that base to each widget's surface, as we go.
-        atop = False
-        for sibling in siblings:
-            sx, sy, sw, sh = sibling.geometry       # Composite the sibling's own image onto the base image.
-            dx, dy = sx-x, sy-y
-            fastBlit(base, w, h, sibling.zImage(), sw, sh, dx, dy, sw, sh)
+            # Cull siblings by visibility.
+            if sib == self: atop = False
+            local_overlap = (*overlap.insert, *overlap.crop[2:])
+            # Don't draw a sibling that is obscured by the siblings atop it.
+            if opaque_rects and not decimateRect(local_overlap, opaque_rects): continue
+            if sib.isOpaque():
+                opaque_rects.append(local_overlap)
+                if atop: continue       # Don't draw opaque siblings that are atop the caller.
 
-            # Start rendering to the surface of self and any widgets atop once we've drawn up to the calling widget.
-            if sibling == self: atop = True
-            if atop and (sibling == self or not sibling.isOpaque()):    # Skip if widget atop is opaque.
-                final = sibling.scratchImage()      # Render to surface of widget.
-                fastBlit(final, sw, sh, base, w, h, 0, 0, sw, sh, dx, dy)
-                sibling.render(final)
-
-            if not rectsOverlap(self.geometry, sibling.geometry):
-                sibling.dropSibling(self)
-                self.dropSibling(sibling)       # Siblings stop tracking each other when they cease to overlap.
+            new_siblings.append(sib)
+            overlaps.append(overlap)
+        return new_siblings, overlaps, opaque_rects
 
 
 """
@@ -217,9 +210,8 @@ class Imageable:
 """ Widgetable establishes the base of the widget chain, providing basic access methods and on/off states. """
 class Stateable:
     def __init__(self, *args, **kwargs):
-        super().__init__(*args, **kwargs)
-
         kwargs["bg"] = "gray42"     # Neutral background color reduces visual pop-in.
+        super().__init__(*args, **kwargs)
 
         self._img_state = 0
         self._enabled = False
@@ -379,7 +371,7 @@ class Toggleable(Pushable):
     def __init__(self, *args, state:bool=False, **kwargs):
         self._state_offset, self._toggle_state = 0, state
         super().__init__(*args, **kwargs)
-        self.after_idle(self.setTrue, state)
+        self.setTrue(state)
 
     def mouseUp(self, event):
         self._clicking = False
@@ -392,7 +384,6 @@ class Toggleable(Pushable):
     def setTrue(self, true:bool) -> bool:
         self._toggle_state = true
         self._state_offset = self._toggle_state * 4
-        self.redraw()
         return self._toggle_state
 
     def setState(self, state_index:int = 0): super().setState(state_index + self._state_offset)
@@ -419,16 +410,18 @@ class Repeatable(Holdable):
         super().__init__(*args, **kwargs)
         self.delay = delay
         self.init_delay = init_delay
+        self._after = None
 
     def clicked(self, event):
         super().clicked(event)
         if self.function is not None:
-            self.after(self.init_delay, self._keepClicking)
+            if self._after: self.after_cancel(self._after)
+            self._after = self.after(self.init_delay, self._keepClicking)
 
     def _keepClicking(self):
         if self._clicking:
             self.function()
-            self.after(self.delay, self._keepClicking)
+            self._after = self.after(self.delay, self._keepClicking)
 
 
 """ LoneDraggable is dragged by the mouse while left click is held. It remains within its parent's boundaries by default, 
@@ -476,41 +469,11 @@ class LoneDraggable(Holdable):
 
 """ Draggable adds sibling awareness to LoneDraggable, allowing it to composite transparencies with other widgets. """
 class Draggable(LoneDraggable):
-    def __init__(self, *args, **kwargs):
-        super().__init__(*args, **kwargs)
-        self._all_siblings_atop, self._all_siblings_beneath = list(), list()
-
-    def clicked(self, event):
-        super().clicked(event)
-        self._splitAllSiblings()
-
     def mouseDrag(self, event=None):
-        x, y, w, h = self._geometry
-        x = event.x - self._x_origin + x
-        y = event.y - self._y_origin + y
-        new_geom = (x, y, w, h)
-
-        self._populateOverlappingSiblings(self._siblings_atop, self._all_siblings_atop, new_geom, False)
-        self._populateOverlappingSiblings(self._siblings_beneath, self._all_siblings_beneath, new_geom, True)
+        x = event.x - self._x_origin + self._geometry[0]
+        y = event.y - self._y_origin + self._geometry[1]
+        self._findOverlappingSiblings()
         self.move(x, y)
-
-    def _splitAllSiblings(self):
-        atop = False
-        self._all_siblings_atop, self._all_siblings_beneath = set(), set()
-        for sibling in self._parent.getChildren():
-            if sibling is self: atop = True
-            else:
-                if atop: self._all_siblings_atop.add(sibling)
-                else: self._all_siblings_beneath.add(sibling)
-
-    def _populateOverlappingSiblings(self, output_list:list, source_list:list, geom:tuple[int,int,int,int], atop:bool):
-        output_list.clear()
-        # Using the union of the last position and current position ensures final redraw of just-exited siblings.
-        movement_union = rectUnion(geom, self._geometry)
-        for sibling in source_list:
-            if rectsOverlap(movement_union, sibling.geometry):
-                output_list.append(sibling)
-                sibling.trackSibling(self, atop)
 
 
 """

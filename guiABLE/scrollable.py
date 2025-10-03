@@ -3,13 +3,15 @@ import tkinter as tk
 
 from .utilities import getLocalMouse, rectsOverlap
 from .skinnable import ScrollSkin, BarSkin, Skin, ButtonPack, Measurable
-from .widgets import RepeatButton, TroughButton, LoneDrag, Background
+from .widgets import RepeatButton, TroughButton, LoneDrag, Background, Siblingable
 
 
-class Scrollable(Measurable, tk.Frame):
+class Scrollable(Measurable, Siblingable, tk.Frame):
     def __init__(self, parent, width:int, height:int, scroll_skin:ScrollSkin, skin:Skin = None, **kwargs):
-        Measurable.__init__(self, width=width, height=height)
-        tk.Frame.__init__(self, parent, width=width, height=height, **kwargs)
+        super().__init__(parent, width=width, height=height, **kwargs)
+
+        # Registering as a sibling allows Scrollable to be considered in sibling culling.
+        self.scroll_skin = scroll_skin
         self.bind("<Configure>", self._refresh)
 
         """ ==OPTIONS==
@@ -117,6 +119,13 @@ class Scrollable(Measurable, tk.Frame):
 
             # Resize the non-dominant bar depending on presence of dominant bar.
             self._applyDominance()
+
+    # Including isOpaque and registering as a sibling allows Scrollable to be considered in sibling culling.
+    @staticmethod
+    def isOpaque(): return True
+    def redraw(self): pass
+    def zImage(self): return self._frame.skin.image()
+    def setState(self, index:int = 0): pass
 
     def _applyDominance(self):
         h_bar, v_bar = self._bars
@@ -252,6 +261,8 @@ class ScrollFrame(Background):
             loc = self.x / rw if rw else 0.0, self.y / rh if rh else 0.0
 
             self.parent.plateResized(size, loc)
+    @property
+    def view_geometry(self): return -self._plate_geometry[0], -self._plate_geometry[1], *self._geometry[2:]
 
     @property
     def scroll_range(self):
@@ -586,7 +597,8 @@ class ScrollTrough(TroughButton):
         self._clicking = event.num
         self.setState(2)
         self.parent.troughClicked(event.num, event.x, event.y, self.delay)      # Pass to parent ScrollBar for handling.
-        self.after(self.init_delay, self._keepClicking)
+        if self._after: self.after_cancel(self._after)
+        self._after = self.after(self.init_delay, self._keepClicking)
 
     def registerChild(self, child):
         super().registerChild(child)
@@ -605,7 +617,7 @@ class ScrollTrough(TroughButton):
                     if not hy < my < hy+hh: self.parent.troughClicked(self._clicking, *getLocalMouse(self)[:2], self.delay)
                 elif   not hx < mx < hx+hw: self.parent.troughClicked(self._clicking, *getLocalMouse(self)[:2], self.delay)
 
-            self.after(self.delay, self._keepClicking)
+            self._after = self.after(self.delay, self._keepClicking)
 
 
 class ScrollHandle(LoneDrag):

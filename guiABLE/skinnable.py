@@ -808,7 +808,8 @@ class Skinnable(Measurable):
     # Parents that host child widgets track their children and provide a list of those children's z-order.
     def getChildren(self): return self._children
     def registerChild(self, child):
-        if child not in self._children: self._children.insert(0, child)
+        if child not in self._children:
+            self._children.insert(0, child)
     def dropChild(self, child):
         if child in self._children: self._children.remove(child)
 
@@ -834,7 +835,7 @@ class Skinnable(Measurable):
         super()._refresh(event)
         # If skin provides no image, generate a Skin, utilizing the FilterSkin override for skins that useBgColors().
         if not self._skin.hasImages():
-            self._skin._paths, self._skin._images, self._skin._resolutions = [], [], []
+            self._skin._paths, self._skin._images, self._skin._resolutions, self._skin._is_opaque = [], [], [], []
             self._skin._expand(1)       # Sneaking in via private methods to preserve _use_bg_colors.
             self._skin._saveImage(tk.PhotoImage(width=self._geometry[2], height=self._geometry[3]), 0, "no image")
             self._skin.updateRecipients()

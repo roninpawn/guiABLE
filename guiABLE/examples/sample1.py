@@ -1,3 +1,5 @@
+from tkinter import Image
+
 from guiABLE import *
 
 
@@ -63,6 +65,9 @@ def test_gui():
     mid_skin = Skin.fromImages(bar_skin.image(0, 192))
     c = InstantButton(bg, skin=mid_skin, width=48, height=192)
     c.place(x=550, y=200)
+
+    occlude = Hover(bg, width=200, height=300)
+    #occlude.place(x=400, y=100)
 
     trough_skin = Skin("../skins/default/scroll_trough-48.png")
     cap_skin = Skin("../skins/default/up_glyph-48.png", orientation="n")
