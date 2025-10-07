@@ -6,7 +6,7 @@ from pygments.lexers import q
 
 from guiABLE.skinnable import Skinnable, FilterSkin, SingleSkin, Measurable
 from guiABLE.utilities import limitMove, rectsOverlap, rectUnion, pointIsInRect, fastBlit, getOverlap, decimateRect, \
-    rectIntersect, rectsUnion
+    rectIntersect, rectsUnion, UImage
 
 """ Siblingable is a mixin that provides parent/sibling awareness & overlap tracking.  """
 class Siblingable:
@@ -81,14 +81,14 @@ class Canvas(Skinnable, Siblingable, tk.Canvas):
             for child in self._children: child.redraw()
             self.dirty = False
 
-    def render(self, image:tk.PhotoImage):
+    def render(self, image:UImage):
         self.itemconfig(self._img, image=image)
 
     # The ZImage() is a persistent render of what the widget looks like on its own. Only updated if something changed.
-    def zImage(self) -> tk.PhotoImage:
+    def zImage(self) -> UImage:
         if self._z_state != self._img_state or self.dirty:
             w, h = self.size
-            self._z_img = tk.PhotoImage(width=w, height=h)
+            self._z_img = UImage(width=w, height=h)
             iw, ih = self._skin.resolution(self._img_state)
             fastBlit(self._z_img, w, h, self._skin.image(self._img_state), iw, ih, 0, 0, iw, ih)
 
@@ -125,7 +125,7 @@ class Canvas(Skinnable, Siblingable, tk.Canvas):
         """ Composite to base and then blit from the base to the surface of the necessary siblings """
         # Make a base image to composite all sibling zImages onto.
         x, y, w, h = union
-        base = tk.PhotoImage(width=w, height=h)
+        base = UImage(width=w, height=h)
 
         # Blit the parent's background to the base, if it is not fully obscured.
         if decimateRect((0, 0, w, h), opaque_rects):
@@ -193,7 +193,7 @@ class Backgroundable:
         return bg_able
 
     @classmethod
-    def fromImage(cls, parent, width:int, height:int, image:tk.PhotoImage, **kwargs):
+    def fromImage(cls, parent, width:int, height:int, image:UImage, **kwargs):
         bg_able = cls(parent, width, height, SingleSkin.fromImage(image), **kwargs)
         return bg_able
 
@@ -340,7 +340,7 @@ class Labelable(Pushable):
         if self._img_text is None:
             self._img_text = self.create_text(x, y, text=self.text, fill=self.color, font=self.font, anchor="nw")
 
-    def render(self, image:tk.PhotoImage):
+    def render(self, image:UImage):
         super().render(image)
         self.drawText()
 
@@ -495,7 +495,7 @@ class FakeCanvas(tk.Text):
             kw["selectbackground"] = kw["background"]
         super().configure(**kw)
 
-    def render(self, image:tk.PhotoImage, pad_x:int=0, pad_y:int=0):
+    def render(self, image:UImage, pad_x:int=0, pad_y:int=0):
         self.configure(state="normal")
         self.delete(1.0, "end")
         self.image_create("end", image=image, padx=pad_x, pady=pad_y)

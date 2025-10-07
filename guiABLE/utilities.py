@@ -9,6 +9,72 @@ class Overlap(NamedTuple):
     insert: tuple[int,int]         # (x,y) in self coords -- position to composite to
 
 
+class UImage(PhotoImage):
+    TRANSPARENCY_KEY = (255, 0, 205)
+    def __init__(self, **kwargs):
+        if 'file' not in kwargs:
+            self._path = kwargs.pop('source') if 'source' in kwargs else None
+        else: self._path = kwargs['file']
+
+        super().__init__(**kwargs)
+
+        self._res = None
+        self._opaque, self._data, self._key = None, None, None
+        self._width, self._height = None, None
+
+    @property
+    def resolution(self) -> tuple[int,int]:
+        if self._res is None: self._res = (super().width(), super().height())
+        return self._res
+    def width(self) -> int: return self.resolution[0]
+    def height(self) -> int: return self.resolution[1]
+
+    @property
+    def path(self): return self._path
+
+    def isOpaque(self) -> bool:
+        if self._opaque is None: self._opaque = self._isOpaque()
+        return self._opaque
+
+    def pixelMap(self) -> list[tuple[int,int,int]]:
+        if not self._data or self._key != self.TRANSPARENCY_KEY:
+            self._key = self.TRANSPARENCY_KEY       # Stores key used as background in self._data.
+
+            # Fetch image's raw binary RGB data as 'PPM' using a key color to represent transparency.
+            self._data = []
+            data = self.data(format="PPM", background=f'#{self._key[0]:02x}{self._key[1]:02x}{self._key[2]:02x}')
+            if isinstance(data, str): data = data.encode("latin1")      # Tk <= 8.6.12 returns a str()
+
+            # Split header from pixel payload and re-populate resolution from header data.
+            header, raw = data.split(b'\n255\n', 1)
+            wh_parts = header.split()       # Fetch width/height from header. (b'P6\n128 192' means w=128, h=192)
+            w, h = int(wh_parts[1]), int(wh_parts[2])
+            self._res = (w, h)
+            if w == 0 or h == 0: return []
+
+            # This is the single fastest method for populating an internal pixel map without using an external library.
+            row_stride = w * 3
+            for y in range(h):
+                offset = y * row_stride
+                for x in range(w):
+                    i = offset + x*3
+                    self._data.append((raw[i], raw[i+1], raw[i+2]))
+
+        return self._data
+
+    def _isOpaque(self):
+        if self.transparency_get(0, 0): return False        # Cheapest path if first pixel is transparent.
+
+        data = self.pixelMap()
+        w, h = self._res
+
+        for y in range(h):
+            offset = y * w
+            for x in range(w):
+                if data[offset + x] == self._key: return False
+        return True
+
+
 def warnPrint(message:any, *, level:str = "warning"):
     COLORS = {
         "info": "\033[96m",
@@ -40,61 +106,61 @@ def resolvePath(path:str, default_root:str=None) -> str | None:
 """
  ---------- Image Functions ----------
 """
-def loadImageByPath(image_path:str) -> PhotoImage | None:
-    try: return PhotoImage(file=image_path)
+def loadImageByPath(image_path:str) -> UImage | None:
+    try: return UImage(file=image_path)
     except TclError: warnPrint(f"Image not found: {image_path}")
     return None
 
-# loadImage(): Conform either input type to PhotoImage and path (path used as 'source' in _bySprite())
-def loadImage(path_or_image:str | PhotoImage) -> tuple[PhotoImage | None, str | None]:
+# loadImage(): Conform either input type to UImage and path (path used as 'source' in _bySprite())
+def loadImage(path_or_image:str | UImage) -> tuple[UImage | None, str | None]:
     if isinstance(path_or_image, str):
         r_path = resolvePath(path_or_image)
         return loadImageByPath(r_path), r_path
-    elif isinstance(path_or_image, PhotoImage): image = path_or_image
+    elif isinstance(path_or_image, UImage): image = path_or_image
     return image, "passed internally"
 
 
-def fastFlood(image:PhotoImage, image_width:int, image_height:int, color:str):
+def fastFlood(image:UImage, image_width:int, image_height:int, color:str):
     image.put(color, to=(0, 0, image_width, image_height))
 
-def floodImage(image:PhotoImage, color:str): fastFlood(image, image.width(), image.height(), color)
+def floodImage(image:UImage, color:str): fastFlood(image, image.width(), image.height(), color)
 
 def newFlood(image_width:int, image_height:int, color:str):
-    out = PhotoImage(width=image_width, height=image_height)
+    out = UImage(width=image_width, height=image_height)
     fastFlood(out, image_width, image_height, color)
     return out
 
 
-def fastFlip(flip_to:PhotoImage, flip_from:PhotoImage, w:int, h:int, flip_x:bool = False, flip_y:bool = False):
+def fastFlip(flip_to:UImage, flip_from:UImage, w:int, h:int, flip_x:bool = False, flip_y:bool = False):
     if flip_x and flip_y:
-        tmp = PhotoImage(width=w, height=h)
+        tmp = UImage(width=w, height=h)
         [tmp.copy_replace(flip_from, from_coords=(col, 0, col + 1, h), to=(w-1-col, 0)) for col in range(w)]
         [flip_to.copy_replace(tmp, from_coords=(0, row, w, row + 1), to=(0, h-1-row)) for row in range(h)]
     elif flip_x: [flip_to.copy_replace(flip_from, from_coords=(col, 0, col + 1, h), to=(w-1-col, 0)) for col in range(w)]
     elif flip_y: [flip_to.copy_replace(flip_from, from_coords=(0, row, w, row + 1), to=(0, h-1-row)) for row in range(h)]
 
-def flipImage(image:PhotoImage, flip_x:bool = False, flip_y:bool = False) -> PhotoImage:
-    if isinstance(image, PhotoImage) and (flip_x or flip_y):
+def flipImage(image:UImage, flip_x:bool = False, flip_y:bool = False) -> UImage:
+    if isinstance(image, UImage) and (flip_x or flip_y):
         w, h = image.width(), image.height()
-        out = PhotoImage(width=w, height=h)
+        out = UImage(width=w, height=h)
         fastFlip(out, image, w, h, flip_x, flip_y)
         return out
     return image
 
 
-def fastRotate(rotate_to:PhotoImage, rotate_from:PhotoImage, w:int, h:int, clockwise:bool = True) -> PhotoImage | None:
+def fastRotate(rotate_to:UImage, rotate_from:UImage, w:int, h:int, clockwise:bool = True) -> UImage | None:
     for y in range(h):
         yy = h-1-y if clockwise else y
         for x in range(w): rotate_to.copy_replace(rotate_from, from_coords=(x, y, x + 1, y + 1), to=(yy, x))
 
-def rotateImage(image: PhotoImage, clockwise:bool = True) -> PhotoImage:
+def rotateImage(image: UImage, clockwise:bool = True) -> UImage:
     w, h = image.width(), image.height()
-    out = PhotoImage(width=h, height=w)
+    out = UImage(width=h, height=w)
     fastRotate(out, image, w, h, clockwise)
     return out
 
 
-def fastBlit(dest: PhotoImage, dest_w: int, dest_h: int,            src: PhotoImage, src_w: int, src_h: int,
+def fastBlit(dest: UImage, dest_w: int, dest_h: int,            src: UImage, src_w: int, src_h: int,
              dest_x: int, dest_y: int, blit_w: int, blit_h: int,    src_x: int = 0, src_y: int = 0):
 
     def clamp_positive(p0, size, dest):
@@ -125,14 +191,14 @@ def fastBlit(dest: PhotoImage, dest_w: int, dest_h: int,            src: PhotoIm
     # Perform the blit
     dest.copy_replace( src, from_coords=(src_x, src_y, from_w, from_h), to=(dest_x, dest_y) )
 
-def cropImage(image: PhotoImage, x: int, y: int, width: int, height: int) -> PhotoImage:
-    cropped = PhotoImage(width=width, height=height)
+def cropImage(image: UImage, x: int, y: int, width: int, height: int) -> UImage:
+    cropped = UImage(width=width, height=height)
     iw, ih = image.width(), image.height()
     fastBlit(cropped, width, height, image, iw, ih, 0, 0, iw, ih, x, y)
     return cropped
 
 
-def fastTile(brush:PhotoImage, bw:int, bh:int, canvas:PhotoImage, cw:int, ch:int, bbox:tuple[int,int,int,int]):
+def fastTile(brush:UImage, bw:int, bh:int, canvas:UImage, cw:int, ch:int, bbox:tuple[int,int,int,int]):
     x1, y1, x2, y2 = bbox
     box_w, box_h = x2 - x1, y2 - y1
     bw, bh = min(bw, box_w), min(bh, box_h)
@@ -145,11 +211,11 @@ def fastTile(brush:PhotoImage, bw:int, bh:int, canvas:PhotoImage, cw:int, ch:int
                 if w >= 0 and h >= 0:
                     canvas.copy_replace(brush, from_coords=(0, 0, w, h), to=(x, y))
 
-def tileImage(brush:PhotoImage, canvas:PhotoImage, bbox:tuple[int,int,int,int]):
+def tileImage(brush:UImage, canvas:UImage, bbox:tuple[int,int,int,int]):
     fastTile(brush, brush.width(), brush.height(), canvas, canvas.width(), canvas.height(), bbox)
 
 
-def isOpaque(image:PhotoImage) -> bool:
+def isOpaque(image:UImage) -> bool:
     for y in range(image.height()):
         for x in range(image.width()):
             if image.transparency_get(x, y): return False

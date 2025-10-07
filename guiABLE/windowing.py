@@ -2,7 +2,7 @@ import tkinter as tk
 from time import time
 
 from .widgets import Background
-from .utilities import resolvePath, geometryFromString
+from .utilities import resolvePath, geometryFromString, UImage
 
 
 """
@@ -95,7 +95,7 @@ class Window(tk.Tk):
 
     # loadTabImage() draws and fits a custom image to the invisible, OS-tracked window -- to be displayed on alt+tab.
     def loadTabImage(self, image_path):
-        img = tk.PhotoImage(file=resolvePath(image_path))
+        img = UImage(file=resolvePath(image_path))
         img_w, img_h = img.width(), img.height()
         self._update_offsets()
 
