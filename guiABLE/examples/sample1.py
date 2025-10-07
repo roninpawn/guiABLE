@@ -1,10 +1,8 @@
-from tkinter import Image
-
 from guiABLE import *
 
 
 def test_gui():
-    app = Windowable(geometry="600x400+420+180", title="guiABLE Testbed")
+    app = Window(geometry="600x400+420+180", title="guiABLE Testbed")
     bg_image, _ = loadImage("../skins/default/bg-600x400.png")
     bg = Background.fromImage(app, 600, 400, bg_image)
     bg.place(x=0, y=0)

@@ -1,16 +1,16 @@
 import tkinter as tk
 from time import time
 
-from .skinnable import Skinnable, FilterSkin, SingleSkin
+from .widgets import Background
 from .utilities import resolvePath, geometryFromString
 
 
 """
-A ChildableWindow() is an OS-ignored window that is positioned relative to its parent window, and will travel with that
+A ChildWindow() is an OS-ignored window that is positioned relative to its parent window, and will travel with that
 window, if it is moved. It does not appear in the taskbar, or in alt+tab overlays. It serves as the basis for a pop-up 
 window, a configuration window, or even a persistent, detached floating interface.
 """
-class ChildableWindow(tk.Toplevel):
+class ChildWindow(tk.Toplevel):
     def __init__(self, parent, position=(100, 100), visible=False, **kwargs):
         parent.bindChild(self)
         self._visible = visible
@@ -45,13 +45,13 @@ class ChildableWindow(tk.Toplevel):
 
 
 """
-A Windowable is a primary/parent window without a top bar or any controls. This is accomplished be telling the OS' 
-window manager to it. Which means that its taskbar presence and alt+tab functionality must be faked back into place. 
-So a 2nd, invisible, window is spawned and maintained to serve as the OS-tracked window.
+A Window is a primary/parent window without a top bar or any controls. This is accomplished be telling the OS' window
+manager to it. Which means that its taskbar presence and alt+tab functionality must be faked back into place. So a 2nd,
+invisible, window is spawned and maintained to serve as the OS-tracked window.
 
 Use loadTabImage() to populate the alt+tab overlay with a custom logo/image.
 """
-class Windowable(tk.Tk):
+class Window(tk.Tk):
     def __init__(self, geometry="200x200", title=""):
         x, y, w, h = geometryFromString(geometry)
         self._offset_w, self._offset_h = w // 2, h // 2
@@ -90,8 +90,8 @@ class Windowable(tk.Tk):
             widget.bind("<B1-Motion>", self.mouseDrag)
             self._drag_widget = widget
 
-    def bindChild(self, childable_window:ChildableWindow):
-        self.child_list.append(childable_window)
+    def bindChild(self, child_window:ChildWindow):
+        self.child_list.append(child_window)
 
     # loadTabImage() draws and fits a custom image to the invisible, OS-tracked window -- to be displayed on alt+tab.
     def loadTabImage(self, image_path):
@@ -104,8 +104,7 @@ class Windowable(tk.Tk):
         self.taskbar_handle.geometry(f"{img_w}x{img_h}+"
                                      f"{self.winfo_rootx() + self._offset_w}+"
                                      f"{self.winfo_rooty() + self._offset_h}")
-        tab_image = Backgroundable(self.taskbar_handle, img_w, img_h)
-        tab_image.setImage(img)
+        tab_image = Background.fromImage(self.taskbar_handle, img_w, img_h, img)
         tab_image.place(x=0, y=0)
         self.taskbar_handle.update()
         self.taskbar_handle.iconify()

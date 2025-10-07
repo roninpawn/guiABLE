@@ -4,6 +4,73 @@ from guiABLE.utilities import (warnPrint, resolvePath, cropImage, loadImage, get
                                fastFlood, fastTile, flipImage, rotateImage, fastBlit, isOpaque)
 
 
+class UImage(tk.PhotoImage):
+    TRANSPARENCY_KEY = (255, 0, 205)
+    def __init__(self, **kwargs):
+        if 'file' not in kwargs:
+            self._path = kwargs.pop('source') if 'source' in kwargs else None
+        else: self._path = kwargs['file']
+
+        super().__init__(**kwargs)
+
+        self._res = None
+        self._opaque, self._data, self._key = None, None, None
+        self._width, self._height = None, None
+
+    @property
+    def resolution(self) -> tuple[int,int]:
+        if self._res is None: self._res = (super().width(), super().height())
+        return self._res
+    @property
+    def width(self) -> int: return self.resolution[0]
+    @property
+    def height(self) -> int: return self.resolution[1]
+
+    @property
+    def path(self): return self._path
+
+    def isOpaque(self) -> bool:
+        if self._opaque is None: self._opaque = self._isOpaque()
+        return self._opaque
+
+    def pixelMap(self) -> list[tuple[int,int,int]]:
+        if not self._data or self._key != self.TRANSPARENCY_KEY:
+            self._key = self.TRANSPARENCY_KEY       # Stores key used as background in self._data.
+
+            # Fetch image's raw binary RGB data as 'PPM' using a key color to represent transparency.
+            self._data = []
+            data = self.data(format="PPM", background=f'#{self._key[0]:02x}{self._key[1]:02x}{self._key[2]:02x}')
+            if isinstance(data, str): data = data.encode("latin1")      # Tk <= 8.6.12 returns a str()
+
+            # Split header from pixel payload and re-populate resolution from header data.
+            header, raw = data.split(b'\n255\n', 1)
+            wh_parts = header.split()       # Fetch width/height from header. (b'P6\n128 192' means w=128, h=192)
+            w, h = int(wh_parts[1]), int(wh_parts[2])
+            self._res = (w, h)
+            if w == 0 or h == 0: return []
+
+            # This is the single fastest method for populating an internal pixel map without using an external library.
+            row_stride = w * 3
+            for y in range(h):
+                offset = y * row_stride
+                for x in range(w):
+                    i = offset + x*3
+                    self._data.append((raw[i], raw[i+1], raw[i+2]))
+
+        return self._data
+
+    def _isOpaque(self):
+        if self.transparency_get(0, 0): return False        # Cheapest path if first pixel is transparent.
+
+        data = self.pixelMap()
+        w, h = self._res
+
+        for y in range(h):
+            offset = y * w
+            for x in range(w):
+                if data[offset + x] == self._key_rgb: return False
+        return True
+
 """ Receivable is a base class that lets widgets register with it, and provides methods for updating those recipients. """
 class Receivable:
     def __init__(self): self._recipients = []
@@ -398,7 +465,7 @@ class DirtySkin:
 """
 class FilterSkin(DirtySkin, CoreSkin):
     def __init__(self, linked_skin:CoreSkin, crop:tuple[int,int,int,int]|None = None,
-                 rotate:bool = False, mirror_x:bool = False, mirror_y:bool = False):
+                 rotate:bool = False, mirror_x:bool = False, mirror_y:bool = False, scale:float = 1.0):
         DirtySkin.__init__(self)
         CoreSkin.__init__(self)
 
