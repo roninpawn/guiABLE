@@ -40,8 +40,10 @@ def test_gui():
 
     test_label.place(x=360, y=0)
 
+    glyphs = UImage(file='../skins/default/window-glyphs-40.png')
+    exit_x = glyphs.crop(80, 0, 40, 40)
     # Create an EXIT button from a Label
-    x_sprite = Skin.fromImages(cropImage(UImage(file='../skins/default/window-glyphs-40.png'), 80, 0, 40, 40))
+    x_sprite = Skin.fromImages(exit_x)
     x_sprite.usesBgColors(True)
     x_sprite.setBGColor("red", 2)
     exit_button = Button(bg, function=app.quit, skin=x_sprite, width=40, height=40)

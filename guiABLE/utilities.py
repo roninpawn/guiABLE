@@ -1,78 +1,14 @@
-from tkinter import PhotoImage, TclError, Widget
+from tkinter import TclError, Widget
 from os import path as osPath
 from sys import argv as sysArgV
 from typing import NamedTuple
+
+from guiABLE.uimage import UImage
 
 
 class Overlap(NamedTuple):
     crop: tuple[int,int,int,int]   # (x,y,w,h) of other's coords -- to crop from
     insert: tuple[int,int]         # (x,y) in self coords -- position to composite to
-
-
-class UImage(PhotoImage):
-    TRANSPARENCY_KEY = (255, 0, 205)
-    def __init__(self, **kwargs):
-        if 'file' not in kwargs:
-            self._path = kwargs.pop('source') if 'source' in kwargs else None
-        else: self._path = kwargs['file']
-
-        super().__init__(**kwargs)
-
-        self._res = None
-        self._opaque, self._data, self._key = None, None, None
-        self._width, self._height = None, None
-
-    @property
-    def resolution(self) -> tuple[int,int]:
-        if self._res is None: self._res = (super().width(), super().height())
-        return self._res
-    def width(self) -> int: return self.resolution[0]
-    def height(self) -> int: return self.resolution[1]
-
-    @property
-    def path(self): return self._path
-
-    def isOpaque(self) -> bool:
-        if self._opaque is None: self._opaque = self._isOpaque()
-        return self._opaque
-
-    def pixelMap(self) -> list[tuple[int,int,int]]:
-        if not self._data or self._key != self.TRANSPARENCY_KEY:
-            self._key = self.TRANSPARENCY_KEY       # Stores key used as background in self._data.
-
-            # Fetch image's raw binary RGB data as 'PPM' using a key color to represent transparency.
-            self._data = []
-            data = self.data(format="PPM", background=f'#{self._key[0]:02x}{self._key[1]:02x}{self._key[2]:02x}')
-            if isinstance(data, str): data = data.encode("latin1")      # Tk <= 8.6.12 returns a str()
-
-            # Split header from pixel payload and re-populate resolution from header data.
-            header, raw = data.split(b'\n255\n', 1)
-            wh_parts = header.split()       # Fetch width/height from header. (b'P6\n128 192' means w=128, h=192)
-            w, h = int(wh_parts[1]), int(wh_parts[2])
-            self._res = (w, h)
-            if w == 0 or h == 0: return []
-
-            # This is the single fastest method for populating an internal pixel map without using an external library.
-            row_stride = w * 3
-            for y in range(h):
-                offset = y * row_stride
-                for x in range(w):
-                    i = offset + x*3
-                    self._data.append((raw[i], raw[i+1], raw[i+2]))
-
-        return self._data
-
-    def _isOpaque(self):
-        if self.transparency_get(0, 0): return False        # Cheapest path if first pixel is transparent.
-
-        data = self.pixelMap()
-        w, h = self._res
-
-        for y in range(h):
-            offset = y * w
-            for x in range(w):
-                if data[offset + x] == self._key: return False
-        return True
 
 
 def warnPrint(message:any, *, level:str = "warning"):
@@ -118,108 +54,6 @@ def loadImage(path_or_image:str | UImage) -> tuple[UImage | None, str | None]:
         return loadImageByPath(r_path), r_path
     elif isinstance(path_or_image, UImage): image = path_or_image
     return image, "passed internally"
-
-
-def fastFlood(image:UImage, image_width:int, image_height:int, color:str):
-    image.put(color, to=(0, 0, image_width, image_height))
-
-def floodImage(image:UImage, color:str): fastFlood(image, image.width(), image.height(), color)
-
-def newFlood(image_width:int, image_height:int, color:str):
-    out = UImage(width=image_width, height=image_height)
-    fastFlood(out, image_width, image_height, color)
-    return out
-
-
-def fastFlip(flip_to:UImage, flip_from:UImage, w:int, h:int, flip_x:bool = False, flip_y:bool = False):
-    if flip_x and flip_y:
-        tmp = UImage(width=w, height=h)
-        [tmp.copy_replace(flip_from, from_coords=(col, 0, col + 1, h), to=(w-1-col, 0)) for col in range(w)]
-        [flip_to.copy_replace(tmp, from_coords=(0, row, w, row + 1), to=(0, h-1-row)) for row in range(h)]
-    elif flip_x: [flip_to.copy_replace(flip_from, from_coords=(col, 0, col + 1, h), to=(w-1-col, 0)) for col in range(w)]
-    elif flip_y: [flip_to.copy_replace(flip_from, from_coords=(0, row, w, row + 1), to=(0, h-1-row)) for row in range(h)]
-
-def flipImage(image:UImage, flip_x:bool = False, flip_y:bool = False) -> UImage:
-    if isinstance(image, UImage) and (flip_x or flip_y):
-        w, h = image.width(), image.height()
-        out = UImage(width=w, height=h)
-        fastFlip(out, image, w, h, flip_x, flip_y)
-        return out
-    return image
-
-
-def fastRotate(rotate_to:UImage, rotate_from:UImage, w:int, h:int, clockwise:bool = True) -> UImage | None:
-    for y in range(h):
-        yy = h-1-y if clockwise else y
-        for x in range(w): rotate_to.copy_replace(rotate_from, from_coords=(x, y, x + 1, y + 1), to=(yy, x))
-
-def rotateImage(image: UImage, clockwise:bool = True) -> UImage:
-    w, h = image.width(), image.height()
-    out = UImage(width=h, height=w)
-    fastRotate(out, image, w, h, clockwise)
-    return out
-
-
-def fastBlit(dest: UImage, dest_w: int, dest_h: int,            src: UImage, src_w: int, src_h: int,
-             dest_x: int, dest_y: int, blit_w: int, blit_h: int,    src_x: int = 0, src_y: int = 0):
-
-    def clamp_positive(p0, size, dest):
-        if p0 < 0:
-            size += p0  # shrink size by the overflow
-            dest -= p0  # shift dest to compensate
-            p0 = 0
-        return p0, size, dest
-
-    # Clamp destination coordinates to non-negative
-    src_x, blit_w, dest_x = clamp_positive(src_x, blit_w, dest_x)
-    src_y, blit_h, dest_y = clamp_positive(src_y, blit_h, dest_y)
-    dest_x, blit_w, src_x = clamp_positive(dest_x, blit_w, src_x)
-    dest_y, blit_h, src_y = clamp_positive(dest_y, blit_h, src_y)
-
-    # Clamp width/height to fit both source and dest
-    blit_w = min(blit_w, src_w - src_x, dest_w - dest_x)
-    blit_h = min(blit_h, src_h - src_y, dest_h - dest_y)
-
-    # Bail out if the region is invalid
-    if blit_w <= 0 or blit_h <= 0: return
-
-    src_x = min(src.width(), src_x)
-    src_y = min(src.height(), src_y)
-    from_w = min(src.width(), src_x+blit_w)
-    from_h = min(src.height(), src_y+blit_h)
-
-    # Perform the blit
-    dest.copy_replace( src, from_coords=(src_x, src_y, from_w, from_h), to=(dest_x, dest_y) )
-
-def cropImage(image: UImage, x: int, y: int, width: int, height: int) -> UImage:
-    cropped = UImage(width=width, height=height)
-    iw, ih = image.width(), image.height()
-    fastBlit(cropped, width, height, image, iw, ih, 0, 0, iw, ih, x, y)
-    return cropped
-
-
-def fastTile(brush:UImage, bw:int, bh:int, canvas:UImage, cw:int, ch:int, bbox:tuple[int,int,int,int]):
-    x1, y1, x2, y2 = bbox
-    box_w, box_h = x2 - x1, y2 - y1
-    bw, bh = min(bw, box_w), min(bh, box_h)
-    # TODO: Do the largest blit from brush possible. Do 4 operations instead of 400.
-    if bw and bh:
-        for y in range(y1, y2, bh):
-            h = min(bh, y2-y)
-            for x in range(x1, x2, bw):
-                w = min(bw, x2-x)
-                if w >= 0 and h >= 0:
-                    canvas.copy_replace(brush, from_coords=(0, 0, w, h), to=(x, y))
-
-def tileImage(brush:UImage, canvas:UImage, bbox:tuple[int,int,int,int]):
-    fastTile(brush, brush.width(), brush.height(), canvas, canvas.width(), canvas.height(), bbox)
-
-
-def isOpaque(image:UImage) -> bool:
-    for y in range(image.height()):
-        for x in range(image.width()):
-            if image.transparency_get(x, y): return False
-    return True
 
 
 """
@@ -290,7 +124,7 @@ def rectIntersect(a_xywh:tuple, b_xywh:tuple) -> tuple|None:
     fx = min(ax + aw, bx + bw)
     fy = min(ay + ah, by + bh)
 
-    if fx <= ix or fy <= iy: return None
+    if fx <= ix or fy <= iy: return (0,0,0,0)
     return ix, iy, fx - ix, fy - iy     # (x,y,w,h)
 
 def pointIsInRect(x:int, y:int, rect:tuple[int,int,int,int]) -> bool:
@@ -345,7 +179,7 @@ def decimateRect(rect_xywh, cutter_rects):
     return survivors
 
 
-# Below are old utility methods that could probably be rewritten or deprecated entirely.
+""" Below are old utility methods that could probably be rewritten or deprecated entirely. """
 def limitMove(pos:int, extent:int, min_val:int, max_val:int) -> int:
     return max(min_val, min(pos, max_val - extent))
 

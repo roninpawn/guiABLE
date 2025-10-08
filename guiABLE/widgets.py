@@ -5,8 +5,9 @@ from typing import Callable
 from pygments.lexers import q
 
 from guiABLE.skinnable import Skinnable, FilterSkin, SingleSkin, Measurable
-from guiABLE.utilities import limitMove, rectsOverlap, rectUnion, pointIsInRect, fastBlit, getOverlap, decimateRect, \
-    rectIntersect, rectsUnion, UImage
+from guiABLE.utilities import limitMove, rectsOverlap, rectUnion, pointIsInRect, getOverlap, decimateRect, \
+    rectIntersect, rectsUnion
+from guiABLE.uimage import UImage
 
 """ Siblingable is a mixin that provides parent/sibling awareness & overlap tracking.  """
 class Siblingable:
@@ -36,14 +37,14 @@ class Siblingable:
         tk.Misc.lift(self, above)
         # TODO: All these after_idle()s are possibly the problem with lift/lowering.
         self.after_idle(self.parent._raiseChildIndex, self, above)
-        self.after_idle(self._findOverlappingSiblings, self.parent.getChildren())
+        self.after_idle(self._registerSiblings, self.parent.getChildren())
     def lower(self, below=None):
         tk.Misc.lower(self, below)
         self.after_idle(self.parent._lowerChildIndex, self, below)
-        self.after_idle(self._findOverlappingSiblings, self.parent.getChildren())
+        self.after_idle(self._registerSiblings, self.parent.getChildren())
 
     # Find overlapping siblings and store them / register with them, for future tracking.
-    def _findOverlappingSiblings(self, siblings_list = None):
+    def _registerSiblings(self, siblings_list = None):
         new_siblings = []
         if siblings_list is None: siblings_list = self._parent.getChildren()
 
@@ -57,7 +58,7 @@ class Siblingable:
 
     def _bond(self, event=None):
         self._parent.registerChild(self)
-        self._findOverlappingSiblings()
+        self._registerSiblings()
         self.after_idle(self.setState, 0)
 
 
@@ -65,7 +66,6 @@ class Siblingable:
 class Canvas(Skinnable, Siblingable, tk.Canvas):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, highlightthickness=0, **kwargs)
-        self.bind("<Configure>", self._refresh)
 
         self.bench, self.benches = 0, 0
 
@@ -87,11 +87,7 @@ class Canvas(Skinnable, Siblingable, tk.Canvas):
     # The ZImage() is a persistent render of what the widget looks like on its own. Only updated if something changed.
     def zImage(self) -> UImage:
         if self._z_state != self._img_state or self.dirty:
-            w, h = self.size
-            self._z_img = UImage(width=w, height=h)
-            iw, ih = self._skin.resolution(self._img_state)
-            fastBlit(self._z_img, w, h, self._skin.image(self._img_state), iw, ih, 0, 0, iw, ih)
-
+            self._z_img = self._skin.image(self._img_state).crop()
             self._z_state = self._img_state
             self.dirty = False
         return self._z_img
@@ -100,7 +96,6 @@ class Canvas(Skinnable, Siblingable, tk.Canvas):
         start = time()
         self._img_state = state_index
 
-        # Prevent moving widgets from "staining" siblings they pass under by drawing to new location AND last location.
         union = rectUnion(self._geometry, self._last_geometry)
 
         """ Reduce union and siblings to only what is visible and necessary to draw. """
@@ -110,6 +105,8 @@ class Canvas(Skinnable, Siblingable, tk.Canvas):
 
         # Cull caller's siblings by overlap and visibility, and generate a list of any opaque-sibling's geometries.
         siblings, overlaps, opaque_rects = self._cull_siblings(self._siblings, union)
+        # Remove last_geometry from union, if self is opaque and only sibling.
+        if len(siblings) == 1 and self.isOpaque(): union = self._geometry
 
         # Determine if the union can be shrunk again, due to opaque siblings blocking whole axes of the union's surface.
         union_remains = decimateRect((0, 0, *union[2:]), opaque_rects)
@@ -128,25 +125,24 @@ class Canvas(Skinnable, Siblingable, tk.Canvas):
         base = UImage(width=w, height=h)
 
         # Blit the parent's background to the base, if it is not fully obscured.
-        if decimateRect((0, 0, w, h), opaque_rects):
-            bgw, bgh = self._parent.skin.resolution()
-            fastBlit(base, w, h, self._parent.skin.image(), bgw, bgh, 0, 0, w, h, x, y)
+        if not (len(siblings) == 1 and self.isOpaque()) and decimateRect((0, 0, w, h), opaque_rects):
+            self._parent.skin.image().cropTo(base, x, y, w, h)
 
         # Process each sibling in the list.
         atop = False
         for i in range(len(siblings)-1, -1, -1):
             sibling, overlap = siblings[i], overlaps[i]
             cx, cy, cw, ch = overlap.crop
-            sw, sh = sibling.size
+            ix, iy = overlap.insert
             # Composite each sibling's own image onto the base image.
-            fastBlit(base, w, h, sibling.zImage(), sw, sh, *overlap.insert, cw, ch, cx, cy)
+            sibling.zImage().cropTo(base, cx, cy, cw, ch, ix, iy)
 
             # Start rendering to the surface of self and any widgets atop once we've drawn up to the calling widget.
             if sibling == self: atop = True
             if atop:
-                final = sibling.scratchImage()      # Render to surface of widget.
-                fastBlit(final, sw, sh, base, w, h, cx, cy, cw, ch, *overlap.insert)
-                sibling.render(final)
+                final = sibling.scratchImage()
+                base.cropTo(final, ix, iy, cw, ch, cx, cy)
+                sibling.render(final)       # Render to surface of widget.
 
         self.bench += time() - start
         self.benches += 1
@@ -155,7 +151,8 @@ class Canvas(Skinnable, Siblingable, tk.Canvas):
             self.bench, self.benches = 0, 0
 
     def _cull_siblings(self, siblings, union):
-        new_siblings, overlaps, opaque_rects, atop = [], [], [], True
+        new_siblings, overlaps, atop = [], [], True
+        opaque_rects, trans_rects = [], []
 
         # Prepare list of rectangles describing how each sibling overlaps the union
         for i in range(len(siblings)-1, -1, -1):
@@ -171,9 +168,14 @@ class Canvas(Skinnable, Siblingable, tk.Canvas):
             local_overlap = (*overlap.insert, *overlap.crop[2:])
             # Don't draw a sibling that is obscured by the siblings atop it.
             if opaque_rects and not decimateRect(local_overlap, opaque_rects): continue
-            if sib.isOpaque():
-                opaque_rects.append(local_overlap)
-                if atop: continue       # Don't draw opaque siblings that are atop the caller.
+            if atop:
+                if sib.isOpaque():
+                    opaque_rects.append(local_overlap)
+                    for t_ract in trans_rects:
+                        if rectsOverlap(t_ract, local_overlap): break
+                    else: continue      # Dont draw opaque widgets that do not have a transparent widget above them.
+                else: trans_rects.append(local_overlap)
+                if isinstance(sib, tk.Frame): continue       # Don't draw container widgets.
 
             new_siblings.append(sib)
             overlaps.append(overlap)
@@ -185,6 +187,7 @@ A Backgroundable is a simple, static, one-image canvas to serve as the stage for
 """
 class Backgroundable:
     def __init__(self, *args, **kwargs):
+        kwargs["bg"] = "gray42"
         super().__init__(*args, **kwargs)
 
     @classmethod
@@ -202,7 +205,7 @@ class Backgroundable:
 class Imageable:
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
-        self._skin.setBGColors('gray')      # Eliminate interactive colors for simple image.
+        self._skin.setBGColors('gray42')      # Eliminate interactive colors for simple image.
 
     def changeImage(self, img_number): self.setState(img_number)
 
@@ -219,8 +222,8 @@ class Stateable:
 
     @property
     def state(self): return self._img_state
-    def isOpaque(self):         return (self.skin.usesBgColors() or self.skin.isOpaque(self.state)) \
-                                        and self.skin.resolution(self.state) == self.size
+    def isOpaque(self): return  self.skin.resolution(self.state) == self.size and \
+                               (self.skin.usesBgColors() or self.skin.isOpaque(self.state))
 
     @property
     def enabled(self) -> bool : return self._enabled
@@ -472,7 +475,7 @@ class Draggable(LoneDraggable):
     def mouseDrag(self, event=None):
         x = event.x - self._x_origin + self._geometry[0]
         y = event.y - self._y_origin + self._geometry[1]
-        self._findOverlappingSiblings()
+        self._registerSiblings()
         self.move(x, y)
 
 
@@ -509,7 +512,6 @@ class TextCanvas(Skinnable, FakeCanvas):
     def __init__(self, parent, *args, **kwargs):
         super().__init__(parent, *args, **kwargs)
 
-        self.bind("<Configure>", self._refresh)
         self._img_state = 0
         self._parent = parent
 

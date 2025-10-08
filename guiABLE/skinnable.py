@@ -1,7 +1,7 @@
 import tkinter as tk
 
-from guiABLE.utilities import (warnPrint, resolvePath, cropImage, loadImage, getGeometry,
-                               fastFlood, fastTile, flipImage, rotateImage, fastBlit, UImage)
+from guiABLE.utilities import warnPrint, resolvePath, loadImage
+from guiABLE.uimage import UImage
 
 
 """ Receivable is a base class that lets widgets register with it, and provides methods for updating those recipients. """
@@ -294,7 +294,7 @@ class Skin(ColorSkin):
         for row in range(rows):
             for col in range(cols):
                 x1, y1 = col * width + margins[0], row * height + margins[1]
-                sprite = cropImage(sheet, x1, y1, width, height)
+                sprite = sheet.crop(x1, y1, width, height)
 
                 self._images.append(sprite)
 
@@ -413,19 +413,18 @@ class FilterSkin(DirtySkin, CoreSkin):
         image_index = index % len(self._linked_skin._images)
         img = self._linked_skin.images[image_index]     # Acquire the original, unmodified image from linked_skin.
 
-        if self.crop is not None:
-            img = cropImage(img, *self.crop)
+        if self.crop is not None: img = img.crop(*self.crop)
 
         w, h = self._linked_skin.resolution(image_index)
         if self.rotate:                                 # Rotate image as requested.
-            img = rotateImage(img, False)
+            img = img.rotate(False)
             w, h = h, w
-        img = flipImage(img, self.mirror_x, self.mirror_y)      # Mirror/flip image as requested.
+        img = img.flip(self.mirror_x, self.mirror_y)      # Mirror/flip image as requested.
 
         if self._linked_skin.usesBgColors():            # Composite background color, if the linked image uses one.
             flood_img = UImage(width=w, height=h)
-            fastFlood(flood_img, w, h, self._bg_colors[index])
-            fastBlit(flood_img, w, h, img, w, h, 0, 0, w, h, 0, 0)
+            flood_img.flood(self._bg_colors[index])
+            img.cropTo(flood_img, width=w, height=h)
             img = flood_img
 
         while len(self._images) <= index: self._images.append(self._empty_image)
@@ -540,7 +539,8 @@ class BarSkin(DirtySkin, ColorSkin):
         if w >= c2w and h >= c2h:
             new_img = UImage(width=w, height=h)
             # If the bar itself uses bg_colors, flood fill the whole new image.
-            if self._use_bg_colors: fastFlood(new_img, w, h, self._bg_colors[index])
+            if self._use_bg_colors:
+                new_img.flood(self._bg_colors[index])
 
             # Calculate values
             if self._vertical:
@@ -555,11 +555,11 @@ class BarSkin(DirtySkin, ColorSkin):
                 cx2, cy2 = c2x, int((h * 0.5) - c1h*0.5)
 
             # Composite the trough
-            fastTile(self.trough.image(index), *self.trough.resolution(index), new_img, w, h, bbox)
+            self.trough.image(index).tileTo(new_img, bbox)
             # Composite the first cap
-            fastBlit(new_img, w, h, self.cap1.image(index), c1w, c1h, cx, cy, c1w, c1h, 0, 0)
+            self.cap1.image(index).cropTo(new_img, dest_x=cx, dest_y=cy)
             # Composite the second cap
-            fastBlit(new_img, w, h, self.cap2.image(index), c2w, c2h, cx2, cy2, c2w, c2h, 0, 0)
+            self.cap2.image(index).cropTo(new_img, dest_x=cx2, dest_y=cy2)
 
             self._saveImage(new_img, index)
 
@@ -689,7 +689,8 @@ class Measurable:
         w = kwargs['width'] if 'width' in kwargs else 0
         h = kwargs['height'] if 'height' in kwargs else 0
         self._geometry = (0, 0, w, h)
-        self._last_geometry = (0, 0, 0, 0)
+        self._last_geometry = tuple(self._geometry)
+        self._initialized = False
 
         super().__init__(*args, **kwargs)
 
@@ -709,22 +710,24 @@ class Measurable:
     @property
     def height(self): return self._geometry[3]
 
+    def place(self, **kwargs): self.place_configure(**kwargs)
     def place_configure(self, **kwargs):
         x = kwargs['x'] if 'x' in kwargs else self.x
         y = kwargs['y'] if 'y' in kwargs else self.y
         w = kwargs['width'] if 'width' in kwargs else self.width
         h = kwargs['height'] if 'height' in kwargs else self.height
+        skip = kwargs.pop('skip') if 'skip' in kwargs else False
 
-        # 'skip=True' attempts to skip _afterGeometryChanges() by matching _last_geometry to the new geometry.
         self._geometry = (x, y, w, h)
-        if 'skip' in kwargs and kwargs.pop('skip') == True: self._last_geometry = self._geometry
         super().place_configure(**kwargs)
 
-    # _refresh is meant to run on any <Configure> binded event.
+        if not self._initialized:
+            self._initialized = True
+            self.after_idle(self._refresh)
+        elif not skip: self._refresh()        # 'skip=True' skips _refresh().
+
     def refresh(self, event=None): self._refresh(event)
     def _refresh(self, event=None):
-        self._geometry = getGeometry(self)
-
         if self._last_geometry != self._geometry: self._afterGeometryChanges()
         self._last_geometry = self._geometry
 
@@ -786,6 +789,7 @@ class Skinnable(Measurable):
             self._children.insert(0, child)
 
     # _refresh runs on instantiation, and when any tracked change takes place thereafter.
+    def refresh(self): self._refresh()
     def _refresh(self, event=None):
         super()._refresh(event)
         # If skin provides no image, generate a Skin, utilizing the FilterSkin override for skins that useBgColors().

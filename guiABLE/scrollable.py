@@ -12,7 +12,6 @@ class Scrollable(Measurable, Siblingable, tk.Frame):
 
         # Registering as a sibling allows Scrollable to be considered in sibling culling.
         self.scroll_skin = scroll_skin
-        self.bind("<Configure>", self._refresh)
 
         """ ==OPTIONS==
             smooth_rate is subject to 'magic numbers' due to OS throttling. 15 is excellent on Windows. """
@@ -237,7 +236,6 @@ class Scrollable(Measurable, Siblingable, tk.Frame):
                     # If the child is exiting the screen.
                     elif live:
                         child.scroll_xy = -px + new_x, -py + new_y
-                        child._geometry = (0, -ch, cw, ch)
                         child.place_configure(x=0, y=-ch, skip=True)
 
 

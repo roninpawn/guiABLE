@@ -1,8 +1,9 @@
 import tkinter as tk
 from time import time
 
-from .widgets import Background
-from .utilities import resolvePath, geometryFromString, UImage
+from guiABLE.widgets import Background
+from guiABLE.utilities import resolvePath, geometryFromString
+from guiABLE.uimage import UImage
 
 
 """
