@@ -172,7 +172,7 @@ class Window(tk.Tk):
 
     A 2ms heartbeat is the fastest heartbeat that still throttles to zero CPU use, on modern platforms.
     """
-    def _heartbeat(self): self.after(5, self._heartbeat)
+    def _heartbeat(self): self.after(2, self._heartbeat)
 
     def _update_offsets(self):
         self._offset_w = (self.winfo_width() - self.taskbar_handle.winfo_width()) // 2

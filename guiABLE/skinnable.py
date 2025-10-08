@@ -1,6 +1,6 @@
 import tkinter as tk
 
-from guiABLE.utilities import warnPrint, resolvePath, loadImage
+from guiABLE.utilities import warnPrint, resolvePath, loadImage, getGeometry
 from guiABLE.uimage import UImage
 
 
@@ -689,8 +689,7 @@ class Measurable:
         w = kwargs['width'] if 'width' in kwargs else 0
         h = kwargs['height'] if 'height' in kwargs else 0
         self._geometry = (0, 0, w, h)
-        self._last_geometry = tuple(self._geometry)
-        self._initialized = False
+        self._last_geometry = (0,0,0,0)
 
         super().__init__(*args, **kwargs)
 
@@ -710,24 +709,22 @@ class Measurable:
     @property
     def height(self): return self._geometry[3]
 
-    def place(self, **kwargs): self.place_configure(**kwargs)
     def place_configure(self, **kwargs):
         x = kwargs['x'] if 'x' in kwargs else self.x
         y = kwargs['y'] if 'y' in kwargs else self.y
         w = kwargs['width'] if 'width' in kwargs else self.width
         h = kwargs['height'] if 'height' in kwargs else self.height
-        skip = kwargs.pop('skip') if 'skip' in kwargs else False
 
+        # 'skip=True' attempts to skip _afterGeometryChanges() by matching _last_geometry to the new geometry.
         self._geometry = (x, y, w, h)
+        if 'skip' in kwargs and kwargs.pop('skip') == True: self._last_geometry = self._geometry
         super().place_configure(**kwargs)
 
-        if not self._initialized:
-            self._initialized = True
-            self.after_idle(self._refresh)
-        elif not skip: self._refresh()        # 'skip=True' skips _refresh().
-
+    # _refresh is meant to run on any <Configure> binded event.
     def refresh(self, event=None): self._refresh(event)
     def _refresh(self, event=None):
+        self._geometry = getGeometry(self)
+
         if self._last_geometry != self._geometry: self._afterGeometryChanges()
         self._last_geometry = self._geometry
 

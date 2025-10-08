@@ -12,6 +12,7 @@ class Scrollable(Measurable, Siblingable, tk.Frame):
 
         # Registering as a sibling allows Scrollable to be considered in sibling culling.
         self.scroll_skin = scroll_skin
+        self.bind("<Configure>", self._refresh)
 
         """ ==OPTIONS==
             smooth_rate is subject to 'magic numbers' due to OS throttling. 15 is excellent on Windows. """
@@ -40,9 +41,9 @@ class Scrollable(Measurable, Siblingable, tk.Frame):
         self._scrollwheel_axis, self._scrollwheel_percent, self._scrollwheel_duration = 1, 0.4, 150
 
         # Scroll Defaults (based on 17ms (~60fps) animation rates.
-        self.setPageScroll(180, 300)
+        self.setPageScroll(150, 300)
         self.setLineScroll(150, 0)
-        self.setWheelScroll(150, .4, True)
+        self.setWheelScroll(120, .4, True)
 
     @property
     def skin(self): return self._frame.skin
@@ -119,7 +120,7 @@ class Scrollable(Measurable, Siblingable, tk.Frame):
             # Resize the non-dominant bar depending on presence of dominant bar.
             self._applyDominance()
 
-    # Including isOpaque and registering as a sibling allows Scrollable to be considered in sibling culling.
+    # Including these methods allows Scrollable to be considered in sibling culling.
     @staticmethod
     def isOpaque(): return True
     def redraw(self): pass
@@ -259,8 +260,6 @@ class ScrollFrame(Background):
             loc = self.x / rw if rw else 0.0, self.y / rh if rh else 0.0
 
             self.parent.plateResized(size, loc)
-    @property
-    def view_geometry(self): return -self._plate_geometry[0], -self._plate_geometry[1], *self._geometry[2:]
 
     @property
     def scroll_range(self):

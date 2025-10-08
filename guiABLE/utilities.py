@@ -57,7 +57,7 @@ def loadImage(path_or_image:str | UImage) -> tuple[UImage | None, str | None]:
 
 
 """
- ---------- Widget Utility Functions ----------
+ ---------- Geometry Functions ----------
 getGeometry() fetches Winfo_ geometry by string and parses the string into ints. This was found to be slightly faster
 than polling the 4x equivalent Winfo_ (x,y,width,height) access points. replace().split() was also found faster than
 regex, .partition(), and .find() with index slicing.
@@ -179,10 +179,10 @@ def decimateRect(rect_xywh, cutter_rects):
     return survivors
 
 
-""" Below are old utility methods that could probably be rewritten or deprecated entirely. """
-def limitMove(pos:int, extent:int, min_val:int, max_val:int) -> int:
-    return max(min_val, min(pos, max_val - extent))
-
+"""
+---------- Old Functions ----------
+Below are old utility methods that could probably be rewritten or deprecated entirely.
+"""
 def getLocalMouse(widget:Widget) -> tuple[int, int, bool]:
     px, py = widget.winfo_pointerxy()
     x = px - widget.winfo_rootx()

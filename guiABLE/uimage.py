@@ -35,7 +35,7 @@ class UImage(PhotoImage):
         if width is None: width = self.width()
         if height is None: height = self.height()
 
-        out = UImage(width=width, height=height, source=f"Cropped from {self} at {x}, {y}")
+        out = UImage(width=width, height=height, source=f"Cropped from {self} at {x},{y}")
         self._blit(out, x, y, width, height)
         return out
 
@@ -47,7 +47,7 @@ class UImage(PhotoImage):
 
     def rotate(self, clockwise:bool = True) -> UImage:
         w, h = self.resolution
-        out = UImage(width=h, height=w)
+        out = UImage(width=h, height=w, source =f"Rotation of {self}")
         for y in range(h):
             yy = h-1-y if clockwise else y
             for x in range(w): out.copy_replace(self, from_coords=(x, y, x + 1, y + 1), to=(yy, x))
@@ -56,16 +56,16 @@ class UImage(PhotoImage):
     def flip(self, flip_x:bool = False, flip_y:bool = False) -> UImage:
         if not flip_x and not flip_y: return self
         w, h = self.resolution
-        flipped = UImage(width=w, height=h)
+        out = UImage(width=w, height=h, source=f"Flipped {self} on {'x' if flip_x else ''}{'y' if flip_y else ''}")
         if flip_x and flip_y:
             tmp = UImage(width=w, height=h)
             [tmp.copy_replace(self, from_coords=(col, 0, col + 1, h), to=(w-1-col, 0)) for col in range(w)]
-            [flipped.copy_replace(tmp, from_coords=(0, row, w, row + 1), to=(0, h-1-row)) for row in range(h)]
+            [out.copy_replace(tmp, from_coords=(0, row, w, row + 1), to=(0, h-1-row)) for row in range(h)]
 
-        elif flip_x: [flipped.copy_replace(self, from_coords=(col, 0, col + 1, h), to=(w-1-col, 0)) for col in range(w)]
-        elif flip_y: [flipped.copy_replace(self, from_coords=(0, row, w, row + 1), to=(0, h-1-row)) for row in range(h)]
+        elif flip_x: [out.copy_replace(self, from_coords=(col, 0, col + 1, h), to=(w-1-col, 0)) for col in range(w)]
+        elif flip_y: [out.copy_replace(self, from_coords=(0, row, w, row + 1), to=(0, h-1-row)) for row in range(h)]
 
-        return flipped
+        return out
 
     def flood(self, color:str): self.put(color, to=(0, 0, *self.resolution))
 
@@ -90,7 +90,7 @@ class UImage(PhotoImage):
             # Fetch image's raw binary RGB data as 'PPM' using a key color to represent transparency.
             self._data = []
             data = self.data(format="PPM", background=f'#{self._key[0]:02x}{self._key[1]:02x}{self._key[2]:02x}')
-            if isinstance(data, str): data = data.encode("latin1")      # Tk <= 8.6.12 returns a str()
+            if isinstance(data, str): data = data.encode("latin1")      # Tk <= 8.6.12 returns a str(), so convert.
 
             # Split header from pixel payload and re-populate resolution from header data.
             header, raw = data.split(b'\n255\n', 1)

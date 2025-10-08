@@ -5,8 +5,7 @@ from typing import Callable
 from pygments.lexers import q
 
 from guiABLE.skinnable import Skinnable, FilterSkin, SingleSkin, Measurable
-from guiABLE.utilities import limitMove, rectsOverlap, rectUnion, pointIsInRect, getOverlap, decimateRect, \
-    rectIntersect, rectsUnion
+from guiABLE.utilities import rectsOverlap, rectUnion, pointIsInRect, getOverlap, decimateRect, rectIntersect, rectsUnion
 from guiABLE.uimage import UImage
 
 """ Siblingable is a mixin that provides parent/sibling awareness & overlap tracking.  """
@@ -66,6 +65,7 @@ class Siblingable:
 class Canvas(Skinnable, Siblingable, tk.Canvas):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, highlightthickness=0, **kwargs)
+        self.bind("<Configure>", self._refresh)
 
         self.bench, self.benches = 0, 0
 
@@ -139,7 +139,7 @@ class Canvas(Skinnable, Siblingable, tk.Canvas):
 
             # Start rendering to the surface of self and any widgets atop once we've drawn up to the calling widget.
             if sibling == self: atop = True
-            if atop:
+            if atop and not (sibling != self and sibling.isOpaque()):
                 final = sibling.scratchImage()
                 base.cropTo(final, ix, iy, cw, ch, cx, cy)
                 sibling.render(final)       # Render to surface of widget.
@@ -461,8 +461,8 @@ class LoneDraggable(Holdable):
     def move(self, x:int, y:int):
         w, h = self._geometry[2:]
         bbox = (0, 0, *self.parent.geometry[2:]) if self._bounds is None else self._bounds
-        x = limitMove(x, w, bbox[0], bbox[2])
-        y = limitMove(y, h, bbox[1], bbox[3])
+        x = max(bbox[0], min(x, bbox[2] - w))
+        y = max(bbox[1], min(y, bbox[3] - h))
 
         self._geometry = (x, y, w, h)
         if self._last_geometry != self._geometry:
@@ -512,6 +512,7 @@ class TextCanvas(Skinnable, FakeCanvas):
     def __init__(self, parent, *args, **kwargs):
         super().__init__(parent, *args, **kwargs)
 
+        self.bind("<Configure>", self._refresh)
         self._img_state = 0
         self._parent = parent
 
