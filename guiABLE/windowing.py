@@ -45,17 +45,29 @@ class ChildWindow(tk.Toplevel):
         self.deiconify() if self._visible else self.withdraw()
 
 
+class Window(Background):
+    def __init__(self, width:int=400, height:int=300, x:int=100, y:int=100, title=""):
+        self._window = Windowable(width, height, x, y, title)
+        super().__init__(self._window, width, height)
+        self.place(x=0, y=0)
+
+    def bindDrag(self, widget): self._window.bindDrag(widget)
+    def bindChild(self, child_window:ChildWindow): self._window.bindChild(child_window)
+    def loadTabImage(self, image_path:str): self._window.loadTabImage(image_path)
+    def minimize(self): self._window.minimize()
+    def restore(self): self._window.restore()
+
+
 """
-A Window is a primary/parent window without a top bar or any controls. This is accomplished be telling the OS' window
-manager to it. Which means that its taskbar presence and alt+tab functionality must be faked back into place. So a 2nd,
-invisible, window is spawned and maintained to serve as the OS-tracked window.
+A Windowable is a primary/parent window without a top bar or any controls. This is accomplished be telling the OS'
+window manager to ignore it. Which means that its taskbar presence and alt+tab functionality must be faked back into
+place. So a 2nd, invisible, window is spawned and maintained to serve as the OS-tracked window.
 
 Use loadTabImage() to populate the alt+tab overlay with a custom logo/image.
 """
-class Window(tk.Tk):
-    def __init__(self, geometry="200x200", title=""):
-        x, y, w, h = geometryFromString(geometry)
-        self._offset_w, self._offset_h = w // 2, h // 2
+class Windowable(tk.Tk):
+    def __init__(self, width:int=400, height:int=300, x:int=100, y:int=100, title=""):
+        self._offset_w, self._offset_h = width // 2, height // 2
         self.child_list = []
         self.drag_locked = True
         self._lost_focus = time()
@@ -64,7 +76,7 @@ class Window(tk.Tk):
         super().__init__()
         self.overrideredirect(True)
         self.title(title)
-        self.geometry(geometry)
+        self.geometry(f"{width}x{height}+{x}+{y}")
 
         # overrideredirect() causes the OS to ignore the window. So a taskbar/tab presence is manufactured and managed.
         self.taskbar_handle = tk.Toplevel(self)
@@ -139,8 +151,7 @@ class Window(tk.Tk):
         for child in self.child_list:
             child.lift()
 
-    def lostFocus(self, event):
-        self._lost_focus = time() + .4
+    def lostFocus(self, event): self._lost_focus = time() + .4
 
     def minimize(self): self.iconify()
     def iconify(self, event=None):

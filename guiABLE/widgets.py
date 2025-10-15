@@ -201,16 +201,7 @@ class Backgroundable:
         return bg_able
 
 
-""" Imageable simply displays an image. """
-class Imageable:
-    def __init__(self, *args, **kwargs):
-        super().__init__(*args, **kwargs)
-        self._skin.setBGColors('gray42')      # Eliminate interactive colors for simple image.
-
-    def changeImage(self, img_number): self.setState(img_number)
-
-
-""" Widgetable establishes the base of the widget chain, providing basic access methods and on/off states. """
+""" Stateable establishes the base of the widget chain, providing basic access methods and on/off states. """
 class Stateable:
     def __init__(self, *args, **kwargs):
         kwargs["bg"] = "gray42"     # Neutral background color reduces visual pop-in.
@@ -231,6 +222,15 @@ class Stateable:
         self.setState(0)
         self._enabled = True
     def disable(self): self._enabled = False
+
+
+""" Imageable simply displays an image. """
+class Imageable(Stateable):
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self._skin.setBGColors('gray42')      # Eliminate interactive colors for simple image.
+
+    def changeImage(self, img_number): self.setState(img_number)
 
 
 """ Hoverable adds mouse-over awareness and triggers state-change/redraws on mouse-in and mouse-out. """
@@ -552,6 +552,9 @@ class TextCanvas(Skinnable, FakeCanvas):
 class Background(Backgroundable, TextCanvas):
     def __init__(self, parent, width:int, height:int, skin:SingleSkin=None, **kwargs):
         super().__init__(parent, width, height, skin=skin, **kwargs)
+class Poster(Imageable, Canvas):
+    def __init__(self, parent, skin=None, **kwargs):
+        super().__init__(parent, skin=skin, **kwargs)
 class Hover(Hoverable, Canvas):
     def __init__(self, parent, skin=None, **kwargs):
         super().__init__(parent, skin=skin, **kwargs)

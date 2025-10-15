@@ -360,7 +360,7 @@ class DirtySkin:
 """
 class FilterSkin(DirtySkin, CoreSkin):
     def __init__(self, linked_skin:CoreSkin, crop:tuple[int,int,int,int]|None = None,
-                 rotate:bool = False, mirror_x:bool = False, mirror_y:bool = False, scale:float = 1.0):
+                 rotate:bool = False, mirror_x:bool = False, mirror_y:bool = False):
         DirtySkin.__init__(self)
         CoreSkin.__init__(self)
 

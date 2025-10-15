@@ -2,39 +2,37 @@ from guiABLE import *
 
 
 def test_gui():
-    app = Window(geometry="600x400+420+180", title="guiABLE Testbed")
+    app = Window(600, 400, 420, 180, title="guiABLE Testbed")
     bg_image, _ = loadImage("../skins/default/bg-600x400.png")
-    bg = Background.fromImage(app, 600, 400, bg_image)
-    bg.place(x=0, y=0)
+    app.setSkin(Skin.fromImages(bg_image))
 
-    # Make app Drag by grabbing the background.
-    app.bindDrag(bg)
+    app.bindDrag(app)       # Make app Drag by grabbing the background.
 
     # Create a test Button
     btn_skin = Skin("../skins/default/cog.png", "../skins/default/cog_mo.png", "../skins/default/cog_red.png")
-    test_btn = Button(bg, btn_skin, lambda: print("Button clicked!"), width=140, height=24)
+    test_btn = Button(app, btn_skin, lambda: print("Button clicked!"), width=140, height=24)
     test_btn.place(x=60, y=0)
 
     # Create a Checkbox
     toggle_skin = Skin.fromSpriteSheet("../skins/default/checkbox-64.png", 64)
-    test_toggle1 = Checkbox(bg, toggle_skin, lambda: print("Toggle1 state:", test_toggle1.isTrue()), True,
+    test_toggle1 = Checkbox(app, toggle_skin, lambda: print("Toggle1 state:", test_toggle1.isTrue()), True,
                              width=64, height=64)
     test_toggle1.place(x=80, y=24)
 
-    test_toggle2 = Checkbox(bg, toggle_skin, function=lambda: print("Toggle2 state:", test_toggle2.isTrue()),
+    test_toggle2 = Checkbox(app, toggle_skin, function=lambda: print("Toggle2 state:", test_toggle2.isTrue()),
                              width=64, height=64)
     test_toggle2.place(x=144, y=24)
 
     # Create a Drag object
     drag_skin = Skin.fromSpriteSheet("../skins/default/radiobox-64.png", 64)
-    test_drag = Drag(bg, skin=drag_skin, width=64, height=64)
+    test_drag = Drag(app, skin=drag_skin, width=64, height=64)
     test_drag.place(x=260, y=24)
 
-    opaque_test = Button(bg, btn_skin, lambda: print("Opaque clicked!"), width=22, height=23)
+    opaque_test = Button(app, btn_skin, lambda: print("Opaque clicked!"), width=22, height=23)
     opaque_test.place(x=280, y=45)
 
     # Create a Label (button with text overlay)
-    test_label = Label(bg, btn_skin, function=lambda: print("Label clicked!"),
+    test_label = Label(app, btn_skin, function=lambda: print("Label clicked!"),
                            text="Hello", text_pos=(10, 5), font=("Arial", 12, "bold"), color="white",
                            width=100, height=24)
 
@@ -46,15 +44,15 @@ def test_gui():
     x_sprite = Skin.fromImages(exit_x)
     x_sprite.usesBgColors(True)
     x_sprite.setBGColor("red", 2)
-    exit_button = Button(bg, function=app.quit, skin=x_sprite, width=40, height=40)
+    exit_button = Button(app, function=app.quit, skin=x_sprite, width=40, height=40)
     exit_button.place(x=550, y=10)
 
     # Create a Holdable button
-    hold_btn = RepeatButton(bg, function=lambda: print("Holding"), width=80, height=40, delay=200)
+    hold_btn = RepeatButton(app, function=lambda: print("Holding"), width=80, height=40, delay=200)
     hold_btn.place(x=500, y=120)
 
     # Create a Clickable-only button
-    click_btn = InstantButton(bg, function=lambda: print("Clicked instantly!"), width=80, height=40)
+    click_btn = InstantButton(app, function=lambda: print("Clicked instantly!"), width=80, height=40)
     click_btn.place(x=500, y=180)
 
     from guiABLE.skinnable import BarSkin as BS
@@ -63,33 +61,33 @@ def test_gui():
 
     bar_skin = BS.fromTwo(cap_skin, trough_skin, True)
     mid_skin = Skin.fromImages(bar_skin.image(0, 192))
-    c = InstantButton(bg, skin=mid_skin, width=48, height=192)
+    c = InstantButton(app, skin=mid_skin, width=48, height=192)
     c.place(x=550, y=200)
 
-    occlude = Hover(bg, width=200, height=300)
+    occlude = Hover(app, width=200, height=300)
     #occlude.place(x=400, y=100)
 
     trough_skin = Skin("../skins/default/scroll_trough-48.png")
     cap_skin = Skin("../skins/default/up_glyph-48.png", orientation="n")
     scroll_skin = ScrollSkin.fromSkins(cap_skin, trough_skin, None, True, cap_skin, "n")
-    scroll_area = Scrollable(bg, 450, 280, scroll_skin, Skin.fromImages(bg_image))
+    scroll_area = Scrollable(app, 450, 280, scroll_skin, Skin.fromImages(bg_image))
     scroll_area.place(x=20, y=100)
 
     #scroll_area.dominant_axis = 0
     #scroll_area.showBars(1, 1)
 
     # Create Togglables for changing the scrollbar settings.
-    test_toggle3 = Checkbox(bg, toggle_skin, scroll_area.getScrollTypes()[0], width=64, height=64)
+    test_toggle3 = Checkbox(app, toggle_skin, scroll_area.getScrollTypes()[0], width=64, height=64)
     test_toggle3.function = (scroll_area.setScrollType, test_toggle3.isTrue)
     test_toggle3.place(x=380, y=24)
 
-    test_toggle4 = Checkbox(bg, toggle_skin, scroll_area.getSmoothScroll()[0], True, width=64, height=64)
+    test_toggle4 = Checkbox(app, toggle_skin, scroll_area.getSmoothScroll()[0], True, width=64, height=64)
     test_toggle4.function = (scroll_area.setSmoothScroll, test_toggle4.isTrue)
     test_toggle4.place(x=444, y=24)
 
     nude_skin = BS()
     #nude_skin.usesBgColors(False)
-    nude_drag = Drag(bg, skin=nude_skin, width=50, height=50)
+    nude_drag = Drag(app, skin=nude_skin, width=50, height=50)
     nude_drag.place(x=0, y=0)
 
     for i in range(50):
@@ -111,7 +109,7 @@ def test_gui():
     #test_toggle3.lower()
     #test_toggle4.lift(test_toggle2)
 
-    fps_label = tk.Label(bg, text="FPS", anchor="w")
+    fps_label = tk.Label(app, text="FPS", anchor="w")
     fps_label.place(x=518, y=10)
 
     """
