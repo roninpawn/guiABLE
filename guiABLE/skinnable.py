@@ -29,7 +29,7 @@ class CoreSkin(Receivable):
         super().__init__()
         self._images = []
         self._empty_image = UImage()
-        self._default_colors = ['gray42', 'gray51', 'gray78', 'gray27']
+        self._default_colors = ['#6B6B6B', '#828282', '#C7C7C7', '#454545']
         self._bg_colors = self._default_colors
         self._use_bg_colors = True
         self._filter = None     # Internal FilterSkin for compositing to background colors.

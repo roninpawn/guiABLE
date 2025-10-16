@@ -5,7 +5,8 @@ from typing import Callable
 from pygments.lexers import q
 
 from guiABLE.skinnable import Skinnable, FilterSkin, SingleSkin, Measurable
-from guiABLE.utilities import rectsOverlap, rectUnion, pointIsInRect, getOverlap, decimateRect, rectIntersect, rectsUnion
+from guiABLE.utilities import (rectsOverlap, rectUnion, pointIsInRect, getOverlap, decimateRect, rectIntersect,
+                               rectsUnion, LimitedDict)
 from guiABLE.uimage import UImage
 
 """ Siblingable is a mixin that provides parent/sibling awareness & overlap tracking.  """
@@ -73,6 +74,7 @@ class Canvas(Skinnable, Siblingable, tk.Canvas):
         self._z_state, self._z_img = None, None
         self._img_state = 0
         self._img = self.create_image(0, 0, anchor="nw")
+        self._bases = LimitedDict(maxsize=20)
 
     def redraw(self):
         # If the skin that this widget uses has changed, all of its children must redraw.
@@ -122,7 +124,9 @@ class Canvas(Skinnable, Siblingable, tk.Canvas):
         """ Composite to base and then blit from the base to the surface of the necessary siblings """
         # Make a base image to composite all sibling zImages onto.
         x, y, w, h = union
-        base = UImage(width=w, height=h)
+        res = (w, h)
+        if res not in self._bases: self._bases[res] = UImage(width=w, height=h)
+        base = self._bases[res]
 
         # Blit the parent's background to the base, if it is not fully obscured.
         if not (len(siblings) == 1 and self.isOpaque()) and decimateRect((0, 0, w, h), opaque_rects):
@@ -187,7 +191,7 @@ A Backgroundable is a simple, static, one-image canvas to serve as the stage for
 """
 class Backgroundable:
     def __init__(self, *args, **kwargs):
-        kwargs["bg"] = "gray42"
+        kwargs["bg"] = "#6B6B6B"
         super().__init__(*args, **kwargs)
 
     @classmethod
@@ -204,7 +208,7 @@ class Backgroundable:
 """ Stateable establishes the base of the widget chain, providing basic access methods and on/off states. """
 class Stateable:
     def __init__(self, *args, **kwargs):
-        kwargs["bg"] = "gray42"     # Neutral background color reduces visual pop-in.
+        kwargs["bg"] = "#6B6B6B"     # Neutral background color reduces visual pop-in.
         super().__init__(*args, **kwargs)
 
         self._img_state = 0
@@ -228,7 +232,7 @@ class Stateable:
 class Imageable(Stateable):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
-        self._skin.setBGColors('gray42')      # Eliminate interactive colors for simple image.
+        self._skin.setBGColors('#6B6B6B')      # Eliminate interactive colors for simple image.
 
     def changeImage(self, img_number): self.setState(img_number)
 
@@ -325,7 +329,7 @@ class Pushable(Clickable):
 
 
 class Labelable(Pushable):
-    def __init__(self, *args, text="", text_pos=(0,0), font="Times", color="gray", drop_pos=(2, 2), drop_color="gray25",
+    def __init__(self, *args, text="", text_pos=(0,0), font="Times", color="#808080", drop_pos=(2, 2), drop_color="#404040",
                  **kwargs):
         self.text, self.text_pos, self.color, self.font = text, text_pos, color, font
         self.drop_pos, self.drop_color, = drop_pos, drop_color

@@ -1,3 +1,4 @@
+from collections import OrderedDict
 from tkinter import TclError, Widget
 from os import path as osPath
 from sys import argv as sysArgV
@@ -9,6 +10,35 @@ from guiABLE.uimage import UImage
 class Overlap(NamedTuple):
     crop: tuple[int,int,int,int]   # (x,y,w,h) of other's coords -- to crop from
     insert: tuple[int,int]         # (x,y) in self coords -- position to composite to
+
+
+class LimitedDict(OrderedDict):
+    def __init__(self, maxsize=10, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.maxsize = maxsize
+
+    def __getitem__(self, key):
+        value = super().__getitem__(key)
+        # Move key to end, marking it as recently used
+        self.move_to_end(key)
+        return value
+
+    def __setitem__(self, key, value):
+        # Replace existing or insert new
+        if key in self:
+            self.move_to_end(key)
+        super().__setitem__(key, value)
+
+        # Drop least recently used
+        if len(self) > self.maxsize:
+            oldest_key, oldest_val = self.popitem(last=False)
+
+    def get(self, key, default=None):
+        try:
+            return self[key]
+        except KeyError:
+            return default
+
 
 
 def warnPrint(message:any, *, level:str = "warning"):
