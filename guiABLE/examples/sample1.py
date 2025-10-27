@@ -15,27 +15,23 @@ def test_gui():
 
     # Create a Checkbox
     toggle_skin = Skin.fromSpriteSheet("../skins/default/checkbox-64.png", 64)
-    test_toggle1 = Checkbox(app, toggle_skin, lambda: print("Toggle1 state:", test_toggle1.isTrue()), True,
-                             width=64, height=64)
+    test_toggle1 = Checkbox(app, toggle_skin, lambda: print("Toggle1 state:", test_toggle1.isTrue()), True)
     test_toggle1.place(x=80, y=24)
 
-    test_toggle2 = Checkbox(app, toggle_skin, function=lambda: print("Toggle2 state:", test_toggle2.isTrue()),
-                             width=64, height=64)
+    test_toggle2 = Checkbox(app, toggle_skin, function=lambda: print("Toggle2 state:", test_toggle2.isTrue()))
     test_toggle2.place(x=144, y=24)
 
     # Create a Drag object
     drag_skin = Skin.fromSpriteSheet("../skins/default/radiobox-64.png", 64)
-    test_drag = Drag(app, skin=drag_skin, width=64, height=64)
+    test_drag = Drag(app, skin=drag_skin)
     test_drag.place(x=260, y=24)
 
-    opaque_test = Button(app, btn_skin, lambda: print("Opaque clicked!"), width=22, height=23)
+    opaque_test = Button(app, btn_skin, lambda: print("Opaque clicked!"))
     opaque_test.place(x=280, y=45)
 
     # Create a Label (button with text overlay)
-    test_label = Label(app, btn_skin, function=lambda: print("Label clicked!"),
-                           text="Hello", text_pos=(10, 5), font=("Arial", 12, "bold"), color="white",
-                           width=100, height=24)
-
+    label_font = FontPack(color="White", weight="bold", text_pos=(10,5))
+    test_label = Label(app, btn_skin, "Hello", label_font, lambda: print("Label clicked!"), width=100, height=24)
     test_label.place(x=360, y=0)
 
     glyphs = UImage(file='../skins/default/window-glyphs-40.png')
@@ -44,7 +40,7 @@ def test_gui():
     x_sprite = Skin.fromImages(exit_x)
     x_sprite.usesBgColors(True)
     x_sprite.setBGColor("red", 2)
-    exit_button = Button(app, function=app.quit, skin=x_sprite, width=40, height=40)
+    exit_button = Button(app, function=app.quit, skin=x_sprite)
     exit_button.place(x=550, y=10)
 
     # Create a Holdable button
@@ -77,11 +73,11 @@ def test_gui():
     #scroll_area.showBars(1, 1)
 
     # Create Togglables for changing the scrollbar settings.
-    test_toggle3 = Checkbox(app, toggle_skin, scroll_area.getScrollTypes()[0], width=64, height=64)
+    test_toggle3 = Checkbox(app, toggle_skin, scroll_area.getScrollTypes()[0])
     test_toggle3.function = (scroll_area.setScrollType, test_toggle3.isTrue)
     test_toggle3.place(x=380, y=24)
 
-    test_toggle4 = Checkbox(app, toggle_skin, scroll_area.getSmoothScroll()[0], True, width=64, height=64)
+    test_toggle4 = Checkbox(app, toggle_skin, scroll_area.getSmoothScroll()[0], True)
     test_toggle4.function = (scroll_area.setSmoothScroll, test_toggle4.isTrue)
     test_toggle4.place(x=444, y=24)
 
@@ -92,14 +88,13 @@ def test_gui():
 
     for i in range(50):
         #label = Button(scroll_area.frame, function=lambda: print(f"Label clicked!"), skin=btn_skin, width=24, height=24)
-        label = Label(scroll_area.frame, function=lambda: print("Label clicked!"), skin=btn_skin,
-                          text=f"Item {i + 1}", text_pos=(10, 5), font=("Arial", 12, "bold"), color="white",
-                          width=100, height=24)
+        label = Label(scroll_area.frame, btn_skin,f"Item {i + 1}", label_font, lambda: print("Label clicked!"),
+                      width=100, height=24)
         #label = tk.Label(scroll_area.scroll_plate, text=f"Item {i + 1}", anchor="w", background="teal")
         label.place(x=10, y=30*i)
         #label.pack(padx=10, pady=10, fill="both")
 
-    test_drag2 = Drag(scroll_area.frame, skin=drag_skin, width=64, height=64)
+    test_drag2 = Drag(scroll_area.frame, skin=drag_skin)
     test_drag2.place(x=190, y=285)
 
     # Prove lower/lift functionality    : Buggy right now.

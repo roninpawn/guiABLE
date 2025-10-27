@@ -22,17 +22,17 @@ class Scrollable(Measurable, Siblingable, tk.Frame):
         self._scroll_skin = scroll_skin
         v_breadth, h_breadth = self._scroll_skin.vertical.breadth, self._scroll_skin.horizontal.breadth
 
-        self._frame = ScrollFrame(self, width, height, skin)
+        self._frame = ScrollFrame(self, skin, width=width, height=height)
         self._frame.place(x=0, y=0)
         self.bind_all("<MouseWheel>", self.scrollByWheel, "+")
 
         # Place the scrollbars, spawning them offscreen, so they only appear if desired.
-        self._v_bar = VerticalScrollbar(self, v_breadth, height, self._scroll_skin.vertical, None,
-                                         self._scroll_skin.button, v_breadth)
+        self._v_bar = VerticalScrollbar(self, self._scroll_skin.vertical, None,
+                                        self._scroll_skin.button, v_breadth, width=v_breadth, height=height)
         self._v_bar.place(x=width, y=0)
 
-        self._h_bar = HorizontalScrollbar(self, width - v_breadth, h_breadth, self._scroll_skin.horizontal, None,
-                                          self._scroll_skin.button, h_breadth)
+        self._h_bar = HorizontalScrollbar(self, self._scroll_skin.horizontal, None,
+                                          self._scroll_skin.button, h_breadth, width=width, height=h_breadth)
         self._h_bar.place(x=0, y=height)
 
         self._bars = (self._h_bar, self._v_bar)
@@ -241,8 +241,8 @@ class Scrollable(Measurable, Siblingable, tk.Frame):
 
 
 class ScrollFrame(Background):
-    def __init__(self, parent:Scrollable, width:int, height:int, skin=None, **kwargs):
-        super().__init__(parent, width, height, skin, **kwargs)
+    def __init__(self, parent:Scrollable, skin=None, **kwargs):
+        super().__init__(parent, skin, **kwargs)
         self._plate_geometry = (0, 0, 0, 0)
         self._scroll_range = None
 
@@ -296,14 +296,14 @@ class ScrollFrame(Background):
 
 
 class ScrollBar(Background):
-    def __init__(self, parent:Scrollable, width:int, height:int, bar_skin:BarSkin|None = None,
+    def __init__(self, parent:Scrollable, bar_skin:BarSkin|None = None,
                  handle_skin:BarSkin|None = None, button_pack:ButtonPack|None = None, breadth:int = 0, **kwargs):
         self._bar_skin = bar_skin or BarSkin()
         self._buttons = button_pack
 
-        kwargs["width"], kwargs["height"] = width, height
         super().__init__(parent, **kwargs)
 
+        width, height = kwargs["width"], kwargs["height"]
         if breadth < 1: breadth = min(width, height)        # 0/negative = Auto breadth.
         self._bar_skin.usesBgColors(True)       # ScrollBar widgets are "floored" by default. No transparency below.
 
@@ -537,19 +537,19 @@ class ScrollBar(Background):
 
 
 class VerticalScrollbar(ScrollBar):
-    def __init__(self, parent, width:int, height:int, bar_skin:BarSkin|None = None, handle_skin:BarSkin|None = None,
+    def __init__(self, parent, bar_skin:BarSkin|None = None, handle_skin:BarSkin|None = None,
                  button_pack:ButtonPack|None = None, breadth:int = 0, **kwargs):
         self._directions = 0, 2
         self._orientation = 1, 0
-        super().__init__(parent, width, height, bar_skin, handle_skin, button_pack, breadth, **kwargs)
+        super().__init__(parent, bar_skin, handle_skin, button_pack, breadth, **kwargs)
 
 
 class HorizontalScrollbar(ScrollBar):
-    def __init__(self, parent, width:int, height:int, bar_skin:BarSkin|None = None, handle_skin:BarSkin|None = None,
+    def __init__(self, parent, bar_skin:BarSkin|None = None, handle_skin:BarSkin|None = None,
                  button_pack:ButtonPack|None = None, breadth:int = 0, **kwargs):
         self._directions = 3, 1
         self._orientation = 0, 1
-        super().__init__(parent, width, height, bar_skin, handle_skin, button_pack, breadth, **kwargs)
+        super().__init__(parent, bar_skin, handle_skin, button_pack, breadth, **kwargs)
 
 
 class ScrollTrough(TroughButton):

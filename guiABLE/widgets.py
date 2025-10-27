@@ -1,12 +1,11 @@
+import tkinter
 import tkinter as tk
 from time import time
 from typing import Callable
 
-from pygments.lexers import q
-
 from guiABLE.skinnable import Skinnable, FilterSkin, SingleSkin, Measurable
 from guiABLE.utilities import (rectsOverlap, rectUnion, pointIsInRect, getOverlap, decimateRect, rectIntersect,
-                               rectsUnion, LimitedDict)
+                               rectsUnion, LimitedDict, FontPack)
 from guiABLE.uimage import UImage
 
 """ Siblingable is a mixin that provides parent/sibling awareness & overlap tracking.  """
@@ -232,7 +231,7 @@ class Stateable:
 class Imageable(Stateable):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
-        self._skin.setBGColors('#6B6B6B')      # Eliminate interactive colors for simple image.
+        #self._skin.setBGColors('#6B6B6B')      # Eliminate interactive colors for simple image.
 
     def changeImage(self, img_number): self.setState(img_number)
 
@@ -329,23 +328,61 @@ class Pushable(Clickable):
 
 
 class Labelable(Pushable):
-    def __init__(self, *args, text="", text_pos=(0,0), font="Times", color="#808080", drop_pos=(2, 2), drop_color="#404040",
-                 **kwargs):
-        self.text, self.text_pos, self.color, self.font = text, text_pos, color, font
-        self.drop_pos, self.drop_color, = drop_pos, drop_color
+    def __init__(self, *args, text:str="", font_pack:FontPack = None, **kwargs):
+        self._using = [0] * 8
+        self._override_pack = FontPack()
+
+        self._pack = font_pack if font_pack else FontPack()
+        if "font" in kwargs:
+            self._using[0] = 1
+            self._override_pack.name = kwargs.pop("font")
+        if "font_size" in kwargs:
+            self._using[1] = 1
+            self._override_pack.size = kwargs.pop("font_size")
+        if "weight" in kwargs:
+            self._using[2] = 1
+            self._override_pack.weight = kwargs.pop("weight")
+        if "color" in kwargs:
+            self._using[3] = 1
+            self._override_pack.color = kwargs.pop("color")
+        if "drop_color" in kwargs:
+            self._using[4] = 1
+            self._override_pack.drop_color = kwargs.pop("drop_color")
+        if "text_pos" in kwargs:
+            self._using[5] = 1
+            self._override_pack.text_pos = kwargs.pop("text_pos")
+        if "drop_pos" in kwargs:
+            self._using[6] = 1
+            self._override_pack.drop_pos = kwargs.pop("drop_pos")
+        if "anchor" in kwargs:
+            self._using[7] = 1
+            self._override_pack.anchor = kwargs.pop("anchor")
+
+        self._packs = [self._pack, self._override_pack]
+
+        self.text = text
         self._img_text, self._img_text_shadow = None, None
         super().__init__(*args, **kwargs)
 
+    def setFontPack(self, font_pack:FontPack):
+        self._pack = font_pack
+        self._using = [0] * 7
+
+    def setFontAttributes(self, **kwargs):
+        for kw in kwargs: self._override_pack.__setattr__(kw, kwargs[kw])
+
     def drawText(self):
-        x, y = self.text_pos
-        dx, dy = self.drop_pos
+        x, y = self._packs[self._using[5]].text_pos
+        dx, dy = self._packs[self._using[6]].drop_offset
+        color, drop_color = self._packs[self._using[3]].color, self._packs[self._using[4]].drop_color
+        anchor = self._packs[self._using[7]].anchor
 
         # If text has not been rendered yet, create text layers.
-        if self._img_text_shadow is None:
-            self._img_text_shadow = self.create_text(x + dx, y + dy, text=self.text, fill=self.drop_color,
-                                                     font=self.font, anchor="nw")
+        if drop_color is not None and self._img_text_shadow is None:
+            self._img_text_shadow = self.create_text(x+dx, y+dy, text=self.text, fill=drop_color, font=self._tk_font,
+                                                     anchor=anchor)
         if self._img_text is None:
-            self._img_text = self.create_text(x, y, text=self.text, fill=self.color, font=self.font, anchor="nw")
+            self._img_text = self.create_text(x, y, text=self.text, fill=color, font=self._tk_font, anchor=anchor)
 
     def render(self, image:UImage):
         super().render(image)
@@ -370,6 +407,10 @@ class Labelable(Pushable):
     def setState(self, state_index:int = 0):
         super().setState(state_index)
         self.drawText()
+
+    @property
+    def _tk_font(self):
+        return (self._packs[self._using[0]].name, self._packs[self._using[1]].size, self._packs[self._using[2]].weight)
 
 
 """ Toggleable stores a true/false state and redirects image() calls by index+_state_offset when true. This allows the
@@ -489,11 +530,11 @@ because tkinter's tk.Canvas does not track/update its 'dirty' rectangle correctl
 was solved in the Text widget, but nowhere else. So tk.Text is used as a render-floor for moving other widgets atop.
 """
 class FakeCanvas(tk.Text):
-    def __init__(self, parent, width:int, height:int, **kwargs):
+    def __init__(self, parent, **kwargs):
         super().__init__(parent, bd=0, padx=0, pady=0, state="disabled", cursor="arrow", **kwargs)
 
         self.configure(bg=self.cget("bg"))
-        self.place_configure(width=width, height=height)
+        self.place_configure(width=kwargs['width'], height=kwargs['height'])
 
     def configure(self, **kw):
         if "bg" in kw:      # Pass changes to bg through to the 'selectbackground' to maintain non-tk.Text() illusion.
@@ -554,8 +595,8 @@ class TextCanvas(Skinnable, FakeCanvas):
 
 """ Public Classes and IDE-Helper Definitions """
 class Background(Backgroundable, TextCanvas):
-    def __init__(self, parent, width:int, height:int, skin:SingleSkin=None, **kwargs):
-        super().__init__(parent, width, height, skin=skin, **kwargs)
+    def __init__(self, parent, skin:SingleSkin=None, **kwargs):
+        super().__init__(parent, skin=skin, **kwargs)
 class Poster(Imageable, Canvas):
     def __init__(self, parent, skin=None, **kwargs):
         super().__init__(parent, skin=skin, **kwargs)
@@ -572,8 +613,8 @@ class RepeatButton(Repeatable, Canvas):
     def __init__(self, parent, skin=None, function=lambda:None, delay=150, init_delay=400, **kwargs):
         super().__init__(parent, function, skin=skin, delay=delay, init_delay=init_delay, **kwargs)
 class Label(Labelable, Canvas):
-    def __init__(self, parent, skin=None, text="", font=("Arial", 12, "bold"), function=lambda:None, **kwargs):
-        super().__init__(parent, function, skin=skin, text=text, font=font, **kwargs)
+    def __init__(self, parent, skin=None, text="", font_pack=None, function=lambda:None, **kwargs):
+        super().__init__(parent, function, skin=skin, text=text, font_pack=font_pack, **kwargs)
 class Checkbox(Toggleable, Canvas):
     def __init__(self, parent, skin=None, function=lambda:None, state=False, **kwargs):
         super().__init__(parent, function, state=state, skin=skin, **kwargs)

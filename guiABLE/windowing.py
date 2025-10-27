@@ -48,7 +48,7 @@ class ChildWindow(tk.Toplevel):
 class Window(Background):
     def __init__(self, width:int=400, height:int=300, x:int=100, y:int=100, title=""):
         self._window = Windowable(width, height, x, y, title)
-        super().__init__(self._window, width, height)
+        super().__init__(self._window, width=width, height=height)
         self.place(x=0, y=0)
 
     def bindDrag(self, widget): self._window.bindDrag(widget)

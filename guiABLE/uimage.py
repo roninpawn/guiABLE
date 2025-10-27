@@ -129,7 +129,7 @@ class UImage(PhotoImage):
         else: out = self
         return UImage.fromPhotoImage(out, f"Scaled from {self}")
 
-    # Bilinear scaling provides float/non-integer scaling, but at the cost of partial-transparency.
+    # Bilinear scaling provides float/non-integer scaling, but at the complete loss of partial-transparency.
     def scaleBilinear(self, scale:float, scale_y:float = None, alpha_tolerance_per:float = .02) -> 'UImage':
         a_t = max(0, min(255, round(255 * alpha_tolerance_per)))
         return self.fromPixelMap(self._scale_bilinear(scale, scale_y, a_t), self._key, f"Scaled from {self}")
@@ -149,6 +149,22 @@ class UImage(PhotoImage):
                     w = min(bw, x2-x)
                     if w >= 0 and h >= 0:
                         recipient.copy_replace(self, from_coords=(0, 0, w, h), to=(x, y))
+
+    def getSprites(self, width_per_sprite:int, rows:int = 1, margins:tuple = (0, 0)) -> list['UImage']:
+        # Ensure row sanity and collect geometry.
+        if rows < 1: rows = 1
+        height = self.height() // rows
+        cols = (self.width() + margins[0]) // (width_per_sprite + margins[0])
+
+        # Populate self._images with the sprites from the sheet.
+        sprites = []
+        for row in range(rows):
+            for col in range(cols):
+                x1, y1 = col * width_per_sprite + margins[0], row * height + margins[1]
+                sprite = self.crop(x1, y1, width_per_sprite, height)
+
+                sprites.append(sprite)
+        return sprites
 
     def pixelMap(self) -> list[list[tuple[int,int,int]]]:
         if not self._data or self._key != self.TRANSPARENCY_KEY:

@@ -33,6 +33,7 @@ class CoreSkin(Receivable):
         self._bg_colors = self._default_colors
         self._use_bg_colors = True
         self._filter = None     # Internal FilterSkin for compositing to background colors.
+        self._skin_res = (0, 0)
 
     # Core access methods
     @property
@@ -46,10 +47,10 @@ class CoreSkin(Receivable):
             return self._images[index % len(self._images)]
         return self._empty_image
 
-    def resolution(self, image_index: int = 0) -> tuple[int, int]:
+    def resolution(self, image_index: int = None) -> tuple[int, int]:
         if any(self._images):
-            image_index %= len(self._images)
-            return self._images[image_index].resolution
+            if image_index is None: return self._skin_res
+            else: return self._images[image_index % len(self._images)].resolution
         return (0, 0)
 
     def isOpaque(self, image_index: int=0) -> bool:
@@ -66,6 +67,7 @@ class CoreSkin(Receivable):
 
     def reset(self):
         self._images = []
+        self._skin_res = (0, 0)
         self._bg_colors = self._default_colors
         self.updateRecipients()
 
@@ -88,7 +90,14 @@ class CoreSkin(Receivable):
             warnPrint(f"Image not found: {path}")
             return None
 
-    def _saveImage(self, image:UImage, index:int): self._images[index] = image
+    def _saveImage(self, image:UImage, index:int):
+        self._images[index] = image
+
+        # Expand skin dimensions to contain every image, on every axis.
+        new_res = list(self._skin_res)
+        if image.width() > new_res[0]: new_res[0] = image.width()
+        if image.height() > new_res[1]: new_res[1] = image.height()
+        self._skin_res = tuple(new_res)
 
     @staticmethod
     def _fillList(in_list:list) -> list:
@@ -103,7 +112,6 @@ class CoreSkin(Receivable):
     def _expand(self, size:int):       # Expands path and image lists to new length.
         for n in range(size):
             if len(self._images) < size: self._images.append(None)
-
 
 
 """ SingleSkin is a minimal skin container for holding one image. Used with static images and backgrounds. """
@@ -134,7 +142,7 @@ class SingleSkin (CoreSkin):
     def setPath(self, path:str, index:int = 0):
         if path: self._saveImage(self._imageByPath(resolvePath(path)), 0)
     def setColor(self, color:str, index:int = 0): self._bg_colors = [color]
-
+    def setBGColors(self, color:str): self.setColor(color)
 
 """
     ColorSkin adds methods for creating/manipulating multiple background colors.
@@ -230,25 +238,24 @@ class Skin(ColorSkin):
 
     """
     By Spritesheet -- A single image that contains all variants of a widget's state.
-    width:      Per-sprite width
+    width_per_sprite:      Per-sprite width
     rows:       How many rows of sprites in the sheet (default = 1)
     margins:    x,y margins. The gap, on each axis, BETWEEN each sprite. There should be NO margin at the image's edges.  
     Example:    Skin.fromSpriteSheet("/skins/default/checkbox.png", width=32, rows=2, margins=(4,4))
     """
     @classmethod
-    def fromSpriteSheet(cls, path_or_image:str|UImage, width:int, rows:int = 1, margins:tuple = (0,0),
+    def fromSpriteSheet(cls, path_or_image:str|UImage, width_per_sprite:int, rows:int = 1, margins:tuple = (0, 0),
                         orientation:str = None):
-        sk = cls()
+        sheet, path = loadImage(path_or_image)
+        if sheet is not None: return cls.fromImages(*sheet.getSprites(width_per_sprite, rows, margins),
+                                                    orientation=orientation)
+        return cls()
+    def setSprites(self, path_or_image:str|UImage, width_per_sprite:int, rows:int = 1, margins:tuple = (0,0)):
         sheet, path = loadImage(path_or_image)
         if sheet is not None:
-            sk._bySprite(sheet, path, width, rows, margins)
-        sk._orientation = orientation.lower()[0] if orientation else None
-        return sk
-    def setSprites(self, path_or_image:str|UImage, width:int, rows:int = 1, margins:tuple = (0,0)):
-        sheet, path = loadImage(path_or_image)
-        if sheet is not None:
-            self._paths, self._images = [], []
-            self._bySprite(sheet, path, width, rows, margins)
+            self._images = []
+            self._skin_res = (0, 0)
+            self._byUImages(sheet.getSprites(width_per_sprite, rows, margins))
         self.updateRecipients()
 
     @property
@@ -273,7 +280,7 @@ class Skin(ColorSkin):
 
         self._fillImages()
 
-    def _byUImages(self, images:tuple[UImage, ...], skip_falsy=False, index_offset:int = 0):
+    def _byUImages(self, images:tuple[UImage]|list[UImage], skip_falsy=False, index_offset:int = 0):
         for i, img in enumerate(images):
             if not img and skip_falsy: continue
 
@@ -281,22 +288,6 @@ class Skin(ColorSkin):
             if img:
                 self._saveImage(img, i)
             else: self._images[i] = None
-
-        self._fillImages()
-
-    def _bySprite(self, sheet:UImage, source:str, width:int, rows:int = 1, margins:tuple = (0, 0)):
-        # Ensure row sanity and collect geometry.
-        if rows < 1: rows = 1
-        height = sheet.height() // rows
-        cols = (sheet.width() + margins[0]) // (width + margins[0])
-
-        # Populate self._images with the sprites from the sheet.
-        for row in range(rows):
-            for col in range(cols):
-                x1, y1 = col * width + margins[0], row * height + margins[1]
-                sprite = sheet.crop(x1, y1, width, height)
-
-                self._images.append(sprite)
 
         self._fillImages()
 
@@ -734,9 +725,14 @@ class Measurable:
 """ Skinnable is a mixin that provides core Skin() handling functionality to guiABLE widgets. """
 class Skinnable(Measurable):
     def __init__(self, *args, skin:Skin|BarSkin|FilterSkin = None, **kwargs):
-        # Register widget as a user of skin, in case skin updates later and needs to issue a redraw of all users.
-        self._skin = skin or getattr(self, "_default_skin", Skin())
-        self._skin.bindWidget(self)
+        if skin:
+            res = skin.resolution(0)
+            if res != (0, 0):   # If no widget dimensions are given at instantiation, use skin dimensions.
+                if 'width' not in kwargs: kwargs['width'] = res[0]
+                if 'height' not in kwargs: kwargs['height'] = res[1]
+            self._skin = skin
+        else: self._skin = getattr(self, "_default_skin", Skin())
+        self._skin.bindWidget(self)     # Register widget as a user of skin, so changes to the skin can be propagated.
 
         super().__init__(*args, **kwargs)
         self._children = []
