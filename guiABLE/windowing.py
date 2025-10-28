@@ -2,7 +2,7 @@ import tkinter as tk
 from time import time
 
 from guiABLE.widgets import Background
-from guiABLE.utilities import resolvePath, geometryFromString
+from guiABLE.utilities import resolvePath
 from guiABLE.uimage import UImage
 
 

@@ -114,36 +114,6 @@ class CoreSkin(Receivable):
             if len(self._images) < size: self._images.append(None)
 
 
-""" SingleSkin is a minimal skin container for holding one image. Used with static images and backgrounds. """
-class SingleSkin (CoreSkin):
-    def __init__(self, path:str = None):
-        super().__init__()
-        self._default_colors = ['gray23']
-        self._bg_colors = self._default_colors
-        self._expand(1)
-        self._work_image = None
-
-        if path: self._saveImage(self._imageByPath(resolvePath(path)), 0)
-
-    @classmethod
-    def fromImage(cls, image:UImage):
-        ss = cls()
-        if isinstance(image, UImage): ss.setImage(image)
-        return ss
-    @classmethod
-    def fromPath(cls, path:str): return cls(path)
-    @classmethod
-    def fromColor(cls, color:str):
-        ss = cls()
-        ss.setColor(color)
-        return ss
-
-    def setImage(self, image:UImage, index:int = 0): self._saveImage(image, 0)
-    def setPath(self, path:str, index:int = 0):
-        if path: self._saveImage(self._imageByPath(resolvePath(path)), 0)
-    def setColor(self, color:str, index:int = 0): self._bg_colors = [color]
-    def setBGColors(self, color:str): self.setColor(color)
-
 """
     ColorSkin adds methods for creating/manipulating multiple background colors.
     ex: new_skin = ColorSkin.fromColors('yellow', 'blue', 'orange', 'gray15')
@@ -676,13 +646,21 @@ class ScrollSkin(SkinPack):
     possible, internally, slow winfo_() calls are avoided, and values are pollable without needing to update idletasks. 
 """
 class Measurable:
-    def __init__(self, *args, **kwargs):
+    def __init__(self, parent, *args, **kwargs):
         w = kwargs['width'] if 'width' in kwargs else 0
         h = kwargs['height'] if 'height' in kwargs else 0
         self._geometry = (0, 0, w, h)
         self._last_geometry = (0,0,0,0)
 
-        super().__init__(*args, **kwargs)
+        self._parent = parent
+        self._window = parent.window if getattr(parent, 'window', False) else parent
+
+        super().__init__(parent, *args, **kwargs)
+
+    @property
+    def parent(self): return self._parent
+    @property
+    def window(self): return self._window
 
     # Geometry is tracked, providing much faster access than winfo_ methods can offer.
     @property
@@ -726,10 +704,10 @@ class Measurable:
 class Skinnable(Measurable):
     def __init__(self, *args, skin:Skin|BarSkin|FilterSkin = None, **kwargs):
         if skin:
-            res = skin.resolution(0)
+            res = skin.resolution()
             if res != (0, 0):   # If no widget dimensions are given at instantiation, use skin dimensions.
-                if 'width' not in kwargs: kwargs['width'] = res[0]
-                if 'height' not in kwargs: kwargs['height'] = res[1]
+                if 'width' not in kwargs or kwargs['width'] is None: kwargs['width'] = res[0]
+                if 'height' not in kwargs or kwargs['height'] is None: kwargs['height'] = res[1]
             self._skin = skin
         else: self._skin = getattr(self, "_default_skin", Skin())
         self._skin.bindWidget(self)     # Register widget as a user of skin, so changes to the skin can be propagated.
@@ -752,6 +730,10 @@ class Skinnable(Measurable):
     def dropSkin(self):
         if self._skin: self._skin.unbindWidget(self)
         self._skin = Skin()
+
+    def isOpaque(self): return  self.skin.resolution(self.state) == self.size and \
+                               (self.skin.usesBgColors() or self.skin.isOpaque(self.state))
+
 
     # Persistent UImage provides an INSTANT redraw canvas in compositing.
     def scratchImage(self): return self._scratch

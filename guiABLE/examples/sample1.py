@@ -60,7 +60,7 @@ def test_gui():
     c = InstantButton(app, skin=mid_skin, width=48, height=192)
     c.place(x=550, y=200)
 
-    occlude = Hover(app, width=200, height=300)
+    occlude = TroughButton(app, width=200, height=300)
     #occlude.place(x=400, y=100)
 
     trough_skin = Skin("../skins/default/scroll_trough-48.png")
