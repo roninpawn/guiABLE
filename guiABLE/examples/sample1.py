@@ -4,7 +4,7 @@ from guiABLE import *
 def test_gui():
     app = Window(600, 400, 420, 180, title="guiABLE Testbed")
     bg_image, _ = loadImage("../skins/default/bg-600x400.png")
-    app.setSkin(Skin.fromImages(bg_image))
+    app.setSkin(Skin(bg_image))
 
     app.bindDrag(app)       # Make app Drag by grabbing the background.
 
@@ -37,7 +37,7 @@ def test_gui():
     glyphs = UImage(file='../skins/default/window-glyphs-40.png')
     exit_x = glyphs.crop(80, 0, 40, 40)
     # Create an EXIT button from a Label
-    x_sprite = Skin.fromImages(exit_x)
+    x_sprite = Skin(exit_x)
     x_sprite.usesBgColors(True)
     x_sprite.setBGColor("red", 2)
     exit_button = Button(app, function=app.quit, skin=x_sprite)
@@ -56,7 +56,7 @@ def test_gui():
     cap_skin = Skin("../skins/default/up_glyph-48.png")
 
     bar_skin = BS.fromTwo(cap_skin, trough_skin, True)
-    mid_skin = Skin.fromImages(bar_skin.image(0, 192))
+    mid_skin = Skin(bar_skin.image(0, 192))
     c = InstantButton(app, skin=mid_skin, width=48, height=192)
     c.place(x=550, y=200)
 
@@ -66,7 +66,7 @@ def test_gui():
     trough_skin = Skin("../skins/default/scroll_trough-48.png")
     cap_skin = Skin("../skins/default/up_glyph-48.png", orientation="n")
     scroll_skin = ScrollSkin.fromSkins(cap_skin, trough_skin, None, True, cap_skin, "n")
-    scroll_area = Scrollable(app, 450, 280, scroll_skin, Skin.fromImages(bg_image))
+    scroll_area = Scrollable(app, 450, 280, scroll_skin, Skin(bg_image))
     scroll_area.place(x=20, y=100)
 
     #scroll_area.dominant_axis = 0

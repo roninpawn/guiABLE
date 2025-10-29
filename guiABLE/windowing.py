@@ -124,17 +124,18 @@ class Windowable(tk.Tk):
         self.drag_locked = True
 
     def mouseDrag(self, event):
+        mx, my = self.winfo_pointerxy()
         if self.drag_locked:
-            self.x = event.x
-            self.y = event.y
+            self.dx = mx - self.winfo_rootx()
+            self.dy = my - self.winfo_rooty()
             self._update_offsets()
             self.drag_locked = False
             self.taskbar_handle.deiconify()
             self.focus_force()
             self.active_children = [child for child in self.child_list if child.visible]
 
-        x = self.winfo_x() + event.x - self.x
-        y = self.winfo_y() + event.y - self.y
+        x = mx - self.dx
+        y = my - self.dy
         self.taskbar_handle.geometry(f"+{x + self._offset_w}+{y + self._offset_h}")
         self.geometry(f"+{x}+{y}")
 

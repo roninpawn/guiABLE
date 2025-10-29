@@ -2,7 +2,7 @@ import tkinter as tk
 from time import time
 from typing import Callable
 
-from guiABLE.skinnable import Skinnable, FilterSkin, Measurable, Skin
+from guiABLE.skinnable import Skinnable, Measurable, Skin
 from guiABLE.utilities import (rectsOverlap, rectUnion, pointIsInRect, getOverlap, decimateRect, rectIntersect,
                                rectsUnion, LimitedDict, FontPack, Overlap)
 from guiABLE.uimage import UImage
@@ -117,6 +117,7 @@ class Renderable(Skinnable):
 
     def setState(self, state_index:int = 0):
         start = time()
+        if not self._window.drag_locked: return
         self._img_state = state_index
 
         union = rectUnion(self._geometry, self._last_geometry)
@@ -198,16 +199,6 @@ class Backgroundable:
 
     @staticmethod
     def isOpaque(): return True
-
-    @classmethod
-    def fromPath(cls, parent, width:int, height:int, image_path:str, **kwargs):
-        bg_able = cls(parent, width, height, Skin(image_path), **kwargs)
-        return bg_able
-
-    @classmethod
-    def fromImage(cls, parent, width:int, height:int, image:UImage, **kwargs):
-        bg_able = cls(parent, width, height, Skin.fromImage(image), **kwargs)
-        return bg_able
 
 
 """ Stateable establishes the base of the widget chain, providing basic access methods and on/off states. """
@@ -335,7 +326,7 @@ class Labelable(Pushable):
     def __init__(self, *args, text:str="", font_pack:FontPack = None, **kwargs):
 
         # If no skin passed, use a fully transparent skin.
-        if 'skin' in kwargs and kwargs['skin'] is None: kwargs['skin'] = Skin.fromImages(UImage())
+        if 'skin' in kwargs and kwargs['skin'] is None: kwargs['skin'] = Skin(UImage())
 
         # Ingest FontPack, while allowing overrides, but also maintaining linkage to source FontPack
         self._using = [0] * 8
@@ -608,7 +599,7 @@ class TroughButton(Repeatable, Siblingable, TextCanvas):
 
 # Nested Widgets
 class Slider(Imageable, Siblingable, TextCanvas):
-    def __init__(self, parent, trough_skin:Skin, handle_skin:Skin, function=lambda:None,
+    def __init__(self, parent, trough_skin, handle_skin, function=lambda:None,
                  handle_width:int=None, handle_height:int=None,
                  start_percent:float = 0.0, **kwargs):
         super().__init__(parent, skin=trough_skin, **kwargs)

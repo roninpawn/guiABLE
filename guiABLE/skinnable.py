@@ -110,8 +110,7 @@ class CoreSkin(Receivable):
         return in_list
 
     def _expand(self, size:int):       # Expands path and image lists to new length.
-        for n in range(size):
-            if len(self._images) < size: self._images.append(None)
+        while len(self._images) < size: self._images.append(None)
 
 
 """
@@ -158,106 +157,65 @@ class ColorSkin(CoreSkin):
     (normal, moused_over, active, disabled) 
 """
 class Skin(ColorSkin):
-    def __init__(self, *paths:str, orientation:str = None):
+    def __init__(self, *paths_or_images:str|UImage, orientation:str = None):
         super().__init__()
 
-        if any(paths):
-            self._expand(len(paths))
-            self._byPaths(paths)
+        if any(paths_or_images):
+            self._expand(len(paths_or_images))
+            self._byAny(paths_or_images)
         self._orientation = orientation.lower()[0] if orientation else None
 
-    """ By resource paths. ex: Skin("skins/my_skin/checkbox_enabled.png","skins/my_skin/checkbox_hover.png", ...) """
-    @classmethod
-    def fromPaths(cls, *paths:str, orientation:str = None):
-        sk = cls()
-        if any(paths):
-            sk._expand(len(paths))
-            sk._byPaths(paths)
-        sk._orientation = orientation.lower()[0] if orientation else None
-        return sk
-    def setPaths(self, *paths:str):        # Supports insert-updating by list. ex: ["path", None, None, "path"]
-        if len(paths) > len(self._paths): self._expand(len(paths))
-        self._byPaths(paths, True)
-        self.updateRecipients()
-    def setPath(self, path:str, index:int = 0):
-        if index >= len(self._images): self._expand(index + 1)
-        self._byPaths((path, ), index_offset=index)
-        self.updateRecipients()
-
     """
-    By UImage references. ex: Skin.fromImages(checkbox0, checkbox1, checkbox2, ...)
-    ⚠️ WARNING: UImage objects must be referenced in Python, or they will be garbage collected. Skinnable() stores
-    the image by ref, so you're safe here. But avoid passing UImage(file=...) directly into native Tkinter.
-    """
-    @classmethod
-    def fromImages(cls, *uimages:UImage, orientation:str = None):
-        sk = cls()
-        if any(uimages):
-            sk._expand(len(uimages))
-            sk._byUImages(uimages)
-        sk._orientation = orientation.lower()[0] if orientation else None
-        return sk
-    def setImages(self, *uimages:UImage):
-        if len(uimages) > len(self._images): self._expand(len(uimages))
-        self._byUImages(uimages, True)
-        self.updateRecipients()
-    def setImage(self, uimage:UImage, index:int = 0):
-        if index >= len(self._images): self._expand(index + 1)
-        self._byUImages((uimage,), index_offset=index)
-        self.updateRecipients()
-
-    """
-    By Spritesheet -- A single image that contains all variants of a widget's state.
-    width_per_sprite:      Per-sprite width
-    rows:       How many rows of sprites in the sheet (default = 1)
-    margins:    x,y margins. The gap, on each axis, BETWEEN each sprite. There should be NO margin at the image's edges.  
+    fromSpriteSheet -- A single image that contains all variants of a widget's state.
+    width_per_sprite:      The number of pixels, across, that each sprite should have. 
+    rows:       How many rows of sprites in the sheet (default=1)
+    margins:    The gap, on each axis, BETWEEN sprites. Assumes NO margin at the image's edges. (default=(0,0))  
     Example:    Skin.fromSpriteSheet("/skins/default/checkbox.png", width=32, rows=2, margins=(4,4))
     """
     @classmethod
     def fromSpriteSheet(cls, path_or_image:str|UImage, width_per_sprite:int, rows:int = 1, margins:tuple = (0, 0),
                         orientation:str = None):
         sheet, path = loadImage(path_or_image)
-        if sheet is not None: return cls.fromImages(*sheet.getSprites(width_per_sprite, rows, margins),
-                                                    orientation=orientation)
+        if sheet is not None: return cls(*sheet.getSprites(width_per_sprite, rows, margins),
+                                                                                            orientation=orientation)
         return cls()
     def setSprites(self, path_or_image:str|UImage, width_per_sprite:int, rows:int = 1, margins:tuple = (0,0)):
         sheet, path = loadImage(path_or_image)
         if sheet is not None:
             self._images = []
             self._skin_res = (0, 0)
-            self._byUImages(sheet.getSprites(width_per_sprite, rows, margins))
+            self._byAny(sheet.getSprites(width_per_sprite, rows, margins))
+        self.updateRecipients()
+
+    def set(self, *paths_or_images:str|UImage, index:int = 0, skip_falsy:bool = True):
+        upper = index + len(paths_or_images)
+        if upper > len(self._images): self._expand(upper)
+        self._byAny(paths_or_images, skip_falsy=skip_falsy, index_offset=index)
         self.updateRecipients()
 
     @property
     def orientation(self): return self._orientation
+    @orientation.setter
+    def orientation(self, orientation:str):
+        self._orientation = orientation.lower()[0] if orientation else None
 
     """ Private Functions """
-    def _byPaths(self, paths:tuple[str, ...], skip_falsy:bool = False, index_offset:int = 0):
-        for i, path in enumerate(paths):
-            i += index_offset       # index_offset is used by .updateByPath() to insert a single change at one location.
-            if not path and skip_falsy: continue        # Preserves existing values, allowing insert-changes by list.
-            r_path = resolvePath(path)
-
-            # If this path has already been successfully resolved to an image, store same image reference.
-            if e := self._existsAt(r_path): self._saveImage(self._images[e], i)
-
-            # Otherwise store resolved path and try to load the image. If fail, store reference to empty image.
-            else:
-                try:
-                    self._saveImage(UImage(file=r_path), i)
-                except tk.TclError:
-                    warnPrint(f"Image not found: {r_path}")
-
-        self._fillImages()
-
-    def _byUImages(self, images:tuple[UImage]|list[UImage], skip_falsy=False, index_offset:int = 0):
-        for i, img in enumerate(images):
-            if not img and skip_falsy: continue
-
+    def _byAny(self, collection:tuple|list, skip_falsy:bool = False, index_offset:int = 0) :
+        for i, entry in enumerate(collection):
             i += index_offset
-            if img:
-                self._saveImage(img, i)
-            else: self._images[i] = None
+            if not entry:       # If None or Falsy...
+                if skip_falsy: continue
+                self._images[i] = None
+            elif isinstance(entry, str):        # If str, representing a file path...
+                r_path = resolvePath(entry)
+                if e := self._existsAt(r_path): self._saveImage(self._images[e], i)
+                else:
+                    try:
+                        self._saveImage(UImage(file=r_path), i)
+                    except tk.TclError:
+                        warnPrint(f"Image not found: {r_path}")
+            elif isinstance(entry, UImage):     # If a pre-loaded UImage...
+                self._saveImage(entry, i)
 
         self._fillImages()
 
@@ -649,6 +607,7 @@ class Measurable:
     def __init__(self, parent, *args, **kwargs):
         w = kwargs['width'] if 'width' in kwargs else 0
         h = kwargs['height'] if 'height' in kwargs else 0
+
         self._geometry = (0, 0, w, h)
         self._last_geometry = (0,0,0,0)
 
@@ -678,16 +637,28 @@ class Measurable:
     @property
     def height(self): return self._geometry[3]
 
-    def place_configure(self, **kwargs):
-        x = kwargs['x'] if 'x' in kwargs else self.x
-        y = kwargs['y'] if 'y' in kwargs else self.y
-        w = kwargs['width'] if 'width' in kwargs else self.width
-        h = kwargs['height'] if 'height' in kwargs else self.height
+    def place(self, x:int=None, y:int=None, **kwargs):
+        if 'x' not in kwargs and x is not None: kwargs['x'] = x
+        if 'y' not in kwargs and y is not None: kwargs['y'] = y
+        super().place(**kwargs)
+        return self
 
-        # 'skip=True' attempts to skip _afterGeometryChanges() by matching _last_geometry to the new geometry.
-        self._geometry = (x, y, w, h)
-        if 'skip' in kwargs and kwargs.pop('skip') == True: self._last_geometry = self._geometry
+    def place_configure(self, *args, **kwargs):
+        # Enables passing .place(int, int) for x, y, or .place(x=int, y=int), or no x/y passed.
+        if 'x' not in kwargs:
+            kwargs['x'] = args[0] if len(args) and isinstance(args[0], int) else self.x
+        if 'y' not in kwargs:
+            kwargs['y'] = args[1] if len(args) > 1 and isinstance(args[1], int) else self.y
+
+        if 'width' not in kwargs: kwargs['width'] = self.width
+        if 'height' not in kwargs: kwargs['height'] = self.height
+
+        # 'skip=True' avoids _afterGeometryChanges() by matching _last_geometry to the new geometry.
+        self._geometry = (kwargs['x'], kwargs['y'], kwargs['width'], kwargs['height'])
+        if 'skip' in kwargs and kwargs.pop('skip'): self._last_geometry = self._geometry
         super().place_configure(**kwargs)
+
+        return self     # Enables one-line instantiation and placement. eg. my_btn = Button(...).place(10, 10)
 
     # _refresh is meant to run on any <Configure> binded event.
     def refresh(self, event=None): self._refresh(event)
@@ -702,8 +673,12 @@ class Measurable:
 
 """ Skinnable is a mixin that provides core Skin() handling functionality to guiABLE widgets. """
 class Skinnable(Measurable):
-    def __init__(self, *args, skin:Skin|BarSkin|FilterSkin = None, **kwargs):
+    def __init__(self, *args, skin:Skin|BarSkin|FilterSkin|str|UImage|tuple|list = None, **kwargs):
         if skin:
+            # Handle all possible forms of passing a non-skin Skin().
+            if isinstance(skin, str|UImage): skin = Skin(skin)
+            elif isinstance(skin, list|tuple): skin = Skin(*skin)
+
             res = skin.resolution()
             if res != (0, 0):   # If no widget dimensions are given at instantiation, use skin dimensions.
                 if 'width' not in kwargs or kwargs['width'] is None: kwargs['width'] = res[0]
