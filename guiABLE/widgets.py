@@ -129,7 +129,7 @@ class Renderable(Skinnable):
 
         # Cull caller's siblings by overlap and visibility, and generate a list of any opaque-sibling's geometries.
         if not isinstance(self, Siblingable):
-            siblings, overlaps, opaque_rects = [self], [Overlap(self.geometry, (0,0))], []
+            siblings, overlaps, opaque_rects = [self], [Overlap(self.geometry, (0,0))], [self]
         else:
             siblings, overlaps, opaque_rects = self._cull_siblings(self._siblings, union)
             # Remove last_geometry from union, if self is opaque and only sibling.
@@ -515,7 +515,7 @@ class LoneDraggable(Holdable):
 
         self._geometry = (x, y, w, h)
         if self._last_geometry != self._geometry:
-            self.place_configure(x=x, y=y)
+            self.place_configure(x=x, y=y, implied=True)
             self.function()
 
 
@@ -535,11 +535,16 @@ was solved in the Text widget, but nowhere else. So tk.Text is used as a render-
 """
 class FakeCanvas(tk.Text):
     def __init__(self, parent, **kwargs):
-        w, h = kwargs.pop('width'), kwargs.pop('height')
+        w = kwargs.pop('width') if 'width' in kwargs else 0
+        h = kwargs.pop('height') if 'height' in kwargs else 0
+
         super().__init__(parent, bd=0, padx=0, pady=0, state="disabled", cursor="arrow", **kwargs)
 
         self.configure(bg=self.cget("bg"))
-        self.place_configure(width=w, height=h)
+
+        if self._placed:        # Allows quick-loading when possible AND backup checking for late-placed widgets.
+            self._conform_size(w, h)
+        else: self.after_idle(self._conform_size, w, h)
 
     def configure(self, **kw):
         if "bg" in kw:      # Pass changes to bg through to the 'selectbackground' to maintain non-tk.Text() illusion.
@@ -554,16 +559,53 @@ class FakeCanvas(tk.Text):
         self.image_create("end", image=image, padx=pad_x, pady=pad_y)
         self.configure(state="disabled")
 
+    def _conform_size(self, width:int, height:int):
+        if self._placed and width > 0 and height > 0:
+            self.place_configure(width=width, height=height, implied=True)
+
 
 """ TextCanvas utilizes FakeCanvas to create an alternate widget-chain base. Other [widget]able types can be mixed-in
-    with TextCanvas to create an animation-friendly floor that has all the features of that [widget]able. """
+    with TextCanvas to create (slower) animation-friendly versions that have all the features of that [widget]able. """
 class TextCanvas(Renderable, FakeCanvas): pass
+
+
+class Groupable():
+    def __init__(self, *args, **kwargs):
+        if 'skin' in kwargs: del kwargs['skin']             # Groupables are fully transparent.
+
+        if 'width' not in kwargs:   kwargs['width'] = 0     # If dimensions are undefined, collapse to smallest size...
+        if 'height' not in kwargs:  kwargs['height'] = 0    # and expand to contain members when they are added.
+
+        super().__init__(*args, skin=Skin(UImage()), **kwargs)
+
+    @staticmethod
+    def isOpaque(): return False
+
+    def registerChild(self, child):
+        if not any(self._size_declared):        # Only alter dimensions if width/height were not explicitly declared.
+            local_geom = (0, 0, *self.size)
+            new_geom = rectUnion(local_geom, child.geometry)
+
+            if new_geom != local_geom:          # Test to see if new child causes Groupable to expand.
+                w, h = self.size
+                if not self._size_declared[0]: w = new_geom[2]
+                if not self._size_declared[1]: h = new_geom[3]
+                self.place_configure(width=w, height=h, implied=True)
+
+        super().registerChild(child)
+
+    def _afterGeometryChanges(self):
+        self.setSkin(Skin(UImage(width=self.width, height=self.height)))    # Keep Skin sized to bounds of the group.
+        super()._afterGeometryChanges()
 
 
 """ Public Classes and IDE-Helper Definitions """
 class Background(Backgroundable, TextCanvas):
     def __init__(self, parent, skin=None, **kwargs):
         super().__init__(parent, skin=skin, **kwargs)
+class Group(Groupable, Backgroundable, Siblingable, Canvas):
+    def __init__(self, parent, **kwargs):
+        super().__init__(parent, **kwargs)
 class Image(Imageable, Siblingable, Canvas):
     def __init__(self, parent, skin=None, **kwargs):
         super().__init__(parent, skin=skin, **kwargs)

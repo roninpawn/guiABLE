@@ -228,6 +228,7 @@ class UImage(PhotoImage):
         dest.copy_replace(self, from_coords=(crop_x, crop_y, src_x2, src_y2), to=(dest_x, dest_y))
 
     def _isOpaque(self):
+        if self.width() == 0 or self.height() == 0: return False
         if self.transparency_get(0, 0): return False        # Cheapest path if first pixel is transparent.
 
         data = self.pixelMap()

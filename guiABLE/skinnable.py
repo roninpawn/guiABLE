@@ -637,33 +637,10 @@ class Measurable:
     @property
     def height(self): return self._geometry[3]
 
-    def place(self, x:int=None, y:int=None, **kwargs):
-        if 'x' not in kwargs and x is not None: kwargs['x'] = x
-        if 'y' not in kwargs and y is not None: kwargs['y'] = y
-        super().place(**kwargs)
-        return self
-
-    def place_configure(self, *args, **kwargs):
-        # Enables passing .place(int, int) for x, y, or .place(x=int, y=int), or no x/y passed.
-        if 'x' not in kwargs:
-            kwargs['x'] = args[0] if len(args) and isinstance(args[0], int) else self.x
-        if 'y' not in kwargs:
-            kwargs['y'] = args[1] if len(args) > 1 and isinstance(args[1], int) else self.y
-
-        if 'width' not in kwargs: kwargs['width'] = self.width
-        if 'height' not in kwargs: kwargs['height'] = self.height
-
-        # 'skip=True' avoids _afterGeometryChanges() by matching _last_geometry to the new geometry.
-        self._geometry = (kwargs['x'], kwargs['y'], kwargs['width'], kwargs['height'])
-        if 'skip' in kwargs and kwargs.pop('skip'): self._last_geometry = self._geometry
-        super().place_configure(**kwargs)
-
-        return self     # Enables one-line instantiation and placement. eg. my_btn = Button(...).place(10, 10)
-
     # _refresh is meant to run on any <Configure> binded event.
     def refresh(self, event=None): self._refresh(event)
     def _refresh(self, event=None):
-        self._geometry = getGeometry(self)
+        self._geometry = getGeometry(self)      # Polls winfo_ endpoint to get true geometry.
 
         if self._last_geometry != self._geometry: self._afterGeometryChanges()
         self._last_geometry = self._geometry
@@ -671,47 +648,11 @@ class Measurable:
     def _afterGeometryChanges(self): pass       # Override this function in child classes.
 
 
-""" Skinnable is a mixin that provides core Skin() handling functionality to guiABLE widgets. """
-class Skinnable(Measurable):
-    def __init__(self, *args, skin:Skin|BarSkin|FilterSkin|str|UImage|tuple|list = None, **kwargs):
-        if skin:
-            # Handle all possible forms of passing a non-skin Skin().
-            if isinstance(skin, str|UImage): skin = Skin(skin)
-            elif isinstance(skin, list|tuple): skin = Skin(*skin)
-
-            res = skin.resolution()
-            if res != (0, 0):   # If no widget dimensions are given at instantiation, use skin dimensions.
-                if 'width' not in kwargs or kwargs['width'] is None: kwargs['width'] = res[0]
-                if 'height' not in kwargs or kwargs['height'] is None: kwargs['height'] = res[1]
-            self._skin = skin
-        else: self._skin = getattr(self, "_default_skin", Skin())
-        self._skin.bindWidget(self)     # Register widget as a user of skin, so changes to the skin can be propagated.
-
+""" Adds methods for registering, reporting, and altering children of a widget. """
+class Childable():
+    def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self._children = []
-        self._scratch = UImage(width=self.width, height=self.height)
-        self.dirty = True
-
-    @property
-    def skin(self) -> CoreSkin: return self._skin
-
-    # Skin registration methods
-    def setSkin(self, skin:CoreSkin):
-        if self._skin:
-            self._skin.unbindWidget(self)
-        self._skin = skin
-        self._skin.bindWidget(self)
-
-    def dropSkin(self):
-        if self._skin: self._skin.unbindWidget(self)
-        self._skin = Skin()
-
-    def isOpaque(self): return  self.skin.resolution(self.state) == self.size and \
-                               (self.skin.usesBgColors() or self.skin.isOpaque(self.state))
-
-
-    # Persistent UImage provides an INSTANT redraw canvas in compositing.
-    def scratchImage(self): return self._scratch
 
     # Parents that host child widgets track their children and provide a list of those children's z-order.
     def getChildren(self): return self._children
@@ -738,6 +679,91 @@ class Skinnable(Measurable):
         else:
             self._children.insert(0, child)
 
+    def _afterGeometryChanges(self):
+        for child in self._children: child.refresh()        # If the parent changes, the children must refresh.
+
+
+""" Placeable intercepts place() methods to extend functionality and return self, for one-line instancing. """
+class Placeable(Measurable):
+    def __init__(self, *args, **kwargs):
+        self._size_declared = [False, False]
+        self._placed = False
+        super().__init__(*args, **kwargs)
+
+    def place(self, x:int=None, y:int=None, **kwargs):
+        self._placed = True
+        if 'x' not in kwargs and x is not None: kwargs['x'] = x
+        if 'y' not in kwargs and y is not None: kwargs['y'] = y
+        if 'width' in kwargs: self._size_declared[0] = True
+        if 'height' in kwargs: self._size_declared[1] = True
+
+        super().place(**kwargs)
+        return self
+
+    def place_configure(self, *args, **kwargs):
+        # Enables passing .place(int, int) for x, y, or .place(x=int, y=int), or no x/y passed.
+        if 'x' not in kwargs:
+            kwargs['x'] = args[0] if len(args) and isinstance(args[0], int) else self.x
+        if 'y' not in kwargs:
+            kwargs['y'] = args[1] if len(args) > 1 and isinstance(args[1], int) else self.y
+
+        implied = kwargs.pop('implied', False)
+        if 'width' in kwargs:
+            if implied: self._size_declared[0] = True
+        else: kwargs['width'] = self.width
+        if 'height' in kwargs:
+            if implied: self._size_declared[1] = True
+        else: kwargs['height'] = self.height
+
+        # 'skip=True' avoids _afterGeometryChanges() by matching _last_geometry to the new geometry.
+        self._geometry = (kwargs['x'], kwargs['y'], kwargs['width'], kwargs['height'])
+        skip = kwargs.pop('skip', False)
+        if skip: self._last_geometry = self._geometry
+        super().place_configure(**kwargs)
+
+        return self     # Enables one-line instantiation and placement. eg. my_btn = Button(...).place(10, 10)
+
+
+""" Skinnable is a mixin that provides core Skin() handling functionality to guiABLE widgets. """
+class Skinnable(Placeable, Childable):
+    def __init__(self, *args, skin:Skin|BarSkin|FilterSkin|str|UImage|tuple|list = None, **kwargs):
+        if skin:
+            # Handle all possible forms of passing a non-skin Skin().
+            if isinstance(skin, str|UImage): skin = Skin(skin)
+            elif isinstance(skin, list|tuple): skin = Skin(*skin)
+
+            res = skin.resolution()
+            if res != (0, 0):   # If no widget dimensions are given at instantiation, use skin dimensions.
+                if 'width' not in kwargs or kwargs['width'] is None: kwargs['width'] = res[0]
+                if 'height' not in kwargs or kwargs['height'] is None: kwargs['height'] = res[1]
+            self._skin = skin
+        else: self._skin = getattr(self, "_default_skin", Skin())
+        self._skin.bindWidget(self)     # Register widget as a user of skin, so changes to the skin can be propagated.
+
+        super().__init__(*args, **kwargs)
+        self._scratch = UImage(width=self.width, height=self.height)
+        self.dirty = True
+
+    @property
+    def skin(self) -> CoreSkin: return self._skin
+
+    # Skin registration methods
+    def setSkin(self, skin:CoreSkin):
+        if self._skin:
+            self._skin.unbindWidget(self)
+        self._skin = skin
+        self._skin.bindWidget(self)
+
+    def dropSkin(self):
+        if self._skin: self._skin.unbindWidget(self)
+        self._skin = Skin()
+
+    def isOpaque(self): return  self.skin.resolution(self.state) == self.size and \
+                               (self.skin.usesBgColors() or self.skin.isOpaque(self.state))
+
+    # Persistent UImage provides an INSTANT redraw canvas in compositing.
+    def scratchImage(self): return self._scratch
+
     # _refresh runs on instantiation, and when any tracked change takes place thereafter.
     def refresh(self): self._refresh()
     def _refresh(self, event=None):
@@ -751,9 +777,6 @@ class Skinnable(Measurable):
 
     def _afterGeometryChanges(self):
         if self._last_geometry[2:] != self._geometry[2:]:
-            self._scratch = UImage(width=self._geometry[2], height=self._geometry[3])
+            self._scratch = UImage(width=self.width, height=self.height)
         self.redraw()
-        # If the parent changes, the children must refresh.
-        for child in self._children: child.refresh()
-
-
+        super()._afterGeometryChanges()
