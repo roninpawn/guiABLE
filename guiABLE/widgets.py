@@ -4,7 +4,7 @@ from typing import Callable
 
 from guiABLE.skinnable import Skinnable, Measurable, Skin
 from guiABLE.utilities import (rectsOverlap, rectUnion, pointIsInRect, getOverlap, decimateRect, rectIntersect,
-                               rectsUnion, LimitedDict, FontPack, Overlap)
+                               rectsUnion, LimitedDict, FontPack, Overlap, getGeometry)
 from guiABLE.uimage import UImage
 
 
@@ -541,6 +541,7 @@ class FakeCanvas(tk.Text):
         super().__init__(parent, bd=0, padx=0, pady=0, state="disabled", cursor="arrow", **kwargs)
 
         self.configure(bg=self.cget("bg"))
+        self._img = self.image_create("end", image=UImage())
 
         if self._placed:        # Allows quick-loading when possible AND backup checking for late-placed widgets.
             self._conform_size(w, h)
@@ -554,10 +555,7 @@ class FakeCanvas(tk.Text):
         super().configure(**kw)
 
     def render(self, image:UImage, pad_x:int=0, pad_y:int=0):
-        self.configure(state="normal")
-        self.delete(1.0, "end")
-        self.image_create("end", image=image, padx=pad_x, pady=pad_y)
-        self.configure(state="disabled")
+        self.image_configure(self._img, image=image, padx=pad_x, pady=pad_y)
 
     def _conform_size(self, width:int, height:int):
         if self._placed and width > 0 and height > 0:
@@ -603,7 +601,7 @@ class Groupable():
 class Background(Backgroundable, TextCanvas):
     def __init__(self, parent, skin=None, **kwargs):
         super().__init__(parent, skin=skin, **kwargs)
-class Group(Groupable, Backgroundable, Siblingable, Canvas):
+class Group(Groupable, Backgroundable, Siblingable, TextCanvas):
     def __init__(self, parent, **kwargs):
         super().__init__(parent, **kwargs)
 class Image(Imageable, Siblingable, Canvas):
