@@ -599,11 +599,53 @@ class ScrollSkin(SkinPack):
         return (bar1, bar2) if vertical else (bar2, bar1)
 
 
+""" Adds methods for registering, reporting, and altering children of a widget. """
+class Childable():
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self._children = []
+
+    # Parents that host child widgets track their children and provide a list of those children's z-order.
+    def getChildren(self): return self._children
+    def registerChild(self, child):
+        if child not in self._children:
+            self._children.insert(0, child)
+    def dropChild(self, child):
+        if child in self._children: self._children.remove(child)
+    def childChanged(self, child): pass     # Override this function in other classes.
+
+    def destroy(self):
+        self.parent.dropChild(self)
+        super().destroy()
+
+    # Methods for maintaining child z_order on lift/lower configurations.
+    def _raiseChildIndex(self, child, above):
+        self.dropChild(child)
+        if above and above in self._children:
+            index = self._children.index(above) + 1
+            self._children.insert(index, child)
+        else:
+            self._children.append(child)
+
+    def _lowerChildIndex(self, child, below):
+        self.dropChild(child)
+        if below and below in self._children:
+            index = self._children.index(below)
+            self._children.insert(index, child)
+        else:
+            self._children.insert(0, child)
+
+    def _afterGeometryChanges(self):
+        if isinstance(self.parent, Childable):
+            self.parent.childChanged(self)                  # Inform your parent that you've changed.
+        for child in self._children: child.refresh()        # Refresh your children.
+
+
 """
     Measureable captures geometry events and provides convenient points of access for that info. By tracking as much as
     possible, internally, slow winfo_() calls are avoided, and values are pollable without needing to update idletasks. 
 """
-class Measurable:
+class Measurable(Childable):
     def __init__(self, parent, *args, **kwargs):
         w = kwargs['width'] if 'width' in kwargs else 0
         h = kwargs['height'] if 'height' in kwargs else 0
@@ -645,43 +687,6 @@ class Measurable:
         if self._last_geometry != self._geometry: self._afterGeometryChanges()
         self._last_geometry = self._geometry
 
-    def _afterGeometryChanges(self): pass       # Override this function in child classes.
-
-
-""" Adds methods for registering, reporting, and altering children of a widget. """
-class Childable():
-    def __init__(self, *args, **kwargs):
-        super().__init__(*args, **kwargs)
-        self._children = []
-
-    # Parents that host child widgets track their children and provide a list of those children's z-order.
-    def getChildren(self): return self._children
-    def registerChild(self, child):
-        if child not in self._children:
-            self._children.insert(0, child)
-    def dropChild(self, child):
-        if child in self._children: self._children.remove(child)
-
-    # Methods for maintaining child z_order on lift/lower configurations.
-    def _raiseChildIndex(self, child, above):
-        self.dropChild(child)
-        if above and above in self._children:
-            index = self._children.index(above) + 1
-            self._children.insert(index, child)
-        else:
-            self._children.append(child)
-
-    def _lowerChildIndex(self, child, below):
-        self.dropChild(child)
-        if below and below in self._children:
-            index = self._children.index(below)
-            self._children.insert(index, child)
-        else:
-            self._children.insert(0, child)
-
-    def _afterGeometryChanges(self):
-        for child in self._children: child.refresh()        # If the parent changes, the children must refresh.
-
 
 """ Placeable intercepts place() methods to extend functionality and return self, for one-line instancing. """
 class Placeable(Measurable):
@@ -709,10 +714,10 @@ class Placeable(Measurable):
 
         implied = kwargs.pop('implied', False)
         if 'width' in kwargs:
-            if implied: self._size_declared[0] = True
+            if not implied: self._size_declared[0] = True
         else: kwargs['width'] = self.width
         if 'height' in kwargs:
-            if implied: self._size_declared[1] = True
+            if not implied: self._size_declared[1] = True
         else: kwargs['height'] = self.height
 
         # 'skip=True' avoids _afterGeometryChanges() by matching _last_geometry to the new geometry.
@@ -725,9 +730,10 @@ class Placeable(Measurable):
 
 
 """ Skinnable is a mixin that provides core Skin() handling functionality to guiABLE widgets. """
-class Skinnable(Placeable, Childable):
+class Skinnable(Placeable):
     def __init__(self, *args, skin:Skin|BarSkin|FilterSkin|str|UImage|tuple|list = None, **kwargs):
         if skin:
+            self._skin_passed = True
             # Handle all possible forms of passing a non-skin Skin().
             if isinstance(skin, str|UImage): skin = Skin(skin)
             elif isinstance(skin, list|tuple): skin = Skin(*skin)
@@ -737,7 +743,10 @@ class Skinnable(Placeable, Childable):
                 if 'width' not in kwargs or kwargs['width'] is None: kwargs['width'] = res[0]
                 if 'height' not in kwargs or kwargs['height'] is None: kwargs['height'] = res[1]
             self._skin = skin
-        else: self._skin = getattr(self, "_default_skin", Skin())
+        else:
+            self._skin_passed = False
+            self._skin = getattr(self, "_default_skin", Skin())
+
         self._skin.bindWidget(self)     # Register widget as a user of skin, so changes to the skin can be propagated.
 
         super().__init__(*args, **kwargs)
@@ -748,13 +757,15 @@ class Skinnable(Placeable, Childable):
     def skin(self) -> CoreSkin: return self._skin
 
     # Skin registration methods
-    def setSkin(self, skin:CoreSkin):
+    def setSkin(self, skin:CoreSkin, implied=False):
+        if not implied: self._skin_passed = True
         if self._skin:
             self._skin.unbindWidget(self)
         self._skin = skin
         self._skin.bindWidget(self)
 
     def dropSkin(self):
+        self._skin_passed = False
         if self._skin: self._skin.unbindWidget(self)
         self._skin = Skin()
 

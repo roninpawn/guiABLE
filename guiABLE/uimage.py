@@ -26,8 +26,11 @@ def getZoomFromFraction(fraction:str = "1/1") -> tuple[int, int]:
 
 class UImage(PhotoImage):
     TRANSPARENCY_KEY = (255, 0, 205)    # Color in (R, G, B) format
-    def __init__(self, **kwargs):
-        if 'file' not in kwargs:
+    def __init__(self, file_path:str=None, **kwargs):
+        if file_path:       # Accept 1st argument as file path.
+            self._path = file_path
+            kwargs['file'] = self._path
+        elif 'file' not in kwargs:
             self._path = kwargs.pop('source') if 'source' in kwargs else None
         else: self._path = kwargs['file']
 
