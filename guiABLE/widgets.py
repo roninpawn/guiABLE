@@ -38,6 +38,11 @@ class Siblingable:
         self.after_idle(self.parent._lowerChildIndex, self, below)
         self.after_idle(self._registerSiblings, self.parent.getChildren())
 
+    def destroy(self):
+        for sibling in self._siblings:
+            sibling.dropSibling(self)
+        super().destroy()
+
     # Find overlapping siblings and store them / register with them, for future tracking.
     def _registerSiblings(self, siblings_list = None):
         new_siblings = []
@@ -605,8 +610,7 @@ class Expandable():
     def _resize(self):
         if not any(self._size_declared):        # Only alter dimensions if width/height were not explicitly declared.
             union = (0,0,0,0)
-            for child in self.getChildren():
-                union = rectUnion(union, child.geometry)
+            union = rectsUnion(union, *[child.geometry for child in self.getChildren()])
 
             if union[2:] != self.size:
                 w = self.width if self._size_declared[0] else union[2]
@@ -629,6 +633,51 @@ class Groupable(Expandable):
             self.setSkin(Skin(new_img))
 
         super()._afterGeometryChanges()
+
+
+""" A Dead-End class for Collection() to terminate in -- providing a final super().__init__() destination. """
+class Nothing():
+    def __init__(self, *args, **kwargs): pass
+
+
+"""A logical, non-rendered group that internally handles coordinate spaces and parent/child relations."""
+class Collection(Expandable, Measurable, Nothing):
+    is_collection = True
+
+    def __init__(self, parent, *args, **kwargs):
+        super().__init__(parent, *args, **kwargs)
+        # Tk interpreter references (for .bind, .after, etc.)
+        self.tk = parent.tk
+        self._w = parent._w
+
+        self._size_declared = [False, False]
+
+    def place(self, x:int=None, y:int=None, **kwargs):
+        if x is None and 'x' in kwargs: x = kwargs['x']
+        if y is None and 'y' in kwargs: y = kwargs['y']
+        self._geometry = (x, y, 0, 0)
+        self._last_geometry = self._geometry
+        return self
+
+    def place_configure(self, *args, **kwargs):
+        # Enables passing .place(int, int) for x, y, or .place(x=int, y=int), or no x/y passed.
+        if 'x' not in kwargs:
+            kwargs['x'] = args[0] if len(args) and isinstance(args[0], int) else self.x
+        if 'y' not in kwargs:
+            kwargs['y'] = args[1] if len(args) > 1 and isinstance(args[1], int) else self.y
+
+        # Update geometry and move all children by the delta of x/y.
+        self._geometry = (kwargs['x'], kwargs['y'], kwargs['width'] if 'width' in kwargs else self.width,
+                                                    kwargs['height'] if 'height' in kwargs else self.height)
+
+        delta_xy = self.x - self._last_geometry[0], self.y - self._last_geometry[1]
+        if any(delta_xy):
+            for child in self.getChildren():
+                child.place_configure(x=child.x + delta_xy[0], y=child.y + delta_xy[1])
+        self._last_geometry = self._geometry
+
+    @property
+    def skin(self): return self._parent.skin
 
 
 """ Public Classes and IDE-Helper Definitions """

@@ -103,11 +103,21 @@ def loadImage(path_or_image:str | UImage) -> tuple[UImage | None, str | None]:
  ---------- Geometry Functions ----------
 getGeometry() fetches Winfo_ geometry by string and parses the string into ints. This was found to be slightly faster
 than polling the 4x equivalent Winfo_ (x,y,width,height) access points. replace().split() was also found faster than
-regex, .partition(), and .find() with index slicing.
+regex, .partition(), and .find() with index slicing. Collection() geometry is also managed here.
 """
 def getGeometry(widget) -> tuple[int, int, int, int]:
-    w, h, x, y = widget.winfo_geometry().replace("x", "+", 1).split("+")
-    return int(x), int(y), int(w), int(h)
+    if not getattr(widget, "is_collection", False):
+        w, h, x, y = widget.winfo_geometry().replace("x", "+", 1).split("+")
+        x, y, w, h = int(x), int(y), int(w), int(h)
+
+        # If widget is the child of a Collection(), localize its stored geometry for consistency of interface.
+        if getattr(widget.parent, "is_collection", False):
+            x -= widget.parent.x
+            y -= widget.parent.y
+
+        return x, y, w, h
+    # If the widget is a Collection(), its geometry is simply the union of all of its children.
+    else: return rectsUnion(*[(widget.x + child.x, widget.y + child.y, *child.size) for child in widget.getChildren()])
 
 """ geometryFromString() is useful in parsing geometry passed as an argument, before its been handled or applied. """
 def geometryFromString(geometry:str) -> tuple[int, int, int, int]:

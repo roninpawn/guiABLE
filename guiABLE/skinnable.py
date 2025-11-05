@@ -601,9 +601,18 @@ class ScrollSkin(SkinPack):
 
 """ Adds methods for registering, reporting, and altering children of a widget. """
 class Childable():
-    def __init__(self, *args, **kwargs):
-        super().__init__(*args, **kwargs)
+    def __init__(self, parent, *args, **kwargs):
+        # Intercept and override the parent Tk will instance the widget to, if its a collection.
+        super().__init__(parent.parent if getattr(parent, "is_collection", False) else parent, *args, **kwargs)
+
         self._children = []
+        self._parent = parent
+        self._window = parent.window if getattr(parent, 'window', False) else parent
+
+    @property
+    def parent(self): return self._parent
+    @property
+    def window(self): return self._window
 
     # Parents that host child widgets track their children and provide a list of those children's z-order.
     def getChildren(self): return self._children
@@ -615,7 +624,7 @@ class Childable():
     def childChanged(self, child): pass     # Override this function in other classes.
 
     def destroy(self):
-        self.parent.dropChild(self)
+        self._parent.dropChild(self)
         super().destroy()
 
     # Methods for maintaining child z_order on lift/lower configurations.
@@ -636,8 +645,8 @@ class Childable():
             self._children.insert(0, child)
 
     def _afterGeometryChanges(self):
-        if isinstance(self.parent, Childable):
-            self.parent.childChanged(self)                  # Inform your parent that you've changed.
+        if isinstance(self._parent, Childable):
+            self._parent.childChanged(self)                  # Inform your parent that you've changed.
         for child in self._children: child.refresh()        # Refresh your children.
 
 
@@ -646,22 +655,14 @@ class Childable():
     possible, internally, slow winfo_() calls are avoided, and values are pollable without needing to update idletasks. 
 """
 class Measurable(Childable):
-    def __init__(self, parent, *args, **kwargs):
+    def __init__(self, *args, **kwargs):
         w = kwargs['width'] if 'width' in kwargs else 0
         h = kwargs['height'] if 'height' in kwargs else 0
 
         self._geometry = (0, 0, w, h)
         self._last_geometry = (0,0,0,0)
 
-        self._parent = parent
-        self._window = parent.window if getattr(parent, 'window', False) else parent
-
-        super().__init__(parent, *args, **kwargs)
-
-    @property
-    def parent(self): return self._parent
-    @property
-    def window(self): return self._window
+        super().__init__(*args, **kwargs)
 
     # Geometry is tracked, providing much faster access than winfo_ methods can offer.
     @property
@@ -695,22 +696,29 @@ class Placeable(Measurable):
         self._placed = False
         super().__init__(*args, **kwargs)
 
+    # TODO: Can route place() through place_configure if we handle auto-expansion in place_configure.
     def place(self, x:int=None, y:int=None, **kwargs):
         self._placed = True
+
         if 'x' not in kwargs and x is not None: kwargs['x'] = x
         if 'y' not in kwargs and y is not None: kwargs['y'] = y
         if 'width' in kwargs: self._size_declared[0] = True
         if 'height' in kwargs: self._size_declared[1] = True
 
+        # If parent is a Collection(), globalize coordinates before placing.
+        if getattr(self._parent, "is_collection", False):
+            kwargs['x'] += self._parent.x
+            kwargs['y'] += self._parent.y
+
         super().place(**kwargs)
         return self
 
-    def place_configure(self, *args, **kwargs):
+    def place_configure(self, x:int=None, y:int=None, **kwargs):
         # Enables passing .place(int, int) for x, y, or .place(x=int, y=int), or no x/y passed.
         if 'x' not in kwargs:
-            kwargs['x'] = args[0] if len(args) and isinstance(args[0], int) else self.x
+            kwargs['x'] = x if x is not None else self.x
         if 'y' not in kwargs:
-            kwargs['y'] = args[1] if len(args) > 1 and isinstance(args[1], int) else self.y
+            kwargs['y'] = y if y is not None else self.y
 
         implied = kwargs.pop('implied', False)
         if 'width' in kwargs:
@@ -724,6 +732,11 @@ class Placeable(Measurable):
         self._geometry = (kwargs['x'], kwargs['y'], kwargs['width'], kwargs['height'])
         skip = kwargs.pop('skip', False)
         if skip: self._last_geometry = self._geometry
+
+        # If parent is a Collection(), globalize coordinates before placing.
+        if getattr(self._parent, "is_collection", False):
+            kwargs['x'] += self._parent.x
+            kwargs['y'] += self._parent.y
         super().place_configure(**kwargs)
 
         return self     # Enables one-line instantiation and placement. eg. my_btn = Button(...).place(10, 10)
