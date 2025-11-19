@@ -196,6 +196,7 @@ class Canvas(Renderable, tk.Canvas):
 
     def render(self, image:UImage, xy_offset:tuple[int, int] = (0,0)):
         if xy_offset != self._last_offset:
+            self.delete(self._img)
             self._img = self.create_image(xy_offset[0], xy_offset[1], image=image, anchor="nw")
             self._last_offset = xy_offset
         else: self.itemconfig(self._img, image=image)
@@ -284,53 +285,59 @@ class Clickable(Hoverable):
 
     def clicked(self, event):
         self.setState(2)
-        self._call_function()
-
-    def mouseUp(self, event):
-        self.mouseIn(event) if self.moused_over else self.mouseOut(event)
+        self._call_function(self.function)
 
     def enable(self):
         super().enable()
         self.bind("<Button-1>", self.clicked)
-        self.bind("<ButtonRelease-1>", self.mouseUp)
 
     def disable(self):
         super().disable()
         self.unbind("<Button-1>")
-        self.unbind("<ButtonRelease-1>")
 
-    def _call_function(self):
-        if self.function is not None:
-            if callable(self.function): self.function()
-            elif len(self.function):
+    def _call_function(self, func):
+        if func is not None:
+            if callable(func): func()
+            elif len(func):
                 args = []
-                for arg in self.function[1:]:
+                for arg in func[1:]:
                     args.append(arg()) if callable(arg) else args.append(arg)
-                self.function[0](*args) if len(self.function) > 1 else self.function[0]()
+                func[0](*args) if len(func) > 1 else func[0]()
 
 
-""" Pushable is a Clickable that executes its function on when the left mouse button is released. (Normal button) """
+""" Pushable is a Clickable that executes its function when the left mouse button is released. (Normal button) """
 class Pushable(Clickable):
     def __init__(self, *args, **kwargs):
         self._clicking = False
         super().__init__(*args, **kwargs)
 
+    def isHeld(self): return self._clicking
+
+    def enable(self):
+        super().enable()
+        self.bind("<ButtonRelease-1>", self.mouseUp)
+
+    def disable(self):
+        super().disable()
+        self.unbind("<ButtonRelease-1>")
+
     def clicked(self, event):
         self._clicking = True
+        self.grab_set()     # Ensures this widget receives all events until mouse-1 is released.
         self.setState(2)
 
     def mouseUp(self, event):
         self._clicking = False
-        super().mouseUp(event)
+        self.grab_release()
+        self.mouseIn(event) if self.moused_over else self.mouseOut(event)
         if self.moused_over:
-            self.function()
+            self._call_function(self.function)
 
     def mouseIn(self, event):
-        if not self._clicking:
-            super().mouseIn(event)
-        else:
+        if self._clicking:
             self.moused_over = True
             self.setState(2)
+        else: super().mouseIn(event)
 
 
 class Labelable(Pushable):
@@ -375,6 +382,14 @@ class Labelable(Pushable):
         self._img_text, self._img_text_shadow = None, None
         super().__init__(*args, **kwargs)
 
+    def setText(self, text:str):
+        if text != self.text:
+            if self._img_text: self.delete(self._img_text)
+            if self._img_text_shadow: self.delete(self._img_text_shadow)
+            self._img_text, self._img_text_shadow = None, None
+            self.text = text
+            self.redraw()
+
     def setFontPack(self, font_pack:FontPack):
         self._pack = font_pack
         self._using = [0] * 7
@@ -401,6 +416,8 @@ class Labelable(Pushable):
 
     def render(self, image:UImage, xy_offset:tuple[int,int] = (0,0)):
         if xy_offset != self._last_offset:
+            if self._img_text: self.delete(self._img_text)
+            if self._img_text_shadow: self.delete(self._img_text_shadow)
             self._img_text, self._img_text_shadow = None, None
         super().render(image, xy_offset)
         self.drawText()
@@ -440,9 +457,10 @@ class Toggleable(Pushable):
 
     def mouseUp(self, event):
         self._clicking = False
+        self.grab_release()
         if self.moused_over:
             self.setTrue(not self._toggle_state)
-            self._call_function()
+            self._call_function(self.function)
         self.mouseIn(event) if self.moused_over else self.mouseOut(event)
 
     def isTrue(self): return self._toggle_state
@@ -461,11 +479,12 @@ class Holdable(Pushable):
 
     def mouseUp(self, event):
         self._clicking = False
+        self.grab_release()
         if self.moused_over: self.mouseIn(event)
 
     def clicked(self, event):
         super().clicked(event)
-        self.function()
+        self._call_function(self.function)
 
 
 """ Repeatable is a Holdable that triggers its function instantly, and then again after every n milliseconds. It
@@ -485,7 +504,7 @@ class Repeatable(Holdable):
 
     def _keepClicking(self):
         if self._clicking:
-            self.function()
+            self._call_function(self.function)
             self._after = self.after(self.delay, self._keepClicking)
 
 
@@ -513,6 +532,7 @@ class LoneDraggable(Holdable):
         self._x_origin = event.x
         self._y_origin = event.y
         self._clicking = True
+        self.grab_set()
         self.setState(2)
 
     def mouseDrag(self, event):
@@ -529,7 +549,7 @@ class LoneDraggable(Holdable):
         self._geometry = (x, y, w, h)
         if self._last_geometry != self._geometry:
             self.place_configure(x=x, y=y, implied=True)
-            self.function()
+            self._call_function(self.function)
 
 
 """ Draggable adds sibling awareness to LoneDraggable, allowing it to composite transparencies with other widgets. """
@@ -721,14 +741,24 @@ class TroughButton(Repeatable, Siblingable, TextCanvas):
         super().__init__(parent, function, skin=skin, delay=delay, init_delay=init_delay, **kwargs)
 
 # Nested Widgets
+class SliderHandle(LoneDrag):
+    def __init__(self, parent, function, release_function:tuple|Callable=lambda:None, **kwargs):
+        self._release_function = release_function
+        super().__init__(parent, function, **kwargs)
+
+    def mouseUp(self, event):
+        super().mouseUp(event)
+        self._call_function(self._release_function)
+
 class Slider(Imageable, Siblingable, TextCanvas):
-    def __init__(self, parent, trough_skin, handle_skin, function=lambda:None,
+    def __init__(self, parent, trough_skin, handle_skin, active_function=lambda:None, release_function=lambda:None,
                  handle_width:int=None, handle_height:int=None,
                  start_percent:float = 0.0, **kwargs):
+
         super().__init__(parent, skin=trough_skin, **kwargs)
+        self._handle = SliderHandle(self, active_function, release_function, skin=handle_skin, **kwargs)
 
         kwargs['width'], kwargs['height'] = handle_width, handle_height     # Replace width/height for handle instance.
-        self._handle = LoneDrag(self, function, skin=handle_skin, **kwargs)
 
         # Determine active axis and place handle accordingly.
         place_pos = list(self.size)
@@ -745,3 +775,22 @@ class Slider(Imageable, Siblingable, TextCanvas):
 
     def getPercent(self):
         return self._handle.location[self._active] / (self.size[self._active] - self._handle.size[self._active])
+
+    def setPercent(self, percent:float):
+        handle_pos = [0, 0]
+        breadth = self.height - self._handle.height if self._active == 1 else self.width - self._handle.width
+        handle_pos[self._active] = round(min(breadth, breadth * min(1.0, max(0.0, percent))))
+        self._handle.place(x=handle_pos[0], y=handle_pos[1])
+
+    def isHeld(self): return self._handle.isHeld()
+
+    def enable(self):
+        super().enable()
+        try:
+            self._handle.enable()
+        except: pass
+    def disable(self):
+        super().disable()
+        try:
+            self._handle.disable()
+        except: pass
