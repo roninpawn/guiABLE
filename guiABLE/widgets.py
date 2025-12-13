@@ -384,7 +384,7 @@ class Labelable(Pushable):
 
     def setText(self, text:str):
         if text != self.text:
-            if self._img_text: self.delete(self._img_text)
+            if self._img_text: self.delete(self._img_text)      # Can this be done faster without the delete/create?
             if self._img_text_shadow: self.delete(self._img_text_shadow)
             self._img_text, self._img_text_shadow = None, None
             self.text = text
@@ -397,9 +397,15 @@ class Labelable(Pushable):
     def setFontAttributes(self, **kwargs):
         for kw in kwargs: self._override_pack.__setattr__(kw, kwargs[kw])
 
-    def drawText(self):
+    def drawText(self, offset_x:int = 0, offset_y:int = 0):
         x, y = self._packs[self._using[5]].text_pos
+        x += offset_x
+        y += offset_y
+
         dx, dy = self._packs[self._using[6]].drop_offset
+        dx += offset_x
+        dy += offset_y
+
         color, drop_color = self._packs[self._using[3]].color, self._packs[self._using[4]].drop_color
         anchor = self._packs[self._using[7]].anchor
 
