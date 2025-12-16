@@ -17,6 +17,8 @@ class ChildWindow(tk.Toplevel):
         self._visible = visible
 
         super().__init__(parent, **kwargs)
+        self.drag_locked = True
+
         self.overrideredirect(True)
         self.geometry(f"+{self.master.winfo_rootx() + position[0]}+{self.master.winfo_rooty() + position[1]}")
         self.update_idletasks()
