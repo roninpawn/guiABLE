@@ -59,7 +59,7 @@ class Siblingable:
     def _bond(self, event=None):
         self._parent.registerChild(self)
         self._registerSiblings()
-        self.after_idle(self.setState, 0)
+        self.after_idle(self.redraw)
 
     def _cull_siblings(self, siblings, union):
         new_siblings, overlaps, atop = [], [], True
@@ -125,7 +125,6 @@ class Renderable(Skinnable):
 
     def setState(self, state_index:int = 0):
         start = time()
-        if not self._window.drag_locked: return
         self._img_state = state_index
 
         union = rectUnion(self._geometry, self._last_geometry)
@@ -215,11 +214,11 @@ class Backgroundable:
 
 """ Stateable establishes the base of the widget chain, providing basic access methods and on/off states. """
 class Stateable:
-    def __init__(self, *args, **kwargs):
+    def __init__(self, *args, init_state=0, **kwargs):
         kwargs["bg"] = "#6B6B6B"     # Neutral background color reduces visual pop-in.
         super().__init__(*args, **kwargs)
 
-        self._img_state = 0
+        self._img_state = init_state
         self._enabled = False
         self.enable()
 
@@ -240,8 +239,12 @@ class Imageable(Stateable):
         super().__init__(*args, **kwargs)
         self._skin.setBGColors('#6B6B6B')      # Eliminate interactive colors for simple image.
 
-    def changeImage(self, img_number): self.setState(img_number)
+    def changeImage(self, img_number, force_draw=False):
+        if force_draw or self._img_state != img_number: self.setState(img_number)
 
+    def enable(self):
+        self.setState(self._img_state)
+        self._enabled = True
 
 """ Hoverable adds mouse-over awareness and triggers state-change/redraws on mouse-in and mouse-out. """
 class Hoverable(Stateable):
@@ -711,8 +714,8 @@ class Background(Backgroundable, TextCanvas):
     def __init__(self, parent, skin=None, **kwargs):
         super().__init__(parent, skin=skin, **kwargs)
 class Image(Imageable, Siblingable, Canvas):
-    def __init__(self, parent, skin=None, **kwargs):
-        super().__init__(parent, skin=skin, **kwargs)
+    def __init__(self, parent, skin=None, show_image=0, **kwargs):
+        super().__init__(parent, skin=skin, init_state=show_image, **kwargs)
 class Hover(Hoverable, Siblingable, Canvas):
     def __init__(self, parent, skin=None, **kwargs):
         super().__init__(parent, skin=skin, **kwargs)
