@@ -580,7 +580,8 @@ class FakeCanvas(tk.Text):
         w = kwargs.pop('width') if 'width' in kwargs else 0
         h = kwargs.pop('height') if 'height' in kwargs else 0
 
-        super().__init__(parent, bd=0, padx=0, pady=0, state="disabled", cursor="arrow", **kwargs)
+        super().__init__(parent, bd=0, borderwidth=0, padx=0, pady=0, highlightthickness=0,
+                         takefocus=0, state="disabled", cursor="arrow", **kwargs)
 
         self.configure(bg=self.cget("bg"))
         self._img = self.image_create("end", image=UImage())
