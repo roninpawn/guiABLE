@@ -2,7 +2,7 @@ import tkinter as tk
 from time import time
 
 from guiABLE.widgets import Background
-from guiABLE.utilities import resolvePath
+from guiABLE.utilities import resolvePath, getGeometry
 from guiABLE.uimage import UImage
 
 
@@ -47,7 +47,7 @@ class ChildWindow(tk.Toplevel):
 
 
 class Window(Background):
-    def __init__(self, width:int=400, height:int=300, x:int=100, y:int=100, title=""):
+    def __init__(self, x:int=100, y:int=100, width:int=400, height:int=300, title=""):
         self._window = Windowable(width, height, x, y, title)
         super().__init__(self._window, width=width, height=height)
         self.place(x=0, y=0)
@@ -57,6 +57,22 @@ class Window(Background):
     def loadTabImage(self, image_path:str): self._window.loadTabImage(image_path)
     def minimize(self): self._window.minimize()
     def restore(self): self._window.restore()
+
+    def windowGeometry(self): return getGeometry(self._window)
+    def setGeometry(self, x:int = None, y:int = None, width:int = None, height:int = None):
+        w, h, x1, y1  = self._window.geometry().replace("x", "+", 1).split("+")
+        if width: w = width
+        if height: h = height
+        if x: x1 = x
+        if y: y1 = y
+        self._window.geometry(f"{w}x{h}+{x1}+{y1}")
+
+        w, h = int(w), int(h)
+        if self.size != (w, h):
+            self.config(width=w, height=h)
+
+    def resize(self, width:int = None, height: int = None): self.setGeometry(width=width, height=height)
+    def move(self, x:int=None, y:int=None): self.setGeometry(x=x, y=y)
 
 
 """
@@ -97,6 +113,9 @@ class Windowable(tk.Tk):
 
         self.update_idletasks()
         self._heartbeat()
+
+    @property
+    def parent(self): return self
 
     def bindDrag(self, widget:tk.Canvas):
         if widget is not None:

@@ -2,7 +2,7 @@ from guiABLE import *
 
 
 def test_gui():
-    app = Window(600, 400, 420, 180, title="guiABLE Testbed")
+    app = Window(420, 180, 600, 400, title="guiABLE Testbed")
     bg_image, _ = loadImage("../skins/default/bg-600x400.png")
     app.setSkin(Skin(bg_image))
 

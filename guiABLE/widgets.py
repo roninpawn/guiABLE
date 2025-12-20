@@ -136,7 +136,7 @@ class Renderable(Skinnable):
 
         # Cull caller's siblings by overlap and visibility, and generate a list of any opaque-sibling's geometries.
         if not isinstance(self, Siblingable):
-            siblings, overlaps, opaque_rects = [self], [Overlap(self.geometry, (0,0))], [self]
+            siblings, overlaps, opaque_rects = [self], [Overlap(self._geometry, (0,0))], [self]
         else:
             siblings, overlaps, opaque_rects = self._cull_siblings(self._siblings, union)
             # Remove last_geometry from union, if self is opaque and only sibling.
