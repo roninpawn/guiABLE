@@ -604,7 +604,7 @@ class FakeCanvas(tk.Text):
     # Tkinter's Text widgets are sized, by default, by character and line size. This fixes that fundamentally bad idea.
     def _conform_size(self, width:int, height:int):
         if self._placed and width > 0 and height > 0:
-            self.update_idletasks()     # Needed to ensure .place(x, y) is propagated before being overridden here.
+            #self.update_idletasks()     # Needed to ensure .place(x, y) is propagated before being overridden here.
             self.place_configure(width=width, height=height, implied=True)
 
 
