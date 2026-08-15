@@ -16,10 +16,10 @@ def test_gui():
     # Create a Checkbox
     toggle_skin = Skin.fromSpriteSheet("../skins/default/checkbox-64.png", 64)
     test_toggle1 = Checkbox(app, toggle_skin, lambda: print("Toggle1 state:", test_toggle1.isTrue()), True)
-    test_toggle1.place(x=60, y=20)
+    test_toggle1.place(x=76, y=24)
 
-    test_toggle2 = Checkbox(app, toggle_skin, function=lambda: print("Toggle2 state:", test_toggle2.isTrue()))
-    test_toggle2.place(x=144, y=20)
+    test_toggle2 = Checkbox(app, toggle_skin, lambda: print("Toggle2 state:", test_toggle2.isTrue()))
+    test_toggle2.place(x=140, y=24)
 
     # Create a Drag object
     drag_skin = Skin.fromSpriteSheet("../skins/default/radiobox-64.png", 64)
@@ -122,10 +122,6 @@ def test_gui():
         app.fps = 0
         app.after(1000, update_fps)
     update_fps()
-
-    print("\nTk:")
-    for widget in app.winfo_children():
-        print(widget)
 
     app.mainloop()
 

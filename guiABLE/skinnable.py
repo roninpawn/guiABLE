@@ -712,6 +712,14 @@ class Placeable(Measurable):
         if 'width' in kwargs: self._size_declared[0] = True
         if 'height' in kwargs: self._size_declared[1] = True
 
+        # Immediately maintain guiABLE's local geometry.
+        local_x = kwargs.get('x', self.x)
+        local_y = kwargs.get('y', self.y)
+        width = kwargs.get('width', self.width)
+        height = kwargs.get('height', self.height)
+
+        self._geometry = (local_x, local_y, width, height)
+
         # If parent is a Collection(), globalize coordinates before placing.
         if getattr(self._parent, "is_collection", False):
             kwargs['x'] += self._parent.x
