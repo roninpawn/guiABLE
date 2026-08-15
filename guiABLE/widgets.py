@@ -9,7 +9,7 @@ from .widgetables import (
     Backgroundable, Siblingable,
     Stateable, Imageable, Hoverable, Clickable, Pushable,
     Labelable, Toggleable, Holdable, Repeatable,
-    LoneDraggable, Draggable,
+    LoneDraggable, Draggable, Troughable, LinearAnimator,
     Groupable, Collection
 )
 
@@ -84,47 +84,54 @@ class SliderHandle(LoneDrag):
         self._call_function(self._release_function)
 
 
-class Slider(Imageable, Siblingable, TextCanvas):
+class Slider(Troughable, Imageable, Siblingable, TextCanvas):
     def __init__(self, parent, trough_skin, handle_skin, active_function=lambda:None, release_function=lambda:None,
                  handle_width:int=None, handle_height:int=None,
-                 start_percent:float = 0.0, **kwargs):
+                 start_percent:float=0.0, **kwargs):
 
         super().__init__(parent, skin=trough_skin, **kwargs)
+
+        kwargs['width'], kwargs['height'] = handle_width, handle_height
         self._handle = SliderHandle(self, active_function, release_function, skin=handle_skin, **kwargs)
+        self._handle.place(0, 0)
 
-        kwargs['width'], kwargs['height'] = handle_width, handle_height     # Replace width/height for handle instance.
+        self.setPercent(start_percent)
 
-        # Determine active axis and place handle accordingly.
-        place_pos = list(self.size)
-        if self.height > self.width:
-            place_pos[0] = 0
-            place_pos[1] = round(min(self.height - self._handle.height, place_pos[1] * min(1.0, max(0.0, start_percent))))
-            self._active = 1
-        else:
-            place_pos[0] = round(min(self.width - self._handle.width, place_pos[0] * min(1.0, max(0.0, start_percent))))
-            place_pos[1] = 0
-            self._active = 0
 
-        self._handle.place(x=place_pos[0], y=place_pos[1])
+class AnimatedSlider(LinearAnimator, Slider):
+    def __init__(self, *args, slide_duration:int=0, slide_rate:int=15, **kwargs):
+        self.slide_duration, self.slide_rate = slide_duration, slide_rate
+        super().__init__(*args, **kwargs)
 
-    def getPercent(self):
-        return self._handle.location[self._active] / (self.size[self._active] - self._handle.size[self._active])
-
-    def setPercent(self, percent:float):
-        handle_pos = [0, 0]
-        breadth = self.height - self._handle.height if self._active == 1 else self.width - self._handle.width
-        handle_pos[self._active] = round(min(breadth, breadth * min(1.0, max(0.0, percent))))
-        self._handle.place(x=handle_pos[0], y=handle_pos[1])
-
-    def isHeld(self): return self._handle.isHeld()
+        self._bindHandle()
 
     def enable(self):
         super().enable()
-        try:
-            self._handle.enable()
-        except: pass
+        self._bindHandle()
+
+    def _bindHandle(self):
+        if self._handle:
+            self._handle.bind("<Button-1>", self._handleClicked, "+")
+
+    def _handleClicked(self, event=None):
+        self.stopAnimation()
+
+    def slideTo(self, percent:float, duration:int=None, notify:bool=False):
+        duration = self.slide_duration if duration is None else duration
+        destination = min(1.0, max(0.0, percent))
+
+        self.animate(self.getPercent(), destination, duration,
+                     lambda percent: self.setPercent(percent, notify), self.slide_rate)
+
+
+class DynamicSlider(AnimatedSlider):
+    def enable(self):
+        super().enable()
+        self.bind("<Button-1>", self.troughClicked)
+
     def disable(self):
         super().disable()
-        try:
-            self._handle.disable()
-        except: pass
+        self.unbind("<Button-1>")
+
+    def troughClicked(self, event):
+        self.slideTo(self.percentAt(event.x, event.y), notify=True)

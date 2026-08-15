@@ -53,7 +53,6 @@ class LimitedDict(OrderedDict):
             return default
 
 
-
 def warnPrint(message:any, *, level:str = "warning"):
     COLORS = {
         "info": "\033[96m",
@@ -230,7 +229,6 @@ def decimateRect(rect_xywh, cutter_rects):
         survivors = new_survivors
         if not survivors: break
     return survivors
-
 
 """
 ---------- Old Functions ----------

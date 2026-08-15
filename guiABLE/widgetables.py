@@ -496,7 +496,7 @@ class Holdable(Pushable):
     def mouseUp(self, event):
         self._clicking = False
         self.grab_release()
-        if self.moused_over: self.mouseIn(event)
+        self.mouseIn(event) if self.moused_over else self.mouseOut(event)
 
     def clicked(self, event):
         super().clicked(event)
@@ -576,6 +576,53 @@ class Draggable(LoneDraggable):
         self._registerSiblings()
         self.move(x, y)
 
+""" Troughable establishes a one-dimensional space traversed by a child handle and provides normalized position access. """
+class Troughable:
+    def __init__(self, *args, vertical:bool=None, **kwargs):
+        self._handle = None
+        super().__init__(*args, **kwargs)
+
+        self._active = int(vertical) if vertical is not None else int(self.height > self.width)
+
+    @property
+    def slide_range(self) -> int:
+        return max(self.size[self._active] - self._handle.size[self._active], 0) if self._handle else 0
+
+    def getPercent(self) -> float:
+        if not self._handle: return 0.0
+
+        p, slide_range = self._handle.location[self._active], self.slide_range
+        return p / slide_range if slide_range else 0.0
+
+    def setPercent(self, percent:float, notify:bool=False):
+        if self._handle:
+            handle_pos = [0, 0]
+            handle_pos[self._active] = round(self.slide_range * min(1.0, max(0.0, percent)))
+
+            if notify: self._handle.move(*handle_pos)
+            else: self._handle.place_configure(x=handle_pos[0], y=handle_pos[1])
+
+    def percentAt(self, x:int, y:int) -> float:
+        slide_range = self.slide_range
+        if not self._handle or not slide_range: return 0.0
+
+        p = (x, y)[self._active] - self._handle.size[self._active] * 0.5
+        return min(1.0, max(0.0, p / slide_range))
+
+    def isHeld(self): return self._handle.isHeld() if self._handle else False
+
+    def registerChild(self, child):
+        super().registerChild(child)
+        self._handle = child
+
+    def enable(self):
+        super().enable()
+        if self._handle: self._handle.enable()
+
+    def disable(self):
+        super().disable()
+        if self._handle: self._handle.disable()
+
 """
     Expandable extends Skinnable() to support live resizing of widget. An expandable will expand to envelope a new child
     widget, or to contain a child widget that has moved. It will also shrink when a child moves or is removed. Notably,
@@ -627,6 +674,52 @@ class Groupable(Expandable):
             self.setSkin(Skin(new_img))
 
         super()._afterGeometryChanges()
+
+
+""" LinearAnimator interpolates between two scalar values over time, passing each step to a supplied function. """
+class LinearAnimator:
+    def __init__(self, *args, **kwargs):
+        self._animation, self._animation_after = None, None
+        super().__init__(*args, **kwargs)
+
+    def animate(self, origin:float, destination:float, duration:int, function:Callable, rate:int=15,
+                finished:Callable=None):
+        self.stopAnimation()
+
+        if duration <= 0 or origin == destination:
+            function(destination)
+            if finished: finished()
+            return
+
+        self._animation = (time(), origin, destination, duration / 1000, rate, function, finished)
+        self._animation_after = self.after_idle(self._animationStep)
+
+    def stopAnimation(self):
+        if self._animation_after is not None: self.after_cancel(self._animation_after)
+        self._animation, self._animation_after = None, None
+
+    def _animationStep(self):
+        animation = self._animation
+        if animation is None: return
+
+        self._animation_after = None
+        start, origin, destination, duration, rate, function, finished = animation
+        progress = min(1.0, (time() - start) / duration)
+
+        function(destination if progress == 1.0 else origin + (destination - origin) * progress)
+
+        # The called function is allowed to begin or cancel an animation.
+        if self._animation is not animation: return
+
+        if progress < 1.0:
+            self._animation_after = self.after(rate, self._animationStep)
+        else:
+            self._animation = None
+            if finished: finished()
+
+    def destroy(self):
+        self.stopAnimation()
+        super().destroy()
 
 
 """ A Dead-End class for Collection() to terminate in -- providing a final super().__init__() destination. """
