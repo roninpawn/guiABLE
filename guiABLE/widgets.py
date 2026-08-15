@@ -459,26 +459,33 @@ class Labelable(Pushable):
 """ Toggleable stores a true/false state and redirects image() calls by index+_state_offset when true. This allows the
     skin to return states 0,1,2,3 for the False state of the Toggleable, and 4,5,6,7 for the True state. (Checkbox) """
 class Toggleable(Pushable):
-    def __init__(self, *args, state:bool=False, **kwargs):
-        self._state_offset, self._toggle_state = 0, state
+    def __init__(self, *args, state:bool=False, state_span:int=4, **kwargs):
+        self._toggle_state = state
+        self._state_span = max(1, state_span)
+        self._state_offset = self._state_span if state else 0
+
         super().__init__(*args, **kwargs)
-        self.setTrue(state)
 
     def mouseUp(self, event):
         self._clicking = False
         self.grab_release()
+
         if self.moused_over:
             self.setTrue(not self._toggle_state)
             self._call_function(self.function)
+
         self.mouseIn(event) if self.moused_over else self.mouseOut(event)
 
     def isTrue(self): return self._toggle_state
+
     def setTrue(self, true:bool) -> bool:
         self._toggle_state = true
-        self._state_offset = self._toggle_state * 4
+        self._state_offset = self._state_span if true else 0
+        self.setState(self._img_state % self._state_span)
         return self._toggle_state
 
-    def setState(self, state_index:int = 0): super().setState(state_index + self._state_offset)
+    def setState(self, state_index:int = 0):
+        super().setState((state_index % self._state_span) + self._state_offset)
 
 
 class Holdable(Pushable):
@@ -608,8 +615,11 @@ class FakeCanvas(tk.Text):
             self.place_configure(width=width, height=height, implied=True)
 
 
-""" TextCanvas utilizes FakeCanvas to create an alternate widget-chain base. Other [widget]able types can be mixed-in
-    with TextCanvas to create (slower) animation-friendly versions that have all the features of that [widget]able. """
+"""
+TextCanvas uses tk.Text as guiABLE's standard image-rendering surface. Tk's other child widgets can produce incorrect
+dirty rectangles when overlapping siblings move across them, causing clipping, stretching, or ghosting. tk.Text's 
+redisplay handling does not exhibit that behavior, so FakeCanvas provides a stable render floor for guiABLE widgets.
+"""
 class TextCanvas(Renderable, FakeCanvas): pass
 
 
@@ -715,28 +725,28 @@ class Collection(Expandable, Measurable, Nothing):
 class Background(Backgroundable, TextCanvas):
     def __init__(self, parent, skin=None, **kwargs):
         super().__init__(parent, skin=skin, **kwargs)
-class Image(Imageable, Siblingable, Canvas):
+class Image(Imageable, Siblingable, TextCanvas):
     def __init__(self, parent, skin=None, show_image=0, **kwargs):
         super().__init__(parent, skin=skin, init_state=show_image, **kwargs)
-class Hover(Hoverable, Siblingable, Canvas):
+class Hover(Hoverable, Siblingable, TextCanvas):
     def __init__(self, parent, skin=None, **kwargs):
         super().__init__(parent, skin=skin, **kwargs)
-class Button(Pushable, Siblingable, Canvas):
+class Button(Pushable, Siblingable, TextCanvas):
     def __init__(self, parent, skin=None, function=lambda:None, **kwargs):
         super().__init__(parent, function, skin=skin, **kwargs)
-class InstantButton(Clickable, Siblingable, Canvas):
+class InstantButton(Clickable, Siblingable, TextCanvas):
     def __init__(self, parent, skin=None, function=lambda:None, **kwargs):
         super().__init__(parent, function, skin=skin, **kwargs)
-class RepeatButton(Repeatable, Siblingable, Canvas):
+class RepeatButton(Repeatable, Siblingable, TextCanvas):
     def __init__(self, parent, skin=None, function=lambda:None, delay=150, init_delay=400, **kwargs):
         super().__init__(parent, function, skin=skin, delay=delay, init_delay=init_delay, **kwargs)
 class Label(Labelable, Siblingable, Canvas):
     def __init__(self, parent, skin=None, text="", font_pack=None, function=lambda:None, **kwargs):
         super().__init__(parent, function, skin=skin, text=text, font_pack=font_pack, **kwargs)
-class Checkbox(Toggleable, Siblingable, Canvas):
+class Checkbox(Toggleable, Siblingable, TextCanvas):
     def __init__(self, parent, skin=None, function=lambda:None, state=False, **kwargs):
         super().__init__(parent, function, state=state, skin=skin, **kwargs)
-class Drag(Draggable, Siblingable, Canvas):
+class Drag(Draggable, Siblingable, TextCanvas):
     def __init__(self, parent, skin=None, function=lambda:None, **kwargs):
         super().__init__(parent, function, skin=skin, **kwargs)
 class Group(Groupable, Backgroundable, Siblingable, TextCanvas):
@@ -744,7 +754,7 @@ class Group(Groupable, Backgroundable, Siblingable, TextCanvas):
         super().__init__(parent, **kwargs)
 
 # Specialized Widgets
-class LoneDrag(LoneDraggable, Siblingable, Canvas):
+class LoneDrag(LoneDraggable, Siblingable, TextCanvas):
     def __init__(self, parent, function=lambda:None, skin=None, **kwargs):
         super().__init__(parent, function, skin=skin, **kwargs)
 class TroughButton(Repeatable, Siblingable, TextCanvas):

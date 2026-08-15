@@ -142,7 +142,7 @@ Passing order is important. The return of this function is used as 'instructions
 """
 def getOverlap(self_xywh:tuple, other_xywh:tuple) -> Overlap | None:
     inter = rectIntersect(self_xywh, other_xywh)
-    if not inter: return None
+    if inter is None: return None
 
     ix, iy, iw, ih = inter
     sx, sy = self_xywh[:2]
@@ -177,7 +177,7 @@ def rectIntersect(a_xywh:tuple, b_xywh:tuple) -> tuple|None:
     fx = min(ax + aw, bx + bw)
     fy = min(ay + ah, by + bh)
 
-    if fx <= ix or fy <= iy: return (0,0,0,0)
+    if fx <= ix or fy <= iy: return None
     return ix, iy, fx - ix, fy - iy     # (x,y,w,h)
 
 def pointIsInRect(x:int, y:int, rect:tuple[int,int,int,int]) -> bool:

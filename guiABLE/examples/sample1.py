@@ -10,24 +10,24 @@ def test_gui():
 
     # Create a test Button
     btn_skin = Skin("../skins/default/cog.png", "../skins/default/cog_mo.png", "../skins/default/cog_red.png")
-    test_btn = Button(app, btn_skin, lambda: print("Button clicked!"), width=140, height=24)
-    test_btn.place(x=60, y=0)
+    test_btn = Button(app, btn_skin, lambda: print("Button clicked!"))
+    test_btn.place(x=0, y=0)
 
     # Create a Checkbox
     toggle_skin = Skin.fromSpriteSheet("../skins/default/checkbox-64.png", 64)
     test_toggle1 = Checkbox(app, toggle_skin, lambda: print("Toggle1 state:", test_toggle1.isTrue()), True)
-    test_toggle1.place(x=80, y=24)
+    test_toggle1.place(x=60, y=20)
 
     test_toggle2 = Checkbox(app, toggle_skin, function=lambda: print("Toggle2 state:", test_toggle2.isTrue()))
-    test_toggle2.place(x=144, y=24)
+    test_toggle2.place(x=144, y=20)
 
     # Create a Drag object
     drag_skin = Skin.fromSpriteSheet("../skins/default/radiobox-64.png", 64)
-    test_drag = Drag(app, skin=drag_skin)
+    test_drag = Drag(app, drag_skin)
     test_drag.place(x=260, y=24)
 
     opaque_test = Button(app, btn_skin, lambda: print("Opaque clicked!"))
-    opaque_test.place(x=280, y=45)
+    #opaque_test.place(x=280, y=45)
 
     # Create a Label (button with text overlay)
     label_font = FontPack(color="White", weight="bold", text_pos=(10,5))
@@ -122,6 +122,10 @@ def test_gui():
         app.fps = 0
         app.after(1000, update_fps)
     update_fps()
+
+    print("\nTk:")
+    for widget in app.winfo_children():
+        print(widget)
 
     app.mainloop()
 

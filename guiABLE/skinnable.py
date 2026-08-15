@@ -683,7 +683,14 @@ class Measurable(Childable):
     # _refresh is meant to run on any <Configure> binded event.
     def refresh(self, event=None): self._refresh(event)
     def _refresh(self, event=None):
-        self._geometry = getGeometry(self)      # Polls winfo_ endpoint to get true geometry.
+        if event is not None:
+            x, y = event.x, event.y
+
+            if getattr(self.parent, "is_collection", False):
+                x -= self.parent.x
+                y -= self.parent.y
+
+            self._geometry = (x, y, event.width, event.height)
 
         if self._last_geometry != self._geometry: self._afterGeometryChanges()
         self._last_geometry = self._geometry
