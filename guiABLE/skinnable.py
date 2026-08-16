@@ -602,8 +602,9 @@ class ScrollSkin(SkinPack):
 """ Adds methods for registering, reporting, and altering children of a widget. """
 class Childable():
     def __init__(self, parent, *args, **kwargs):
-        # Intercept and override the parent Tk will instance the widget to, if its a collection.
-        super().__init__(parent.parent if getattr(parent, "is_collection", False) else parent, *args, **kwargs)
+        # Logical parents may redirect their children to a different physical Tk host.
+        master = parent.childMaster() if hasattr(parent, "childMaster") else parent
+        super().__init__(master, *args, **kwargs)
 
         self._children = []
         self._parent = parent
@@ -613,6 +614,16 @@ class Childable():
     def parent(self): return self._parent
     @property
     def window(self): return self._window
+
+    # By default, a widget is its children's physical host and uses the same local coordinate space.
+    def childMaster(self): return self
+    def mapChildToMaster(self, x:int, y:int) -> tuple[int,int]: return x, y
+    def mapMasterToChild(self, x:int, y:int) -> tuple[int,int]: return x, y
+
+    # Rendering is local to the parent by default. Coordinate spaces may override either mapping independently.
+    def childRenderArea(self) -> tuple[int,int,int,int]|None:
+        return (0, 0, *self.size) if hasattr(self, "size") else None
+    def childBackgroundPoint(self, x:int, y:int, width:int=0, height:int=0) -> tuple[int,int]: return x, y
 
     # Parents that host child widgets track their children and provide a list of those children's z-order.
     def getChildren(self): return self._children
@@ -647,7 +658,10 @@ class Childable():
     def _afterGeometryChanges(self):
         if isinstance(self._parent, Childable):
             self._parent.childChanged(self)                  # Inform your parent that you've changed.
-        for child in self._children: child.refresh()        # Refresh your children.
+        self._refreshChildren()
+
+    def _refreshChildren(self):
+        for child in self._children: child.refresh()
 
 
 """
@@ -685,10 +699,7 @@ class Measurable(Childable):
     def _refresh(self, event=None):
         if event is not None:
             x, y = event.x, event.y
-
-            if getattr(self.parent, "is_collection", False):
-                x -= self.parent.x
-                y -= self.parent.y
+            if hasattr(self.parent, "mapMasterToChild"): x, y = self.parent.mapMasterToChild(x, y)
 
             self._geometry = (x, y, event.width, event.height)
 
@@ -720,10 +731,9 @@ class Placeable(Measurable):
 
         self._geometry = (local_x, local_y, width, height)
 
-        # If parent is a Collection(), globalize coordinates before placing.
-        if getattr(self._parent, "is_collection", False):
-            kwargs['x'] += self._parent.x
-            kwargs['y'] += self._parent.y
+        # Map local coordinates to the physical Tk host chosen by the logical parent.
+        if hasattr(self._parent, "mapChildToMaster"):
+            kwargs['x'], kwargs['y'] = self._parent.mapChildToMaster(local_x, local_y)
 
         super().place(**kwargs)
         return self
@@ -748,13 +758,19 @@ class Placeable(Measurable):
         skip = kwargs.pop('skip', False)
         if skip: self._last_geometry = self._geometry
 
-        # If parent is a Collection(), globalize coordinates before placing.
-        if getattr(self._parent, "is_collection", False):
-            kwargs['x'] += self._parent.x
-            kwargs['y'] += self._parent.y
+        # Map local coordinates to the physical Tk host chosen by the logical parent.
+        local_x, local_y = kwargs['x'], kwargs['y']
+        if hasattr(self._parent, "mapChildToMaster"):
+            kwargs['x'], kwargs['y'] = self._parent.mapChildToMaster(local_x, local_y)
         super().place_configure(**kwargs)
 
         return self     # Enables one-line instantiation and placement. eg. my_btn = Button(...).place(10, 10)
+
+    # Re-apply local geometry to Tk without changing the local coordinates themselves.
+    def _reposition(self):
+        x, y = self._parent.mapChildToMaster(self.x, self.y) \
+            if hasattr(self._parent, "mapChildToMaster") else self.location
+        super().place_configure(x=x, y=y, width=self.width, height=self.height)
 
 
 """ Skinnable is a mixin that provides core Skin() handling functionality to guiABLE widgets. """

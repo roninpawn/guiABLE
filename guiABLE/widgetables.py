@@ -2,7 +2,7 @@ import tkinter as tk
 from time import time
 from typing import Callable
 
-from guiABLE.skinnable import Skinnable, Measurable, Skin, Placeable
+from guiABLE.skinnable import Skinnable, Measurable, Skin, Placeable, Childable
 from guiABLE.utilities import (rectsOverlap, rectUnion, pointIsInRect, getOverlap, decimateRect, rectIntersect,
                                rectsUnion, LimitedDict, FontPack, Overlap, getGeometry)
 from guiABLE.uimage import UImage
@@ -105,12 +105,16 @@ class Renderable(Skinnable):
 
         self.dirty = True
         self._z_state, self._z_img = None, None
+        self._full_render = False
         self._img_state = 0
         self._bases = LimitedDict(maxsize=20)
 
-    def redraw(self):
+    def redraw(self, full:bool=False):
         # If the skin that this widget uses has changed, all of its children must redraw.
+        self._full_render = full
         self.setState(self._img_state)
+        self._full_render = False
+
         if self.dirty:
             for child in self._children: child.redraw()
             self.dirty = False
@@ -129,10 +133,14 @@ class Renderable(Skinnable):
 
         union = rectUnion(self._geometry, self._last_geometry)
 
-        """ Reduce union and siblings to only what is visible and necessary to draw. """
-        # Reduce union to the visible boundaries of the caller's parent. (Don't draw what is off screen.)
-        if isinstance(self.parent, Measurable): union = rectIntersect(union, (0, 0, *self.parent.size))
-        if union is None: return
+        # Reduce ordinary draws to the visible boundaries exposed by the caller's parent.
+        if not self._full_render:
+            if hasattr(self.parent, "childRenderArea"):
+                render_area = self.parent.childRenderArea()
+                if render_area is not None: union = rectIntersect(union, render_area)
+            elif isinstance(self.parent, Measurable): union = rectIntersect(union, (0, 0, *self.parent.size))
+
+        if union is None or union[2] <= 0 or union[3] <= 0: return
 
         # Cull caller's siblings by overlap and visibility, and generate a list of any opaque-sibling's geometries.
         if not isinstance(self, Siblingable):
@@ -162,7 +170,9 @@ class Renderable(Skinnable):
 
         # Blit the parent's background to the base, if it is not fully obscured.
         if not (len(siblings) == 1 and self.isOpaque()) and decimateRect((0, 0, w, h), opaque_rects):
-            self._parent.skin.image().cropTo(base, x, y, w, h)
+            bg_x, bg_y = self._parent.childBackgroundPoint(x, y, w, h) \
+                if hasattr(self._parent, "childBackgroundPoint") else (x, y)
+            self._parent.skin.image().cropTo(base, bg_x, bg_y, w, h)
 
         # Process each sibling in the list.
         atop = False
@@ -623,6 +633,28 @@ class Troughable:
         super().disable()
         if self._handle: self._handle.disable()
 
+
+""" CoordinateSpace preserves child-local geometry when the whole parent space translates or resizes. """
+class CoordinateSpace:
+    def translate(self, x:int=None, y:int=None):
+        x = self.x if x is None else x
+        y = self.y if y is None else y
+
+        if (x, y) != self.location:
+            self.place_configure(x=x, y=y, implied=True, skip=True)
+            if isinstance(self.parent, Childable): self.parent.childChanged(self)
+            self.spaceTranslated()
+
+        return self
+
+    def _refreshChildren(self):
+        if self._last_geometry[2:] != self._geometry[2:]: self.spaceResized()
+        elif self._last_geometry[:2] != self._geometry[:2]: self.spaceTranslated()
+
+    def spaceTranslated(self): pass
+    def spaceResized(self): pass
+
+
 """
     Expandable extends Skinnable() to support live resizing of widget. An expandable will expand to envelope a new child
     widget, or to contain a child widget that has moved. It will also shrink when a child moves or is removed. Notably,
@@ -691,8 +723,34 @@ class LinearAnimator:
             if finished: finished()
             return
 
-        self._animation = (time(), origin, destination, duration / 1000, rate, function, finished)
+        self._animation = [time(), origin, destination, duration / 1000, rate, function, finished]
         self._animation_after = self.after_idle(self._animationStep)
+
+    def extendAnimation(self, delta:float, duration:int) -> bool:
+        if self._animation is None: return False
+
+        self._animation[2] += delta
+        self._animation[3] += duration / 1000
+
+        return True
+
+    def retargetAnimation(self, destination:float, duration:int, origin:float=None) -> bool:
+        if self._animation is None: return False
+
+        start, old_origin, old_destination, old_duration = self._animation[:4]
+        now = time()
+
+        if origin is None:
+            progress = min(1.0, (now - start) / old_duration)
+            origin = old_destination if progress == 1.0 else \
+                     old_origin + (old_destination - old_origin) * progress
+
+        self._animation[0] = now
+        self._animation[1] = origin
+        self._animation[2] = destination
+        self._animation[3] = duration / 1000
+
+        return True
 
     def stopAnimation(self):
         if self._animation_after is not None: self.after_cancel(self._animation_after)
@@ -739,6 +797,18 @@ class Collection(Expandable, Measurable, Nothing):
 
         self._size_declared = [False, False]
 
+    # Collections are logical parents; descendants are physically hosted by the nearest real Tk parent.
+    def childMaster(self):
+        return self._parent.childMaster() if hasattr(self._parent, "childMaster") else self._parent
+
+    def mapChildToMaster(self, x:int, y:int) -> tuple[int,int]:
+        x, y = x + self.x, y + self.y
+        return self._parent.mapChildToMaster(x, y) if hasattr(self._parent, "mapChildToMaster") else (x, y)
+
+    def mapMasterToChild(self, x:int, y:int) -> tuple[int,int]:
+        if hasattr(self._parent, "mapMasterToChild"): x, y = self._parent.mapMasterToChild(x, y)
+        return x - self.x, y - self.y
+
     def place(self, x:int=None, y:int=None, **kwargs):
         if x is None and 'x' in kwargs: x = kwargs['x']
         if y is None and 'y' in kwargs: y = kwargs['y']
@@ -753,15 +823,17 @@ class Collection(Expandable, Measurable, Nothing):
         if 'y' not in kwargs:
             kwargs['y'] = args[1] if len(args) > 1 and isinstance(args[1], int) else self.y
 
-        # Update geometry and move all children by the delta of x/y.
+        # Update geometry and re-apply child placement without changing child-local geometry.
+        last_xy = self.location
         self._geometry = (kwargs['x'], kwargs['y'], kwargs['width'] if 'width' in kwargs else self.width,
                                                     kwargs['height'] if 'height' in kwargs else self.height)
 
-        delta_xy = self.x - self._last_geometry[0], self.y - self._last_geometry[1]
-        if any(delta_xy):
-            for child in self.getChildren():
-                child.place_configure(x=child.x + delta_xy[0], y=child.y + delta_xy[1])
+        if last_xy != self.location: self._reposition()
         self._last_geometry = self._geometry
+
+    def _reposition(self):
+        for child in self.getChildren():
+            if hasattr(child, "_reposition"): child._reposition()
 
     @property
     def skin(self): return self._parent.skin

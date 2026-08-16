@@ -66,7 +66,7 @@ def test_gui():
     trough_skin = Skin("../skins/default/scroll_trough-48.png")
     cap_skin = Skin("../skins/default/up_glyph-48.png", orientation="n")
     scroll_skin = ScrollSkin.fromSkins(cap_skin, trough_skin, None, True, cap_skin, "n")
-    scroll_area = Scrollable(app, 450, 280, scroll_skin, Skin(bg_image))
+    scroll_area = Scrollable(app, 450, 280, scroll_skin, "#3B4F4F")
     scroll_area.place(x=20, y=100)
 
     #scroll_area.dominant_axis = 0
