@@ -105,15 +105,12 @@ class Renderable(Skinnable):
 
         self.dirty = True
         self._z_state, self._z_img = None, None
-        self._full_render = False
         self._img_state = 0
         self._bases = LimitedDict(maxsize=20)
 
     def redraw(self, full:bool=False):
         # If the skin that this widget uses has changed, all of its children must redraw.
-        self._full_render = full
         self.setState(self._img_state)
-        self._full_render = False
 
         if self.dirty:
             for child in self._children: child.redraw()
@@ -134,11 +131,22 @@ class Renderable(Skinnable):
         union = rectUnion(self._geometry, self._last_geometry)
 
         # Reduce ordinary draws to the visible boundaries exposed by the caller's parent.
-        if not self._full_render:
-            if hasattr(self.parent, "childRenderArea"):
-                render_area = self.parent.childRenderArea()
-                if render_area is not None: union = rectIntersect(union, render_area)
-            elif isinstance(self.parent, Measurable): union = rectIntersect(union, (0, 0, *self.parent.size))
+        if hasattr(self.parent, "childRenderArea"):
+            render_area = self.parent.childRenderArea()
+
+            if render_area is not None:
+                visible = rectIntersect(self._geometry, render_area)
+
+                # Fully outside the render area.
+                if visible is None: return
+
+                # Fully contained widgets retain the normal aggressive clipping optimization.
+                # Border-crossing widgets must compose their whole surface so offscreen pixels remain valid.
+                if visible == self._geometry:
+                    union = rectIntersect(union, render_area)
+
+            elif isinstance(self.parent, Measurable):
+                union = rectIntersect(union, (0, 0, *self.parent.size))
 
         if union is None or union[2] <= 0 or union[3] <= 0: return
 

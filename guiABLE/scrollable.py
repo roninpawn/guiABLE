@@ -50,7 +50,7 @@ class Scrollable(Measurable, Siblingable, tk.Frame):
 
         # Scroll Defaults (based on 17ms (~60fps) animation rates.
         self.setPageScroll(150, 300)
-        self.setLineScroll(130, 0)
+        self.setLineScroll(130, 300)
         self.setWheelScroll(130, .4, True)
 
         self._syncLayout()
@@ -69,17 +69,23 @@ class Scrollable(Measurable, Siblingable, tk.Frame):
     @property
     def h_bar(self): return self._h_bar
 
-    def getScrollTypes(self) -> tuple[bool, bool]: return self._h_bar.instant_scroll, self._v_bar.instant_scroll
-    def setScrollType(self, instant:bool): self.setScrollTypes(instant, instant)
-    def setScrollTypes(self, instant_horizontal:bool = None, instant_vertical:bool = None):
-        if instant_horizontal is not None: self._h_bar.instant_scroll = instant_horizontal
-        if instant_vertical is not None: self._v_bar.instant_scroll = instant_vertical
+    def getInstantPage(self) -> tuple[bool, bool]: return self._h_bar.instant_page, self._v_bar.instant_page
+    def setInstantPage(self, instant:bool): self._h_bar.instant_page = self._v_bar.instant_page = instant
 
-    def getSmoothScroll(self) -> tuple[bool, bool]: return self._h_bar.smooth_scroll, self._v_bar.smooth_scroll
-    def setSmoothScroll(self, smooth:bool): self.setSmoothScrolls(smooth, smooth)
-    def setSmoothScrolls(self, smooth_horizontal:bool = None, smooth_vertical:bool = None):
-        if smooth_horizontal is not None: self._h_bar.smooth_scroll = smooth_horizontal
-        if smooth_vertical is not None: self._v_bar.smooth_scroll = smooth_vertical
+    def getWheelSmoothing(self) -> tuple[bool, bool]: return (self.h_bar.smooth_wheel, self.v_bar.smooth_wheel)
+    def getDragSmoothing(self) -> tuple[bool, bool]: return (self.h_bar.smooth_drag, self.v_bar.smooth_drag)
+    def getLineSmoothing(self) -> tuple[tuple[bool,bool], tuple[bool,bool]]:
+        return (    (self.h_bar.button1.smooth, self.h_bar.button2.smooth),
+                    (self.v_bar.button1.smooth, self.v_bar.button2.smooth) )
+    def getPageSmoothing(self) -> tuple[bool, bool]: return (self.h_bar.smooth_page, self.v_bar.smooth_page)
+
+    def setWheelSmoothing(self, smooth:bool): self.h_bar.smooth_wheel = self.v_bar.smooth_wheel = smooth
+    def setDragSmoothing(self, smooth:bool): self.h_bar.smooth_drag = self.v_bar.smooth_drag = smooth
+    def setLineSmoothing(self, smooth:bool):
+        for bar in self._bars:
+            if bar.button1: bar.button1.smooth = smooth
+            if bar.button2: bar.button2.smooth = smooth
+    def setPageSmoothing(self, smooth:bool): self.h_bar.smooth_page = self.v_bar.smooth_page = smooth
 
     def setPageScroll(self, delay:int = None, init_delay:int = None):
         self._v_bar.setPageScrollDelay(delay, init_delay)
@@ -305,10 +311,9 @@ class ScrollPlate(CoordinateSpace, Placeable, tk.Frame):
     def _syncVisible(self, redraw:bool=False):
         visible = {child for child in self.getChildren() if rectsOverlap(child.geometry, self.childRenderArea())}
 
-        # Newly exposed widgets must wait until Tk has physically realized the plate translation.
         entering = visible - self._visible_children
         for child in visible if redraw else entering:
-            child.after_idle(child.redraw, True)
+            child.after_idle(child.redraw)
 
         self._visible_children = visible
 
@@ -325,14 +330,26 @@ class ScrollPlate(CoordinateSpace, Placeable, tk.Frame):
 
 
 class ScrollButton(RepeatButton):
-    def __init__(self, parent, direction:int, *args, **kwargs):
-        self._direction = direction
-        super().__init__(parent, function=lambda: parent.buttonClicked(direction), *args, **kwargs)
+    def __init__(self, parent, direction:int, *args, smooth:bool=True, smooth_duration:int=130, **kwargs):
+        self.direction = direction
+        self.smooth = smooth
+        self.smooth_duration = smooth_duration
+
+        super().__init__(parent, function=self._scroll, *args, **kwargs)
+
+    @property
+    def smooth_duration(self): return self._smooth_duration
+    @smooth_duration.setter
+    def smooth_duration(self, duration:int):
+        self._smooth_duration = max(1, int(duration))
+
+    def _scroll(self):
+        self.parent.buttonClicked(self)
 
     def _keepClicking(self):
         if self._clicking:
-            if self.parent.smooth_scroll:
-                self.parent.buttonHeld(self._direction)
+            if self.smooth:
+                self.parent.buttonHeld(self)
             else:
                 super()._keepClicking()
 
@@ -365,8 +382,9 @@ class ScrollBar(LinearAnimator, Background):
         self._handle.place(x=0, y=0)
 
         # Scroll options
-        self.smooth_scroll, self.instant_scroll = True, False
-        self.drag_duration = 350
+        self.smooth_page, self.smooth_line, self.smooth_wheel, self.smooth_drag = True, True, False, False
+        self.instant_page = False
+        self.line_duration, self.drag_duration = 130, 350
 
         # Consolidate whiny IDE complaints about undefined variables here, instead of throughout the class.
         self._directions, self._orientation = self._directions, self._orientation
@@ -442,7 +460,7 @@ class ScrollBar(LinearAnimator, Background):
         o = self.vertical
         percent = self._trough.getPercent()
 
-        if self.smooth_scroll:
+        if self.smooth_drag:
             destination = round(percent * self.parent.plate.scroll_range[o])
             origin = self.parent.plate.geometry[o]
 
@@ -450,6 +468,7 @@ class ScrollBar(LinearAnimator, Background):
                 self.animate(origin, destination, self.drag_duration,
                              self._moveAnimated, self.parent.smooth_rate)
         else:
+            self.stopAnimation()
             per = [None, None]
             per[o] = percent
             self.parent.scrollByPercent(*per)
@@ -469,7 +488,7 @@ class ScrollBar(LinearAnimator, Background):
         direction = 1 if click[o] < self._handle.middle[o] else -1
 
         # Instant scrolling goes straight to the point that was clicked.
-        if self.instant_scroll and button_clicked == 1 or not self.instant_scroll and button_clicked == 2:
+        if self.instant_page and button_clicked == 1 or not self.instant_page and button_clicked == 2:
             per = self._trough.percentAt(click_x, click_y)
             destination = int(per * self.parent.plate.scroll_range[o]) - self.parent.plate.geometry[o]
 
@@ -477,37 +496,42 @@ class ScrollBar(LinearAnimator, Background):
         else: destination = self.parent.pageSize(o) * direction
 
         # Smooth scrolling animates travel to the destination by linear interpolation and deltaTime.
-        if self.smooth_scroll: self._beginAnimating(destination, duration)
-
-        # Simple scrolling goes directly to the destination requested.
-        else:
+        if self.smooth_page:
+            self._beginAnimating(destination, duration)
+        else:   # Simple scrolling goes directly to the destination requested.
+            self.stopAnimation()
             move = [0, 0]
             move[o] = destination
             self.parent.scrollByDelta(*move)
 
     def isHeld(self): return self._trough.isHeld()
 
-    def buttonClicked(self, direction:int):
-        if self.smooth_scroll:
-            self._beginAnimating(self.parent.line_size[self.vertical] * direction, self.button1.delay)
+    def buttonClicked(self, button:ScrollButton):
+        o = self.vertical
+        delta = self.parent.line_size[o] * button.direction
+
+        if button.smooth:
+            self._beginAnimating(delta, button.smooth_duration)
         else:
+            self.stopAnimation()
             move = [0, 0]
-            move[self.vertical] = self.parent.line_size[self.vertical] * direction
+            move[o] = delta
             self.parent.scrollByDelta(*move)
 
-    def buttonHeld(self, direction:int):
+    def buttonHeld(self, button:ScrollButton):
         o = self.vertical
         origin = self.parent.plate.geometry[o]
-        destination = self.parent.plate.scroll_range[o] if direction < 0 else 0
+        destination = self.parent.plate.scroll_range[o] if button.direction < 0 else 0
 
         distance = abs(destination - origin)
         if not distance: return
 
-        pixels_per_ms = self.parent.line_size[o] / self.button1.delay
+        pixels_per_ms = self.parent.line_size[o] / button.smooth_duration
         duration = round(distance / pixels_per_ms)
 
         self._continuous_scroll = True
-        self.animate(origin, destination, duration, self._moveAnimated, self.parent.smooth_rate)
+        self.animate(origin, destination, duration,
+                     self._moveAnimated, self.parent.smooth_rate)
 
     def buttonReleased(self):
         if self._continuous_scroll:
@@ -516,7 +540,7 @@ class ScrollBar(LinearAnimator, Background):
 
     def mouseWheeled(self, delta:int, duration:int):
         o = self.vertical
-        if self.smooth_scroll:
+        if self.smooth_wheel:
             origin = self.parent.plate.geometry[o]
 
             if self._animation is not None:
@@ -530,6 +554,7 @@ class ScrollBar(LinearAnimator, Background):
                 self.animate(origin, destination, duration, self._moveAnimated, self.parent.smooth_rate)
 
         else:
+            self.stopAnimation()
             move = [0, 0]
             move[o] = delta
             self.parent.scrollByDelta(*move)

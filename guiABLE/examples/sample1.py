@@ -73,12 +73,18 @@ def test_gui():
     #scroll_area.showBars(1, 1)
 
     # Create Togglables for changing the scrollbar settings.
-    test_toggle3 = Checkbox(app, toggle_skin, scroll_area.getScrollTypes()[0])
-    test_toggle3.function = (scroll_area.setScrollType, test_toggle3.isTrue)
+    test_toggle3 = Checkbox(app, toggle_skin, scroll_area.getInstantPage()[0])
+    test_toggle3.function = (scroll_area.setInstantPage, test_toggle3.isTrue)
     test_toggle3.place(x=380, y=24)
 
-    test_toggle4 = Checkbox(app, toggle_skin, scroll_area.getSmoothScroll()[0], True)
-    test_toggle4.function = (scroll_area.setSmoothScroll, test_toggle4.isTrue)
+    # Toggle both line and page smoothing simultaneously
+    test_toggle4 = Checkbox(app, toggle_skin, state=True)
+    def toggle_smoothing(toggle, scroll_area):
+        current_line = scroll_area.getLineSmoothing()[0]
+        current_page = scroll_area.getPageSmoothing()[1]
+        scroll_area.setLineSmoothing(not current_line)
+        scroll_area.setPageSmoothing(not current_page)
+    test_toggle4.function = (toggle_smoothing, test_toggle4, scroll_area)
     test_toggle4.place(x=444, y=24)
 
     nude_skin = BS()
