@@ -2,9 +2,9 @@ import tkinter as tk
 from time import time
 from typing import Callable
 
-from guiABLE.skinnable import Skinnable, Measurable, Skin, Placeable, Childable
+from guiABLE.skinnable import Skinnable, Measurable, Skin, Childable
 from guiABLE.utilities import (rectsOverlap, rectUnion, pointIsInRect, getOverlap, decimateRect, rectIntersect,
-                               rectsUnion, LimitedDict, FontPack, Overlap, getGeometry)
+                               rectsUnion, LimitedDict, FontPack, Overlap)
 from guiABLE.uimage import UImage
 
 
@@ -61,35 +61,38 @@ class Siblingable:
         self._registerSiblings()
         self.after_idle(self.redraw)
 
-    def _cull_siblings(self, siblings, union):
+    def _cull_siblings(self, siblings, union, prune=True):
         new_siblings, overlaps, atop = [], [], True
         opaque_rects, trans_rects = [], []
 
-        # Prepare list of rectangles describing how each sibling overlaps the union
         for i in range(len(siblings)-1, -1, -1):
             sib = siblings[i]
             overlap = getOverlap(union, sib.geometry)
-            if overlap is None:     # If former sibling nolonger overlaps, stop tracking sibling.
-                sib.dropSibling(self)
-                self.dropSibling(sib)
+
+            if overlap is None:
+                if prune:
+                    sib.dropSibling(self)
+                    self.dropSibling(sib)
                 continue
 
-            # Cull siblings by visibility.
             if sib == self: atop = False
             local_overlap = (*overlap.insert, *overlap.crop[2:])
-            # Don't draw a sibling that is obscured by the siblings atop it.
             if opaque_rects and not decimateRect(local_overlap, opaque_rects): continue
+
             if atop:
                 if sib.isOpaque():
                     opaque_rects.append(local_overlap)
                     for t_rect in trans_rects:
                         if rectsOverlap(t_rect, local_overlap): break
-                    else: continue      # Dont draw opaque widgets that do not have a transparent widget above them.
-                else: trans_rects.append(local_overlap)
-                if isinstance(sib, tk.Frame): continue       # Don't draw container widgets.
+                    else: continue
+                else:
+                    trans_rects.append(local_overlap)
+
+                if isinstance(sib, tk.Frame): continue
 
             new_siblings.append(sib)
             overlaps.append(overlap)
+
         return new_siblings, overlaps, opaque_rects
 
 
@@ -108,13 +111,30 @@ class Renderable(Skinnable):
         self._img_state = 0
         self._bases = LimitedDict(maxsize=20)
 
-    def redraw(self, full:bool=False):
-        # If the skin that this widget uses has changed, all of its children must redraw.
+    def redraw(self):
         self.setState(self._img_state)
 
-        if self.dirty:
-            for child in self._children: child.redraw()
-            self.dirty = False
+    @staticmethod
+    def contributesToComposite(): return True
+
+    def _renderChildren(self, floor:UImage, draw_area:tuple[int,int,int,int]):
+        if not self._children: return
+
+        rendered = set()
+
+        # Child order is top-first, so begin at the bottom. One lower child's
+        # composite pass may already render overlapping siblings above it.
+        for child in reversed(self._children):
+            if child in rendered or not isinstance(child, Renderable): continue
+            if child.isOpaque() or not rectsOverlap(draw_area, child.geometry): continue
+
+            rendered.update(
+                child.setState(
+                    child._img_state,
+                    floor=floor,
+                    draw_area=draw_area
+                )
+            )
 
     # The ZImage() is a persistent render of what the widget looks like on its own. Only updated if something changed.
     def zImage(self) -> UImage:
@@ -124,85 +144,142 @@ class Renderable(Skinnable):
             self.dirty = False
         return self._z_img
 
-    def setState(self, state_index:int = 0):
+    def setState(self, state_index:int=0, floor:UImage=None, draw_area:tuple=None):
         start = time()
+        rendered = set()
         self._img_state = state_index
 
         union = rectUnion(self._geometry, self._last_geometry)
 
-        # Reduce ordinary draws to the visible boundaries exposed by the caller's parent.
+        # A parent-context redraw only needs the portion whose floor has changed.
+        if draw_area is not None:
+            union = rectIntersect(union, draw_area)
+            if not union or union[2] <= 0 or union[3] <= 0: return rendered
+
+        """ Reduce union and siblings to only what is visible and necessary to draw. """
         if hasattr(self.parent, "childRenderArea"):
             render_area = self.parent.childRenderArea()
 
             if render_area is not None:
                 visible = rectIntersect(self._geometry, render_area)
+                if not visible or visible[2] <= 0 or visible[3] <= 0: return rendered
 
-                # Fully outside the render area.
-                if visible is None: return
-
-                # Fully contained widgets retain the normal aggressive clipping optimization.
-                # Border-crossing widgets must compose their whole surface so offscreen pixels remain valid.
-                if visible == self._geometry:
+                # Preserve whole-widget composition when this widget itself changes while
+                # straddling a rendering boundary. Parent-driven redraws stay restricted.
+                if draw_area is not None or visible == self._geometry:
                     union = rectIntersect(union, render_area)
 
-            elif isinstance(self.parent, Measurable):
-                union = rectIntersect(union, (0, 0, *self.parent.size))
+        elif isinstance(self.parent, Measurable):
+            union = rectIntersect(union, (0, 0, *self.parent.size))
 
-        if union is None or union[2] <= 0 or union[3] <= 0: return
+        if not union or union[2] <= 0 or union[3] <= 0: return rendered
 
-        # Cull caller's siblings by overlap and visibility, and generate a list of any opaque-sibling's geometries.
+        # Cull caller's siblings by overlap and visibility.
         if not isinstance(self, Siblingable):
-            siblings, overlaps, opaque_rects = [self], [Overlap(self._geometry, (0,0))], [self]
-        else:
-            siblings, overlaps, opaque_rects = self._cull_siblings(self._siblings, union)
-            # Remove last_geometry from union, if self is opaque and only sibling.
-            if len(siblings) == 1 and self.isOpaque(): union = self._geometry
+            siblings = [self]
+            overlaps = [getOverlap(union, self._geometry)]
+            opaque_rects = [(0, 0, *union[2:])] if self.isOpaque() else []
 
-            # Determine if the union can be shrunk again, due to opaque siblings blocking whole axes of the union's surface.
+        else:
+            siblings, overlaps, opaque_rects = self._cull_siblings(
+                self._siblings, union, prune=draw_area is None
+            )
+
+            # Remove last_geometry from union if self is opaque and the only sibling.
+            if len(siblings) == 1 and self.isOpaque():
+                union = self._geometry
+
+            # Shrink the union further where opaque siblings block whole areas.
             union_remains = decimateRect((0, 0, *union[2:]), opaque_rects)
+
             if union_remains:
                 local_union = rectsUnion(*union_remains) if len(union_remains) > 1 else union_remains[0]
                 new_union = (union[0] + local_union[0], union[1] + local_union[1], *local_union[2:])
-                # If the union can shrink, shrink it and recalculate how the remaining siblings overlap the union.
+
                 if union != new_union:
                     union = new_union
                     siblings.reverse()
-                    siblings, overlaps, opaque_rects = self._cull_siblings(siblings, union)
+                    siblings, overlaps, opaque_rects = self._cull_siblings(
+                        siblings, union, prune=draw_area is None
+                    )
 
-        """ Composite to base and then blit from the base to the surface of the necessary siblings """
-        # Make a base image to composite all sibling zImages onto.
+        if not siblings: return rendered
+
         x, y, w, h = union
+
+        # A Renderable child uses its parent's completed raster surface as its floor.
+        # Root/non-renderable parents continue using their own Skin below.
+        if floor is None and isinstance(self._parent, Renderable):
+            floor = self._parent.scratchImage()
+
+        # Non-raster participant with nothing local beneath/above to composite:
+        # copy its completed floor directly to its surface.
+        if floor is not None and len(siblings) == 1 and siblings[0] == self \
+                and not self.contributesToComposite():
+
+            overlap = overlaps[0]
+            cx, cy, cw, ch = overlap.crop
+            ix, iy = overlap.insert
+
+            final = self.scratchImage()
+            floor.cropTo(final, x + ix, y + iy, cw, ch, cx, cy)
+            self.render(final, self.skin_offset)
+
+            self.dirty = False
+            rendered.add(self)
+            self._renderChildren(final, (cx, cy, cw, ch))
+            return rendered
+
+        """ Composite local sibling family to one base. """
         res = (w, h)
-        if res not in self._bases: self._bases[res] = UImage(width=w, height=h)
+        if res not in self._bases:
+            self._bases[res] = UImage(width=w, height=h)
+
         base = self._bases[res]
 
-        # Blit the parent's background to the base, if it is not fully obscured.
-        if not (len(siblings) == 1 and self.isOpaque()) and decimateRect((0, 0, w, h), opaque_rects):
-            bg_x, bg_y = self._parent.childBackgroundPoint(x, y, w, h) \
-                if hasattr(self._parent, "childBackgroundPoint") else (x, y)
-            self._parent.skin.image().cropTo(base, bg_x, bg_y, w, h)
+        # Establish the floor only if some of it remains visible.
+        if not (len(siblings) == 1 and self.isOpaque()) \
+                and decimateRect((0, 0, w, h), opaque_rects):
 
-        # Process each sibling in the list.
+            if floor is not None:
+                floor.cropTo(base, x, y, w, h)
+
+            else:
+                bg_x, bg_y = self._parent.childBackgroundPoint(x, y, w, h) \
+                    if hasattr(self._parent, "childBackgroundPoint") else (x, y)
+
+                self._parent.skin.image().cropTo(base, bg_x, bg_y, w, h)
+
+        # Composite siblings bottom-to-top, rendering self and necessary siblings above.
         atop = False
+
         for i in range(len(siblings)-1, -1, -1):
             sibling, overlap = siblings[i], overlaps[i]
             cx, cy, cw, ch = overlap.crop
             ix, iy = overlap.insert
-            # Composite each sibling's own image onto the base image.
-            sibling.zImage().cropTo(base, cx, cy, cw, ch, ix, iy)
 
-            # Start rendering to the surface of self and any widgets atop once we've drawn up to the calling widget.
+            if getattr(sibling, "contributesToComposite", lambda: True)():
+                sibling.zImage().cropTo(base, cx, cy, cw, ch, ix, iy)
+
             if sibling == self: atop = True
+
             if atop and not (sibling != self and sibling.isOpaque()):
                 final = sibling.scratchImage()
                 base.cropTo(final, ix, iy, cw, ch, cx, cy)
-                sibling.render(final, sibling.skin_offset)       # Render to surface of widget.
+                sibling.render(final, sibling.skin_offset)
+
+                if isinstance(sibling, Renderable):
+                    rendered.add(sibling)
+                    sibling._renderChildren(final, (cx, cy, cw, ch))
 
         self.bench += time() - start
         self.benches += 1
+
         if self.benches >= 100:
             print(f"{round(self.bench / 100, 5)}s per draw.")
             self.bench, self.benches = 0, 0
+
+        return rendered
 
 
 """ Canvas defines how to render images to the surface of the tk.Canvas to support parent & sibling transparency. """
@@ -277,7 +354,8 @@ class Hoverable(Stateable):
     def mouseIn(self, event):
         # If widget has a child and the mouse enters child & parent at the same time, only change child's visual state.
         for child in self._children:
-            if pointIsInRect(event.x, event.y, child.geometry): return
+            if not getattr(child, "event_passthrough", False) and pointIsInRect(event.x, event.y, child.geometry):
+                return
         self.setState(1)
         self.moused_over = True
 
@@ -361,117 +439,237 @@ class Pushable(Clickable):
         else: super().mouseIn(event)
 
 
-class Labelable(Pushable):
-    def __init__(self, *args, text:str="", font_pack:FontPack = None, **kwargs):
+class Labelable(Siblingable, Canvas):
+    """ Labelable renders persistent, non-editable native Tk text over a fake-transparent guiABLE surface. """
+    event_passthrough = True
 
-        # If no skin passed, use a fully transparent skin.
-        if 'skin' in kwargs and kwargs['skin'] is None: kwargs['skin'] = Skin(UImage())
+    _font_attributes = {
+        "font":        (0, "name"),
+        "font_size":   (1, "size"),
+        "weight":      (2, "weight"),
+        "color":       (3, "color"),
+        "drop_color":  (4, "drop_color"),
+        "text_pos":    (5, "text_pos"),
+        "drop_pos":    (6, "drop_offset"),
+        "drop_offset": (6, "drop_offset"),
+        "anchor":      (7, "anchor")
+    }
 
-        # Ingest FontPack, while allowing overrides, but also maintaining linkage to source FontPack
+    def __init__(self, parent, text:str="", font_pack:FontPack=None, **kwargs):
         self._using = [0] * 8
         self._override_pack = FontPack()
-
         self._pack = font_pack if font_pack else FontPack()
-        if "font" in kwargs:
-            self._using[0] = 1
-            self._override_pack.name = kwargs.pop("font")
-        if "font_size" in kwargs:
-            self._using[1] = 1
-            self._override_pack.size = kwargs.pop("font_size")
-        if "weight" in kwargs:
-            self._using[2] = 1
-            self._override_pack.weight = kwargs.pop("weight")
-        if "color" in kwargs:
-            self._using[3] = 1
-            self._override_pack.color = kwargs.pop("color")
-        if "drop_color" in kwargs:
-            self._using[4] = 1
-            self._override_pack.drop_color = kwargs.pop("drop_color")
-        if "text_pos" in kwargs:
-            self._using[5] = 1
-            self._override_pack.text_pos = kwargs.pop("text_pos")
-        if "drop_pos" in kwargs:
-            self._using[6] = 1
-            self._override_pack.drop_pos = kwargs.pop("drop_pos")
-        if "anchor" in kwargs:
-            self._using[7] = 1
-            self._override_pack.anchor = kwargs.pop("anchor")
+
+        for key in tuple(kwargs):
+            if key in self._font_attributes:
+                index, attribute = self._font_attributes[key]
+                self._using[index] = 1
+                setattr(self._override_pack, attribute, kwargs.pop(key))
 
         self._packs = [self._pack, self._override_pack]
 
         self.text = text
         self._img_text, self._img_text_shadow = None, None
-        super().__init__(*args, **kwargs)
+        self._event_parent = None
+
+        # Labelable needs a raster surface to receive fake transparency,
+        # but contributes no raster image of its own.
+        kwargs.pop("skin", None)
+        super().__init__(parent, skin=Skin(UImage()), **kwargs)
+
+        self.drawText()
+
+    @staticmethod
+    def isOpaque(): return False
+
+    @staticmethod
+    def contributesToComposite(): return False
+
+    def passMouseTo(self, widget):
+        self._event_parent = widget
+
+        for button in (1, 2, 3):
+            self.bind(
+                f"<Button-{button}>",
+                lambda event, b=button: self._forwardMouse(event, f"<Button-{b}>"),
+                "+"
+            )
+            self.bind(
+                f"<ButtonRelease-{button}>",
+                lambda event, b=button: self._forwardMouse(event, f"<ButtonRelease-{b}>"),
+                "+"
+            )
+
+        self.bind("<B1-Motion>", lambda event: self._forwardMouse(event, "<B1-Motion>"), "+")
+
+    def _forwardMouse(self, event, sequence:str):
+        if self._event_parent is not None:
+            self._event_parent.event_generate(
+                sequence,
+                x=self.x + event.x,
+                y=self.y + event.y,
+                when="now"
+            )
 
     def setText(self, text:str):
         if text != self.text:
-            if self._img_text: self.delete(self._img_text)      # Can this be done faster without the delete/create?
-            if self._img_text_shadow: self.delete(self._img_text_shadow)
-            self._img_text, self._img_text_shadow = None, None
             self.text = text
-            self.redraw()
+            self.drawText()
 
     def setFontPack(self, font_pack:FontPack):
         self._pack = font_pack
-        self._using = [0] * 7
+        self._packs[0] = font_pack
+        self._using = [0] * 8
+
+        self.drawText()
 
     def setFontAttributes(self, **kwargs):
-        for kw in kwargs: self._override_pack.__setattr__(kw, kwargs[kw])
+        for key, value in kwargs.items():
+            if key not in self._font_attributes:
+                raise TypeError(f"Unknown font attribute: {key}")
 
-    def drawText(self, offset_x:int = 0, offset_y:int = 0):
+            index, attribute = self._font_attributes[key]
+            self._using[index] = 1
+            setattr(self._override_pack, attribute, value)
+
+        self.drawText()
+
+    def drawText(self, offset_x:int=0, offset_y:int=0):
         x, y = self._packs[self._using[5]].text_pos
-        x += offset_x
-        y += offset_y
+        x, y = x + offset_x, y + offset_y
 
         dx, dy = self._packs[self._using[6]].drop_offset
-        dx += offset_x
-        dy += offset_y
-
-        color, drop_color = self._packs[self._using[3]].color, self._packs[self._using[4]].drop_color
+        color = self._packs[self._using[3]].color
+        drop_color = self._packs[self._using[4]].drop_color
         anchor = self._packs[self._using[7]].anchor
 
         # Invert behavior of offsets if right/bottom aligned.
         if 'e' in anchor: x = self.width - x
         if 's' in anchor: y = self.height - y
 
-        # If text has not been rendered yet, create text layers.
-        if drop_color is not None and self._img_text_shadow is None:
-            self._img_text_shadow = self.create_text(x+dx, y+dy, text=self.text, fill=drop_color, font=self._tk_font,
-                                                     anchor=anchor)
+        if drop_color is None:
+            if self._img_text_shadow is not None:
+                self.delete(self._img_text_shadow)
+                self._img_text_shadow = None
+
+        elif self._img_text_shadow is None:
+            self._img_text_shadow = self.create_text(
+                x + dx, y + dy,
+                text=self.text,
+                fill=drop_color,
+                font=self._tk_font,
+                anchor=anchor
+            )
+
+        else:
+            self.coords(self._img_text_shadow, x + dx, y + dy)
+            self.itemconfigure(
+                self._img_text_shadow,
+                text=self.text,
+                fill=drop_color,
+                font=self._tk_font,
+                anchor=anchor
+            )
+
         if self._img_text is None:
-            self._img_text = self.create_text(x, y, text=self.text, fill=color, font=self._tk_font, anchor=anchor)
+            self._img_text = self.create_text(
+                x, y,
+                text=self.text,
+                fill=color,
+                font=self._tk_font,
+                anchor=anchor
+            )
 
-    def render(self, image:UImage, xy_offset:tuple[int,int] = (0,0)):
-        if xy_offset != self._last_offset:
-            if self._img_text: self.delete(self._img_text)
-            if self._img_text_shadow: self.delete(self._img_text_shadow)
-            self._img_text, self._img_text_shadow = None, None
+        else:
+            self.coords(self._img_text, x, y)
+            self.itemconfigure(
+                self._img_text,
+                text=self.text,
+                fill=color,
+                font=self._tk_font,
+                anchor=anchor
+            )
+
+        # Canvas.render() may recreate its raster layer. Keep native text above it
+        # without destroying and recreating the native text objects.
+        if self._img_text_shadow is not None: self.tag_raise(self._img_text_shadow)
+        if self._img_text is not None: self.tag_raise(self._img_text)
+
+    def render(self, image:UImage, xy_offset:tuple[int,int]=(0,0)):
         super().render(image, xy_offset)
-        self.drawText()
-
-    def mouseOut(self, event):
-        super().mouseOut(event)
-        self.drawText()
-
-    def mouseIn(self, event):
-        super().mouseIn(event)
-        self.drawText()
-
-    def clicked(self, event):
-        super().clicked(event)
-        self.drawText()
-
-    def mouseUp(self, event):
-        super().mouseUp(event)
-        self.drawText()
-
-    def setState(self, state_index:int = 0):
-        super().setState(state_index)
         self.drawText()
 
     @property
     def _tk_font(self):
-        return (self._packs[self._using[0]].name, self._packs[self._using[1]].size, self._packs[self._using[2]].weight)
+        return (
+            self._packs[self._using[0]].name,
+            self._packs[self._using[1]].size,
+            self._packs[self._using[2]].weight
+        )
+
+
+class Labeled:
+    """ Labeled attaches one Labelable child to any rendered widget as a convenience text layer. """
+    def __init__(self, *args, text:str=None, font_pack:FontPack=None, label_kwargs:dict=None, **kwargs):
+        self._label = None
+        self._label_fill = [False, False]
+
+        self._label_font_pack = font_pack
+        self._label_kwargs = dict(label_kwargs or {})
+
+        # Standard text kwargs belong to the Labelable, not the host Tk widget.
+        for key in tuple(kwargs):
+            if key in Labelable._font_attributes:
+                self._label_kwargs[key] = kwargs.pop(key)
+
+        super().__init__(*args, **kwargs)
+
+        if text is not None:
+            self._spawnLabel(text)
+
+    @property
+    def label(self): return self._label
+
+    def _spawnLabel(self, text:str):
+        options = dict(self._label_kwargs)
+        x, y = options.pop("x", 0), options.pop("y", 0)
+
+        self._label_fill[0] = "width" not in options
+        self._label_fill[1] = "height" not in options
+
+        if self._label_fill[0]: options["width"] = max(0, self.width - x)
+        if self._label_fill[1]: options["height"] = max(0, self.height - y)
+
+        self._label = Labelable(self, text=text, font_pack=self._label_font_pack, **options).place(x, y)
+        self._label.passMouseTo(self)
+
+        return self._label
+
+    def setText(self, text:str):
+        if self._label is None: self._spawnLabel(text)
+        else: self._label.setText(text)
+
+    def setFontPack(self, font_pack:FontPack):
+        self._label_font_pack = font_pack
+        if self._label is not None:
+            self._label.setFontPack(font_pack)
+
+    def setFontAttributes(self, **kwargs):
+        self._label_kwargs.update(kwargs)
+        if self._label is not None:
+            self._label.setFontAttributes(**kwargs)
+
+    def _afterGeometryChanges(self):
+        size_changed = self._last_geometry[2:] != self._geometry[2:]
+        super()._afterGeometryChanges()
+
+        if size_changed and self._label is not None:
+            size = {}
+
+            if self._label_fill[0]: size["width"] = max(0, self.width - self._label.x)
+            if self._label_fill[1]: size["height"] = max(0, self.height - self._label.y)
+
+            if size: self._label.place_configure(implied=True, **size)
 
 
 """ Toggleable stores a true/false state and redirects image() calls by index+_state_offset when true. This allows the
@@ -502,8 +700,11 @@ class Toggleable(Pushable):
         self.setState(self._img_state % self._state_span)
         return self._toggle_state
 
-    def setState(self, state_index:int = 0):
-        super().setState((state_index % self._state_span) + self._state_offset)
+    def setState(self, state_index:int=0, floor:UImage=None, draw_area:tuple=None):
+        return super().setState(
+            (state_index % self._state_span) + self._state_offset,
+            floor, draw_area
+        )
 
 
 class Holdable(Pushable):

@@ -1,4 +1,3 @@
-from time import time
 import tkinter as tk
 
 from .utilities import getLocalMouse, rectsOverlap
@@ -676,9 +675,9 @@ class ScrollTrough(Troughable, TroughButton):
     def handleDragged(self): self.parent.handleDragged()
     def handleReleased(self): self.parent.handleReleased()
 
-    def setState(self, state_index:int = 0):
-        self._skin.image(state_index, self._geometry[2 + self._vertical])       # Update skin's length.
-        super().setState(state_index)
+    def setState(self, state_index:int=0, floor:UImage=None, draw_area:tuple=None):
+        self._skin.image(state_index, self._geometry[2 + self._vertical])
+        return super().setState(state_index, floor, draw_area)
 
     def clicked(self, event):
         self._clicking = event.num
@@ -714,9 +713,9 @@ class ScrollHandle(LoneDrag):
             self._half = self._geometry[2] // 2, self._geometry[3] // 2
         return self._half
 
-    def setState(self, state_index:int = 0):        # BarSkin Recipients redraw their bars at varying lengths.
+    def setState(self, state_index:int=0, floor:UImage=None, draw_area:tuple=None):
         self._skin.image(state_index, self._geometry[2 + self.vertical])
-        super().setState(state_index)
+        return super().setState(state_index, floor, draw_area)
 
     def mouseDrag(self, event=None):
         super().mouseDrag(event)

@@ -8,7 +8,7 @@ from .widgetables import (
     Canvas, TextCanvas,
     Backgroundable, Siblingable,
     Stateable, Imageable, Hoverable, Clickable, Pushable,
-    Labelable, Toggleable, Holdable, Repeatable,
+    Labelable, Labeled, Toggleable, Holdable, Repeatable,
     LoneDraggable, Draggable, Troughable, LinearAnimator,
     Groupable, Collection
 )
@@ -29,24 +29,26 @@ class Hover(Hoverable, Siblingable, TextCanvas):
         super().__init__(parent, skin=skin, **kwargs)
 
 
-class Button(Pushable, Siblingable, TextCanvas):
-    def __init__(self, parent, skin=None, function=lambda:None, **kwargs):
-        super().__init__(parent, function, skin=skin, **kwargs)
-
-
-class InstantButton(Clickable, Siblingable, TextCanvas):
-    def __init__(self, parent, skin=None, function=lambda:None, **kwargs):
-        super().__init__(parent, function, skin=skin, **kwargs)
-
-
-class RepeatButton(Repeatable, Siblingable, TextCanvas):
-    def __init__(self, parent, skin=None, function=lambda:None, delay=150, init_delay=400, **kwargs):
-        super().__init__(parent, function, skin=skin, delay=delay, init_delay=init_delay, **kwargs)
-
-
-class Label(Labelable, Siblingable, Canvas):
-    def __init__(self, parent, skin=None, text="", font_pack=None, function=lambda:None, **kwargs):
+class Button(Labeled, Pushable, Siblingable, TextCanvas):
+    def __init__(self, parent, skin=None, function=lambda:None, text=None, font_pack=None, **kwargs):
         super().__init__(parent, function, skin=skin, text=text, font_pack=font_pack, **kwargs)
+
+
+class InstantButton(Labeled, Clickable, Siblingable, TextCanvas):
+    def __init__(self, parent, skin=None, function=lambda:None, text=None, font_pack=None, **kwargs):
+        super().__init__(parent, function, skin=skin, text=text, font_pack=font_pack, **kwargs)
+
+
+class RepeatButton(Labeled, Repeatable, Siblingable, TextCanvas):
+    def __init__(self, parent, skin=None, function=lambda:None, delay=150, init_delay=400,
+                 text=None, font_pack=None, **kwargs):
+        super().__init__(parent, function,
+                         skin=skin, delay=delay, init_delay=init_delay, text=text, font_pack=font_pack, **kwargs)
+
+
+class Label(Labelable):
+    def __init__(self, parent, text="", font_pack=None, **kwargs):
+        super().__init__(parent, text=text, font_pack=font_pack, **kwargs)
 
 
 class Checkbox(Toggleable, Siblingable, TextCanvas):

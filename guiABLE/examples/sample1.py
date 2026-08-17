@@ -8,10 +8,11 @@ def test_gui():
 
     app.bindDrag(app)       # Make app Drag by grabbing the background.
 
-    # Create a test Button
-    btn_skin = Skin("../skins/default/cog.png", "../skins/default/cog_mo.png", "../skins/default/cog_red.png")
-    test_btn = Button(app, btn_skin, lambda: print("Button clicked!"))
-    test_btn.place(x=0, y=0)
+    # Create a Label
+    label_font = FontPack(color="White", weight="bold", text_pos=(10,5))
+    test_label = Label(app, "This is a label.", label_font)
+    test_label.configure(borderwidth=4)
+    test_label.place(x=0, y=0)
 
     # Create a Checkbox
     toggle_skin = Skin.fromSpriteSheet("../skins/default/checkbox-64.png", 64)
@@ -26,13 +27,13 @@ def test_gui():
     test_drag = Drag(app, drag_skin)
     test_drag.place(x=260, y=24)
 
+    btn_skin = Skin("../skins/default/cog.png", "../skins/default/cog_mo.png", "../skins/default/cog_red.png")
     opaque_test = Button(app, btn_skin, lambda: print("Opaque clicked!"))
-    #opaque_test.place(x=280, y=45)
+    opaque_test.place(x=280, y=45)
 
-    # Create a Label (button with text overlay)
-    label_font = FontPack(color="White", weight="bold", text_pos=(10,5))
-    test_label = Label(app, btn_skin, "Hello", label_font, lambda: print("Label clicked!"), width=100, height=24)
-    test_label.place(x=360, y=0)
+    # Create a Button with text
+    test_btn = Button(app, btn_skin, lambda: print("Label clicked!"), "Button!", label_font, width=100, height=24)
+    test_btn.place(x=360, y=0)
 
     glyphs = UImage(file='../skins/default/window-glyphs-40.png')
     exit_x = glyphs.crop(80, 0, 40, 40)
@@ -79,12 +80,10 @@ def test_gui():
 
     # Toggle both line and page smoothing simultaneously
     test_toggle4 = Checkbox(app, toggle_skin, state=True)
-    def toggle_smoothing(toggle, scroll_area):
-        current_line = scroll_area.getLineSmoothing()[0]
-        current_page = scroll_area.getPageSmoothing()[1]
-        scroll_area.setLineSmoothing(not current_line)
-        scroll_area.setPageSmoothing(not current_page)
-    test_toggle4.function = (toggle_smoothing, test_toggle4, scroll_area)
+    def toggle_smoothing(state):
+        scroll_area.setLineSmoothing(state)
+        scroll_area.setPageSmoothing(state)
+    test_toggle4.function = (toggle_smoothing, test_toggle4.isTrue)
     test_toggle4.place(x=444, y=24)
 
     nude_skin = BS()
@@ -94,7 +93,7 @@ def test_gui():
 
     for i in range(50):
         #label = Button(scroll_area.frame, function=lambda: print(f"Label clicked!"), skin=btn_skin, width=24, height=24)
-        label = Label(scroll_area.frame, btn_skin,f"Item {i + 1}", label_font, lambda: print("Label clicked!"),
+        label = Button(scroll_area.frame, btn_skin, lambda: print("Label clicked!"), f"Item {i + 1}", label_font,
                       width=100, height=24)
         #label = tk.Label(scroll_area.scroll_plate, text=f"Item {i + 1}", anchor="w", background="teal")
         label.place(x=10, y=30*i)
