@@ -74,21 +74,14 @@ class CoreSkin(Receivable):
     # Informational methods
     def hasImages(self): return any(self._images)
     def usesBgColors(self, use:bool = None) -> bool:
-        if use:
+        if use is not None:
             self._use_bg_colors = use
             if not use: self._filter = None     # Unload internal FilterSkin if no longer in use.
             self.updateRecipients()
         return self._use_bg_colors
 
-    def numStates(self): return max(len(self._images), len(self._bg_colors))
-
-    def _imageByPath(self, path:str) -> UImage|None:
-        try:
-            out = UImage(file=path)
-            return out
-        except tk.TclError:
-            warnPrint(f"Image not found: {path}")
-            return None
+    def numStates(self):
+        return max(len(self._images), len(self._bg_colors)) if self._use_bg_colors else len(self._images)
 
     def _saveImage(self, image:UImage, index:int):
         self._images[index] = image
@@ -119,25 +112,35 @@ class CoreSkin(Receivable):
 """
 class ColorSkin(CoreSkin):
     @classmethod
-    def fromColors(cls, *colors):
-        sk = cls()
-        sk.setBGColors(*colors)
-        return sk
-    def setBGColors(self, *colors: str):
-        if colors and any(colors):  self._bg_colors = self._fillList([*colors])
-        else: warnPrint(f"Skinnable passed list of empty BG colors\n{colors}\nExisting colors retained.")
+    def fromColors(cls, width:int, height:int, *colors:str):
+        images = []
+
+        for color in colors:
+            img = UImage(width=width, height=height)
+            if color: img.flood(color)
+            images.append(img)
+
+        return cls(*images)
+
+    @classmethod
+    def Transparent(cls, width:int, height:int): return cls.fromColors(width, height, "")
+
+    def setBGColors(self, *colors:str):
+        if colors:
+            self._bg_colors = list(colors)
+            self.updateRecipients()
+
+    def setBGColor(self, color:str, index:int=0):
+        while index < -len(self._bg_colors) or index >= len(self._bg_colors):
+            self._bg_colors.extend(self._bg_colors)
+
+        self._bg_colors[index] = color
         self.updateRecipients()
-    def setBGColor(self, color:str, index:int = 0):
-        # If index is out of range, extend bg_color list with itself until index is valid
-        if color:
-            while index < -len(self._bg_colors) or index >= len(self._bg_colors): self._bg_colors.extend(self._bg_colors)
-            self._bg_colors[index] = color
-        else: warnPrint(f"Skinnable passed empty BG color '{color}' for index {index}; Existing color retained.")
-        self.updateRecipients()
-    def appendBGColors(self, *colors: str):
-        if colors and any(colors):  self._bg_colors.extend(self._fillList([*colors]))
-        else: warnPrint(f"Skinnable passed list of empty BG colors\n{colors}\nExisting colors retained.")
-        self.updateRecipients()
+
+    def appendBGColors(self, *colors:str):
+        if colors:
+            self._bg_colors.extend(colors)
+            self.updateRecipients()
 
 
 """
@@ -342,7 +345,7 @@ class FilterSkin(DirtySkin, CoreSkin):
 
         if self._linked_skin.usesBgColors():            # Composite background color, if the linked image uses one.
             flood_img = UImage(width=w, height=h)
-            flood_img.flood(self._bg_colors[index])
+            if self._bg_colors[index]: flood_img.flood(self._bg_colors[index])
             img.cropTo(flood_img, width=w, height=h)
             img = flood_img
 
@@ -623,7 +626,8 @@ class Childable():
     # Rendering is local to the parent by default. Coordinate spaces may override either mapping independently.
     def childRenderArea(self) -> tuple[int,int,int,int]|None:
         return (0, 0, *self.size) if hasattr(self, "size") else None
-    def childBackgroundPoint(self, x:int, y:int, width:int=0, height:int=0) -> tuple[int,int]: return x, y
+    def childBackgroundPoint(self, x:int, y:int, width:int=0, height:int=0) -> tuple[int,int]:
+        return self.mapChildToMaster(x, y)
 
     # Parents that host child widgets track their children and provide a list of those children's z-order.
     def getChildren(self): return self._children
