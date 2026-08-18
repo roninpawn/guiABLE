@@ -11,7 +11,6 @@ def test_gui():
     # Create a Label
     label_font = FontPack(color="White", weight="bold", text_pos=(10,5))
     test_label = Label(app, "This is a label.", label_font)
-    test_label.configure(borderwidth=4)
     test_label.place(x=0, y=0)
 
     # Create a Checkbox
@@ -30,6 +29,10 @@ def test_gui():
     btn_skin = Skin("../skins/default/cog.png", "../skins/default/cog_mo.png", "../skins/default/cog_red.png")
     opaque_test = Button(app, btn_skin, lambda: print("Opaque clicked!"))
     opaque_test.place(x=280, y=45)
+
+    # Create an Image
+    test_img = Image(app, skin=btn_skin, text="Centered", font_pack=FontPack(anchor="center"), width=200)
+    test_img.place(100, 20)
 
     # Create a Button with text
     test_btn = Button(app, btn_skin, lambda: print("Label clicked!"), "Button!", label_font, width=100, height=24)
@@ -89,7 +92,7 @@ def test_gui():
     nude_skin = BS()
     #nude_skin.usesBgColors(False)
     nude_drag = Drag(app, skin=nude_skin, width=50, height=50)
-    nude_drag.place(x=0, y=0)
+    #nude_drag.place(x=0, y=0)
 
     for i in range(50):
         #label = Button(scroll_area.frame, function=lambda: print(f"Label clicked!"), skin=btn_skin, width=24, height=24)

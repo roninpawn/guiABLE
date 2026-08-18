@@ -11,10 +11,12 @@ from guiABLE.uimage import UImage
 """ Siblingable is a mixin that provides parent/sibling awareness & overlap tracking.  """
 class Siblingable:
     def __init__(self, *args, **kwargs):
+        self._siblings = []
+        self._bond_after = None
+        self._bonded = False
+
         super().__init__(*args, **kwargs)
         self.bind("<Map>", self._bond)
-
-        self._siblings = []
 
     # Overlapping siblings track each other for the sake of compositing (faking transparency) during redraw.
     def trackSibling(self, new_sibling):
@@ -44,22 +46,38 @@ class Siblingable:
         super().destroy()
 
     # Find overlapping siblings and store them / register with them, for future tracking.
-    def _registerSiblings(self, siblings_list = None):
+    def _registerSiblings(self, siblings_list=None):
+        old_siblings = self._siblings
         new_siblings = []
+
         if siblings_list is None: siblings_list = self._parent.getChildren()
 
         for sibling in list(siblings_list):
             if isinstance(sibling, Measurable) and rectsOverlap(self._geometry, sibling.geometry):
                 new_siblings.append(sibling)
-                if isinstance(sibling, Siblingable) and sibling not in self._siblings:
+                if isinstance(sibling, Siblingable) and sibling not in old_siblings:
                     sibling.trackSibling(self)
+
+        for sibling in old_siblings:
+            if sibling not in new_siblings and isinstance(sibling, Siblingable):
+                sibling.dropSibling(self)
 
         self._siblings = new_siblings
 
     def _bond(self, event=None):
+        # Registration is cheap/idempotent and establishes z-order immediately.
         self._parent.registerChild(self)
+
+        # Map/configuration churn collapses into one final sibling pass.
+        if self._bond_after is None:
+            self._bond_after = self.after_idle(self._finishBond)
+
+    def _finishBond(self):
+        self._bond_after = None
+
         self._registerSiblings()
-        self.after_idle(self.redraw)
+        self._bonded = True
+        self.redraw()
 
     def _cull_siblings(self, siblings, union, prune=True):
         new_siblings, overlaps, atop = [], [], True
@@ -94,6 +112,12 @@ class Siblingable:
             overlaps.append(overlap)
 
         return new_siblings, overlaps, opaque_rects
+
+    def _afterGeometryChanges(self):
+        # After initial bonding, geometry changes genuinely alter overlap
+        # relationships and must be reflected before redraw.
+        if self._bonded: self._registerSiblings()
+        super()._afterGeometryChanges()
 
 
 class Renderable(Skinnable):
@@ -440,7 +464,6 @@ class Pushable(Clickable):
 
 
 class Labelable(Siblingable, Canvas):
-    """ Labelable renders persistent, non-editable native Tk text over a fake-transparent guiABLE surface. """
     event_passthrough = True
 
     _font_attributes = {
@@ -449,16 +472,14 @@ class Labelable(Siblingable, Canvas):
         "weight":      (2, "weight"),
         "color":       (3, "color"),
         "drop_color":  (4, "drop_color"),
-        "text_pos":    (5, "text_pos"),
-        "drop_pos":    (6, "drop_offset"),
-        "drop_offset": (6, "drop_offset"),
-        "anchor":      (7, "anchor")
+        "drop_pos":    (5, "drop_offset"),
+        "drop_offset": (5, "drop_offset")
     }
 
     def __init__(self, parent, text:str="", font_pack:FontPack=None, **kwargs):
-        self._using = [0] * 8
+        self._using = [0] * 6
         self._override_pack = FontPack()
-        self._pack = font_pack if font_pack else FontPack()
+        self._pack = font_pack or FontPack()
 
         for key in tuple(kwargs):
             if key in self._font_attributes:
@@ -467,21 +488,19 @@ class Labelable(Siblingable, Canvas):
                 setattr(self._override_pack, attribute, kwargs.pop(key))
 
         self._packs = [self._pack, self._override_pack]
-
         self.text = text
         self._img_text, self._img_text_shadow = None, None
-        self._event_parent = None
 
-        # Labelable needs a raster surface to receive fake transparency,
-        # but contributes no raster image of its own.
+        # A Labelable owns no user-sized interior. Start tiny and fit native text after creation.
+        kwargs.pop("width", None)
+        kwargs.pop("height", None)
         kwargs.pop("skin", None)
-        super().__init__(parent, skin=Skin(UImage()), **kwargs)
 
+        super().__init__(parent, skin=Skin(UImage()), width=1, height=1, **kwargs)
         self.drawText()
 
     @staticmethod
     def isOpaque(): return False
-
     @staticmethod
     def contributesToComposite(): return False
 
@@ -519,14 +538,13 @@ class Labelable(Siblingable, Canvas):
     def setFontPack(self, font_pack:FontPack):
         self._pack = font_pack
         self._packs[0] = font_pack
-        self._using = [0] * 8
-
+        self._using = [0] * 6
         self.drawText()
 
     def setFontAttributes(self, **kwargs):
         for key, value in kwargs.items():
             if key not in self._font_attributes:
-                raise TypeError(f"Unknown font attribute: {key}")
+                raise TypeError(f"Unknown Labelable font attribute: {key}")
 
             index, attribute = self._font_attributes[key]
             self._using[index] = 1
@@ -534,18 +552,10 @@ class Labelable(Siblingable, Canvas):
 
         self.drawText()
 
-    def drawText(self, offset_x:int=0, offset_y:int=0):
-        x, y = self._packs[self._using[5]].text_pos
-        x, y = x + offset_x, y + offset_y
-
-        dx, dy = self._packs[self._using[6]].drop_offset
+    def drawText(self):
+        dx, dy = self._packs[self._using[5]].drop_offset
         color = self._packs[self._using[3]].color
         drop_color = self._packs[self._using[4]].drop_color
-        anchor = self._packs[self._using[7]].anchor
-
-        # Invert behavior of offsets if right/bottom aligned.
-        if 'e' in anchor: x = self.width - x
-        if 's' in anchor: y = self.height - y
 
         if drop_color is None:
             if self._img_text_shadow is not None:
@@ -554,50 +564,54 @@ class Labelable(Siblingable, Canvas):
 
         elif self._img_text_shadow is None:
             self._img_text_shadow = self.create_text(
-                x + dx, y + dy,
-                text=self.text,
-                fill=drop_color,
-                font=self._tk_font,
-                anchor=anchor
+                dx, dy, text=self.text, fill=drop_color, font=self._tk_font, anchor="nw"
             )
 
         else:
-            self.coords(self._img_text_shadow, x + dx, y + dy)
+            self.coords(self._img_text_shadow, dx, dy)
             self.itemconfigure(
-                self._img_text_shadow,
-                text=self.text,
-                fill=drop_color,
-                font=self._tk_font,
-                anchor=anchor
+                self._img_text_shadow, text=self.text, fill=drop_color, font=self._tk_font
             )
 
         if self._img_text is None:
             self._img_text = self.create_text(
-                x, y,
-                text=self.text,
-                fill=color,
-                font=self._tk_font,
-                anchor=anchor
+                0, 0, text=self.text, fill=color, font=self._tk_font, anchor="nw"
             )
 
         else:
-            self.coords(self._img_text, x, y)
-            self.itemconfigure(
-                self._img_text,
-                text=self.text,
-                fill=color,
-                font=self._tk_font,
-                anchor=anchor
-            )
+            self.coords(self._img_text, 0, 0)
+            self.itemconfigure(self._img_text, text=self.text, fill=color, font=self._tk_font)
 
-        # Canvas.render() may recreate its raster layer. Keep native text above it
-        # without destroying and recreating the native text objects.
-        if self._img_text_shadow is not None: self.tag_raise(self._img_text_shadow)
-        if self._img_text is not None: self.tag_raise(self._img_text)
+        self._fitText()
+
+    def _fitText(self):
+        items = tuple(item for item in (self._img_text, self._img_text_shadow) if item is not None)
+        bbox = self.bbox(*items) if items else None
+
+        if bbox is None:
+            width, height = 1, 1
+        else:
+            x1, y1, x2, y2 = bbox
+            width, height = max(1, x2 - x1), max(1, y2 - y1)
+
+            # Normalize Tk/font overhang into the smallest possible Canvas.
+            if x1 or y1:
+                for item in items: self.move(item, -x1, -y1)
+
+        if (width, height) == self.size: return
+
+        if self._placed:
+            self.place_configure(width=width, height=height, implied=True)
+
+        else:
+            self._geometry = (*self.location, width, height)
+            self._scratch = UImage(width=width, height=height)
+            tk.Canvas.configure(self, width=width, height=height)
 
     def render(self, image:UImage, xy_offset:tuple[int,int]=(0,0)):
         super().render(image, xy_offset)
-        self.drawText()
+        if self._img_text_shadow is not None: self.tag_raise(self._img_text_shadow)
+        if self._img_text is not None: self.tag_raise(self._img_text)
 
     @property
     def _tk_font(self):
@@ -609,67 +623,80 @@ class Labelable(Siblingable, Canvas):
 
 
 class Labeled:
-    """ Labeled attaches one Labelable child to any rendered widget as a convenience text layer. """
     def __init__(self, *args, text:str=None, font_pack:FontPack=None, label_kwargs:dict=None, **kwargs):
         self._label = None
-        self._label_fill = [False, False]
+        self._label_pack = font_pack or FontPack()
+        self._label_options = dict(label_kwargs or {})
 
-        self._label_font_pack = font_pack
-        self._label_kwargs = dict(label_kwargs or {})
+        self._text_pos = self._label_options.pop("text_pos", kwargs.pop("text_pos", None))
+        self._text_anchor = self._label_options.pop("anchor", kwargs.pop("anchor", None))
 
-        # Standard text kwargs belong to the Labelable, not the host Tk widget.
         for key in tuple(kwargs):
             if key in Labelable._font_attributes:
-                self._label_kwargs[key] = kwargs.pop(key)
+                self._label_options[key] = kwargs.pop(key)
 
         super().__init__(*args, **kwargs)
 
         if text is not None:
-            self._spawnLabel(text)
+            self._label = Labelable(
+                self,
+                text=text,
+                font_pack=self._label_pack,
+                **self._label_options
+            )
+            self._label.passMouseTo(self)
+            self._positionLabel()
 
     @property
     def label(self): return self._label
 
-    def _spawnLabel(self, text:str):
-        options = dict(self._label_kwargs)
-        x, y = options.pop("x", 0), options.pop("y", 0)
+    def _positionLabel(self):
+        if self._label is None: return
 
-        self._label_fill[0] = "width" not in options
-        self._label_fill[1] = "height" not in options
+        anchor = self._text_anchor or self._label_pack.anchor
+        dx, dy = self._text_pos if self._text_pos is not None else self._label_pack.text_pos
+        pw, ph = self.size
+        lw, lh = self._label.size
 
-        if self._label_fill[0]: options["width"] = max(0, self.width - x)
-        if self._label_fill[1]: options["height"] = max(0, self.height - y)
+        x = 0 if anchor in ("nw", "w", "sw") else pw - lw if anchor in ("ne", "e", "se") else (pw - lw) // 2
+        y = 0 if anchor in ("nw", "n", "ne") else ph - lh if anchor in ("sw", "s", "se") else (ph - lh) // 2
+        x, y = x + dx, y + dy
 
-        self._label = Labelable(self, text=text, font_pack=self._label_font_pack, **options).place(x, y)
-        self._label.passMouseTo(self)
-
-        return self._label
+        if not self._label._placed:
+            self._label.place(x, y)
+        elif self._label.location != (x, y):
+            self._label.place_configure(x=x, y=y, implied=True)
 
     def setText(self, text:str):
-        if self._label is None: self._spawnLabel(text)
-        else: self._label.setText(text)
+        if self._label is None:
+            self._label = Labelable(self, text=text, font_pack=self._label_pack, **self._label_options)
+            self._label.passMouseTo(self)
+        else:
+            self._label.setText(text)
+
+        self._positionLabel()
 
     def setFontPack(self, font_pack:FontPack):
-        self._label_font_pack = font_pack
-        if self._label is not None:
-            self._label.setFontPack(font_pack)
+        self._label_pack = font_pack
+        if self._label is not None: self._label.setFontPack(font_pack)
+        self._positionLabel()
 
     def setFontAttributes(self, **kwargs):
-        self._label_kwargs.update(kwargs)
-        if self._label is not None:
+        if "text_pos" in kwargs: self._text_pos = kwargs.pop("text_pos")
+        if "anchor" in kwargs: self._text_anchor = kwargs.pop("anchor")
+
+        if self._label is not None and kwargs:
             self._label.setFontAttributes(**kwargs)
 
+        self._positionLabel()
+
+    def childChanged(self, child):
+        super().childChanged(child)
+        if child is self._label: self._positionLabel()
+
     def _afterGeometryChanges(self):
-        size_changed = self._last_geometry[2:] != self._geometry[2:]
         super()._afterGeometryChanges()
-
-        if size_changed and self._label is not None:
-            size = {}
-
-            if self._label_fill[0]: size["width"] = max(0, self.width - self._label.x)
-            if self._label_fill[1]: size["height"] = max(0, self.height - self._label.y)
-
-            if size: self._label.place_configure(implied=True, **size)
+        self._positionLabel()
 
 
 """ Toggleable stores a true/false state and redirects image() calls by index+_state_offset when true. This allows the
@@ -792,7 +819,6 @@ class Draggable(LoneDraggable):
     def mouseDrag(self, event=None):
         x = event.x - self._x_origin + self._geometry[0]
         y = event.y - self._y_origin + self._geometry[1]
-        self._registerSiblings()
         self.move(x, y)
 
 """ Troughable establishes a one-dimensional space traversed by a child handle and provides normalized position access. """
@@ -1054,15 +1080,13 @@ because tkinter's tk.Canvas does not track/update its 'dirty' rectangle correctl
 was solved in the Text widget, but nowhere else. So tk.Text is used as a render-floor for moving other widgets atop.
 """
 class FakeCanvas(tk.Text):
-    def __init__(self, parent, **kwargs):
-        w = kwargs.pop('width') if 'width' in kwargs else 0
-        h = kwargs.pop('height') if 'height' in kwargs else 0
+    def __init__(self, parent, *args, **kwargs):
+        kwargs.pop("width", None)
+        kwargs.pop("height", None)
 
-        super().__init__(parent, bd=0, borderwidth=0, padx=0, pady=0, highlightthickness=0,
-                         takefocus=0, state="disabled", cursor="arrow", **kwargs)
+        super().__init__(parent, *args, bd=0, borderwidth=0, padx=0, pady=0, highlightthickness=0,
+                                        takefocus=0, state="disabled", cursor="arrow", **kwargs)
 
-        # FakeCanvas uses tk.Text only as a stable rendering surface.
-        # Remove Text's default mouse/keyboard behavior.
         tags = list(self.bindtags())
         if "Text" in tags: tags.remove("Text")
         self.bindtags(tuple(tags))
@@ -1070,10 +1094,11 @@ class FakeCanvas(tk.Text):
         self.configure(bg=self.cget("bg"))
         self._img = self.image_create("end", image=UImage())
 
-        # _placed prevents rendering instanced, but yet unplaced widgets.
-        if self._placed:
-            self._conform_size(w, h)
-        else: self.after_idle(self._conform_size, w, h)     # Allows for fast-loading AND backup checking where needed.
+    def place(self, **kwargs):
+        if "width" not in kwargs and self.width > 0: kwargs["width"] = self.width
+        if "height" not in kwargs and self.height > 0: kwargs["height"] = self.height
+
+        return super().place(**kwargs)
 
     def configure(self, **kw):
         if "bg" in kw:      # Pass changes to bg through to the 'selectbackground' to maintain non-tk.Text() illusion.
@@ -1084,12 +1109,6 @@ class FakeCanvas(tk.Text):
 
     def render(self, image:UImage, xy_offset:tuple[int,int] = (0,0)):
         self.image_configure(self._img, image=image, padx=xy_offset[0], pady=xy_offset[1])
-
-    # Tkinter's Text widgets are sized, by default, by character and line size. This fixes that fundamentally bad idea.
-    def _conform_size(self, width:int, height:int):
-        if self._placed and width > 0 and height > 0:
-            #self.update_idletasks()     # Needed to ensure .place(x, y) is propagated before being overridden here.
-            self.place_configure(width=width, height=height, implied=True)
 
 
 """

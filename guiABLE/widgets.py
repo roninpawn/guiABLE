@@ -19,7 +19,7 @@ class Background(Backgroundable, TextCanvas):
         super().__init__(parent, skin=skin, **kwargs)
 
 
-class Image(Imageable, Siblingable, TextCanvas):
+class Image(Labeled, Imageable, Siblingable, TextCanvas):
     def __init__(self, parent, skin=None, show_image=0, **kwargs):
         super().__init__(parent, skin=skin, init_state=show_image, **kwargs)
 
