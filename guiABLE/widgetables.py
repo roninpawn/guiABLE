@@ -4,7 +4,7 @@ from typing import Callable
 
 from guiABLE.skinnable import Skinnable, Measurable, Skin, Childable
 from guiABLE.utilities import (rectsOverlap, rectUnion, pointIsInRect, getOverlap, decimateRect, rectIntersect,
-                               rectsUnion, LimitedDict, FontPack, Overlap)
+                               rectsUnion, LimitedDict, FontPack)
 from guiABLE.uimage import UImage
 
 
@@ -46,23 +46,31 @@ class Siblingable:
         super().destroy()
 
     # Find overlapping siblings and store them / register with them, for future tracking.
-    def _registerSiblings(self, siblings_list=None):
-        old_siblings = self._siblings
-        new_siblings = []
+    def _registerSiblings(self, siblings_list=None, prune=True):
+        family = list(siblings_list or self._parent.getChildren())
 
-        if siblings_list is None: siblings_list = self._parent.getChildren()
+        current = [
+            sibling for sibling in family
+            if isinstance(sibling, Measurable)
+            and rectsOverlap(self._geometry, sibling.geometry)
+        ]
 
-        for sibling in list(siblings_list):
-            if isinstance(sibling, Measurable) and rectsOverlap(self._geometry, sibling.geometry):
-                new_siblings.append(sibling)
-                if isinstance(sibling, Siblingable) and sibling not in old_siblings:
-                    sibling.trackSibling(self)
+        # During a geometry transition, retain former siblings for one final draw.
+        siblings = current if prune else [
+            sibling for sibling in family
+            if sibling in current or sibling in self._siblings
+        ]
 
-        for sibling in old_siblings:
-            if sibling not in new_siblings and isinstance(sibling, Siblingable):
-                sibling.dropSibling(self)
+        for sibling in current:
+            if isinstance(sibling, Siblingable) and sibling not in self._siblings:
+                sibling.trackSibling(self)
 
-        self._siblings = new_siblings
+        if prune:
+            for sibling in self._siblings:
+                if sibling not in current and isinstance(sibling, Siblingable):
+                    sibling.dropSibling(self)
+
+        self._siblings = siblings
 
     def _bond(self, event=None):
         # Registration is cheap/idempotent and establishes z-order immediately.
@@ -79,7 +87,7 @@ class Siblingable:
         self._bonded = True
         self.redraw()
 
-    def _cull_siblings(self, siblings, union, prune=True):
+    def _cull_siblings(self, siblings, union):
         new_siblings, overlaps, atop = [], [], True
         opaque_rects, trans_rects = [], []
 
@@ -87,11 +95,7 @@ class Siblingable:
             sib = siblings[i]
             overlap = getOverlap(union, sib.geometry)
 
-            if overlap is None:
-                if prune:
-                    sib.dropSibling(self)
-                    self.dropSibling(sib)
-                continue
+            if overlap is None: continue
 
             if sib == self: atop = False
             local_overlap = (*overlap.insert, *overlap.crop[2:])
@@ -116,8 +120,9 @@ class Siblingable:
     def _afterGeometryChanges(self):
         # After initial bonding, geometry changes genuinely alter overlap
         # relationships and must be reflected before redraw.
-        if self._bonded: self._registerSiblings()
+        if self._bonded: self._registerSiblings(prune=False)
         super()._afterGeometryChanges()
+        if self._bonded: self._registerSiblings()
 
 
 class Renderable(Skinnable):
@@ -186,12 +191,13 @@ class Renderable(Skinnable):
 
             if render_area is not None:
                 visible = rectIntersect(self._geometry, render_area)
-                if not visible or visible[2] <= 0 or visible[3] <= 0: return rendered
+                union_visible = rectIntersect(union, render_area)
+
+                if not union_visible or union_visible[2] <= 0 or union_visible[3] <= 0: return rendered
 
                 # Preserve whole-widget composition when this widget itself changes while
                 # straddling a rendering boundary. Parent-driven redraws stay restricted.
-                if draw_area is not None or visible == self._geometry:
-                    union = rectIntersect(union, render_area)
+                if draw_area is not None or visible == self._geometry: union = union_visible
 
         elif isinstance(self.parent, Measurable):
             union = rectIntersect(union, (0, 0, *self.parent.size))
@@ -205,9 +211,7 @@ class Renderable(Skinnable):
             opaque_rects = [(0, 0, *union[2:])] if self.isOpaque() else []
 
         else:
-            siblings, overlaps, opaque_rects = self._cull_siblings(
-                self._siblings, union, prune=draw_area is None
-            )
+            siblings, overlaps, opaque_rects = self._cull_siblings(self._siblings, union)
 
             # Remove last_geometry from union if self is opaque and the only sibling.
             if len(siblings) == 1 and self.isOpaque():
@@ -223,9 +227,7 @@ class Renderable(Skinnable):
                 if union != new_union:
                     union = new_union
                     siblings.reverse()
-                    siblings, overlaps, opaque_rects = self._cull_siblings(
-                        siblings, union, prune=draw_area is None
-                    )
+                    siblings, overlaps, opaque_rects = self._cull_siblings(siblings, union)
 
         if not siblings: return rendered
 
@@ -275,7 +277,7 @@ class Renderable(Skinnable):
                 self._parent.skin.image().cropTo(base, bg_x, bg_y, w, h)
 
         # Composite siblings bottom-to-top, rendering self and necessary siblings above.
-        atop = False
+        atop = self not in siblings
 
         for i in range(len(siblings)-1, -1, -1):
             sibling, overlap = siblings[i], overlaps[i]

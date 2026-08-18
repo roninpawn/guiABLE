@@ -27,12 +27,8 @@ def test_gui():
     test_drag.place(x=260, y=24)
 
     btn_skin = Skin("../skins/default/cog.png", "../skins/default/cog_mo.png", "../skins/default/cog_red.png")
-    opaque_test = Button(app, btn_skin, lambda: print("Opaque clicked!"))
+    opaque_test = Image(app, btn_skin)
     opaque_test.place(x=280, y=45)
-
-    # Create an Image
-    test_img = Image(app, skin=btn_skin, text="Centered", font_pack=FontPack(anchor="center"), width=200)
-    test_img.place(100, 20)
 
     # Create a Button with text
     test_btn = Button(app, btn_skin, lambda: print("Label clicked!"), "Button!", label_font, width=100, height=24)
