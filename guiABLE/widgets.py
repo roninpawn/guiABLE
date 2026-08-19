@@ -6,9 +6,10 @@ Public classes are thin wrappers that combine one or more core mixins and add th
 
 from .widgetables import (
     Canvas, TextCanvas,
-    Backgroundable, Siblingable,
-    Stateable, Imageable, Hoverable, Clickable, Pushable,
-    Labelable, Labeled, Toggleable, Holdable, Repeatable,
+    Backgroundable, Siblingable, Stateable,
+    Imageable, Hoverable, Clickable, Pushable,
+    Labelable, Labeled, TextLine,
+    Toggleable, Holdable, Repeatable,
     LoneDraggable, Draggable, Troughable, LinearAnimator,
     Groupable, Collection
 )

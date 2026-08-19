@@ -18,7 +18,7 @@ def test_gui():
     test_toggle1 = Checkbox(app, toggle_skin, lambda: print("Toggle1 state:", test_toggle1.isTrue()), True)
     test_toggle1.place(x=76, y=24)
 
-    test_toggle2 = Checkbox(app, toggle_skin, lambda: print("Toggle2 state:", test_toggle2.isTrue()))
+    test_toggle2 = Checkbox(app, toggle_skin, lambda: print("Toggle2 state:", test_toggle2.isTrue()), False)
     test_toggle2.place(x=140, y=24)
 
     # Create a Drag object
@@ -100,6 +100,11 @@ def test_gui():
 
     test_drag2 = Drag(scroll_area.frame, skin=drag_skin)
     test_drag2.place(x=190, y=285)
+
+    text_test = TextLine(scroll_area.plate, 200, 18, font_pack=label_font, max_chars=12).place(90, 60)
+    text_test.setMask("*", True)
+    text_test.setPlaceholder("Enter Password",FontPack(weight="italic", color="#BBBBBB"))
+    url = TextLine(scroll_area.plate, 200, 18, "https://roninpawn.com", editable=False, bg_color="#161a1a").place(90, 92)
 
     # Prove lower/lift functionality    : Buggy right now.
     #click_btn.lift(test_toggle1)

@@ -140,6 +140,9 @@ class Renderable(Skinnable):
         self._img_state = 0
         self._bases = LimitedDict(maxsize=20)
 
+    @property
+    def state(self): return self._img_state
+
     def redraw(self):
         self.setState(self._img_state)
 
@@ -321,6 +324,60 @@ class Canvas(Renderable, tk.Canvas):
             self._last_offset = xy_offset
         else: self.itemconfig(self._img, image=image)
 
+
+"""
+BareText strips tk.Text down to a chrome-free surface whose physical geometry is controlled in pixels by guiABLE.
+It preserves Text's native behavior unless a descendant explicitly disables it.
+"""
+class BareText(tk.Text):
+    def __init__(self, parent, *args, **kwargs):
+        kwargs.pop("width", None)
+        kwargs.pop("height", None)
+
+        super().__init__(parent, *args, bd=0, borderwidth=0, padx=0, pady=0, highlightthickness=0, **kwargs)
+
+    def place(self, **kwargs):
+        if "width" not in kwargs and self.width > 0: kwargs["width"] = self.width
+        if "height" not in kwargs and self.height > 0: kwargs["height"] = self.height
+
+        return super().place(**kwargs)
+
+
+"""
+A FakeCanvas is a tk.Text window configured to eliminate all text-features and provide a simple canvas. This is needed
+because tkinter's tk.Canvas does not track/update its 'dirty' rectangle correctly. This issue of slow/wrong redraws
+was solved in the Text widget, but nowhere else. So tk.Text is used as a render-floor for moving other widgets atop.
+"""
+class FakeCanvas(BareText):
+    def __init__(self, parent, *args, **kwargs):
+        super().__init__(parent, *args, takefocus=0, state="disabled", cursor="arrow", **kwargs)
+
+        tags = list(self.bindtags())
+        if "Text" in tags: tags.remove("Text")
+        self.bindtags(tuple(tags))
+
+        self.configure(bg=self.cget("bg"))
+        self._img = self.image_create("end", image=UImage())
+
+    def configure(self, **kw):
+        if "bg" in kw:
+            kw["selectbackground"] = kw["bg"]
+        if "background" in kw:
+            kw["selectbackground"] = kw["background"]
+        super().configure(**kw)
+
+    def render(self, image:UImage, xy_offset:tuple[int,int] = (0,0)):
+        self.image_configure(self._img, image=image, padx=xy_offset[0], pady=xy_offset[1])
+
+
+"""
+TextCanvas uses tk.Text as guiABLE's standard image-rendering surface. Tk's other child widgets can produce incorrect
+dirty rectangles when overlapping siblings move across them, causing clipping, stretching, or ghosting. tk.Text's
+redisplay handling does not exhibit that behavior, so FakeCanvas provides a stable render floor for guiABLE widgets.
+"""
+class TextCanvas(Renderable, FakeCanvas): pass
+
+
 """
 A Backgroundable is a simple, static, one-image canvas to serve as the stage for attaching widgets.
 """
@@ -344,14 +401,60 @@ class Stateable:
         self.enable()
 
     @property
-    def state(self): return self._img_state
-
-    @property
     def enabled(self) -> bool : return self._enabled
     def enable(self):
         self.setState(0)
         self._enabled = True
     def disable(self): self._enabled = False
+
+
+class Anchorable:
+    def __init__(self, *args, **kwargs):
+        self._anchored_child = None
+        self._anchor = "center"
+        self._anchor_offset = (0, 0)
+
+        super().__init__(*args, **kwargs)
+
+    def anchorChild(self, child, anchor:str="center", offset:tuple[int,int]=(0, 0)):
+        self._anchored_child = child
+        self._anchor = anchor
+        self._anchor_offset = offset
+        self._positionAnchoredChild()
+
+    def setAnchor(self, anchor:str=None, offset:tuple[int,int]=None):
+        if anchor is not None: self._anchor = anchor
+        if offset is not None: self._anchor_offset = offset
+        self._positionAnchoredChild()
+
+    def _positionAnchoredChild(self):
+        child = self._anchored_child
+        if child is None: return
+
+        pw, ph = self.size
+        cw, ch = child.size
+        dx, dy = self._anchor_offset
+        anchor = self._anchor
+
+        x = 0 if anchor in ("nw", "w", "sw") else \
+            pw - cw if anchor in ("ne", "e", "se") else (pw - cw) // 2
+
+        y = 0 if anchor in ("nw", "n", "ne") else \
+            ph - ch if anchor in ("sw", "s", "se") else (ph - ch) // 2
+
+        x, y = x + dx, y + dy
+
+        if not child._placed:
+            child.place(x, y)
+        elif child.location != (x, y): child.place_configure(x=x, y=y, implied=True)
+
+    def childChanged(self, child):
+        super().childChanged(child)
+        if child is self._anchored_child: self._positionAnchoredChild()
+
+    def _afterGeometryChanges(self):
+        super()._afterGeometryChanges()
+        self._positionAnchoredChild()
 
 
 """ Imageable simply displays an image. """
@@ -624,7 +727,7 @@ class Labelable(Siblingable, Canvas):
         )
 
 
-class Labeled:
+class Labeled(Anchorable):
     def __init__(self, *args, text:str=None, font_pack:FontPack=None, label_kwargs:dict=None, **kwargs):
         self._label = None
         self._label_pack = font_pack or FontPack()
@@ -640,34 +743,19 @@ class Labeled:
         super().__init__(*args, **kwargs)
 
         if text is not None:
-            self._label = Labelable(
-                self,
-                text=text,
-                font_pack=self._label_pack,
-                **self._label_options
-            )
+            self._label = Labelable(self, text=text, font_pack=self._label_pack, **self._label_options)
             self._label.passMouseTo(self)
-            self._positionLabel()
+            self._anchorLabel()
 
     @property
     def label(self): return self._label
 
-    def _positionLabel(self):
+    def _anchorLabel(self):
         if self._label is None: return
 
-        anchor = self._text_anchor or self._label_pack.anchor
-        dx, dy = self._text_pos if self._text_pos is not None else self._label_pack.text_pos
-        pw, ph = self.size
-        lw, lh = self._label.size
-
-        x = 0 if anchor in ("nw", "w", "sw") else pw - lw if anchor in ("ne", "e", "se") else (pw - lw) // 2
-        y = 0 if anchor in ("nw", "n", "ne") else ph - lh if anchor in ("sw", "s", "se") else (ph - lh) // 2
-        x, y = x + dx, y + dy
-
-        if not self._label._placed:
-            self._label.place(x, y)
-        elif self._label.location != (x, y):
-            self._label.place_configure(x=x, y=y, implied=True)
+        self.anchorChild(   self._label,
+                            self._text_anchor or self._label_pack.anchor,
+                            self._text_pos if self._text_pos is not None else self._label_pack.text_pos )
 
     def setText(self, text:str):
         if self._label is None:
@@ -676,29 +764,339 @@ class Labeled:
         else:
             self._label.setText(text)
 
-        self._positionLabel()
+        self._anchorLabel()
 
     def setFontPack(self, font_pack:FontPack):
         self._label_pack = font_pack
         if self._label is not None: self._label.setFontPack(font_pack)
-        self._positionLabel()
+        self._anchorLabel()
 
     def setFontAttributes(self, **kwargs):
         if "text_pos" in kwargs: self._text_pos = kwargs.pop("text_pos")
         if "anchor" in kwargs: self._text_anchor = kwargs.pop("anchor")
 
-        if self._label is not None and kwargs:
-            self._label.setFontAttributes(**kwargs)
+        if self._label is not None and kwargs: self._label.setFontAttributes(**kwargs)
 
-        self._positionLabel()
+        self._anchorLabel()
 
-    def childChanged(self, child):
-        super().childChanged(child)
-        if child is self._label: self._positionLabel()
+
+"""
+Textable is a native tk.Text surface that participates honestly in guiABLE compositing.
+Tk renders the native text/caret/selection, while a matching solid-color Skin represents
+the widget's opaque surface to the raster compositor.
+"""
+class Textable(Siblingable, Renderable, BareText):
+    def __init__(self, parent, width:int, height:int, text:str="",
+                 bg_color:str="#6B6B6B", font_pack:FontPack=None,
+                 editable:bool=True, **kwargs):
+
+        self._bg_color = bg_color
+        self._font_pack = font_pack or FontPack()
+        self._editable = editable
+
+        kwargs.setdefault("font", self._tk_font)
+        kwargs.setdefault("fg", self._font_pack.color)
+        kwargs.setdefault("insertbackground", self._font_pack.color)
+        kwargs.setdefault("selectbackground", "#252595")
+        kwargs.setdefault("selectforeground", self._font_pack.color)
+        kwargs.setdefault("selectborderwidth", 0)
+
+        super().__init__(parent, skin=self._backgroundSkin(width, height),
+                            width=width, height=height,bg=bg_color, **kwargs)
+
+        self.bind("<Double-Button-1>", self._doubleClick, "+")
+
+        if text: self.insert("1.0", text)
+
+        self.editable(editable)
+        self.bind("<<Copy>>", self._copySelection)
+        self.bind("<Button-1>", lambda event: self.focus_set(), "+")
+        self.bind("<Button-1>", self._emptyMouse, "+")
+        self.bind("<B1-Motion>", self._emptyMouse, "+")
+        self.bind("<Double-Button-1>", self._emptyMouse, "+")
+        self.bind("<Triple-Button-1>", self._emptyMouse, "+")
+        self.bind("<<SelectAll>>", self._emptySelectAll, "+")
+
+    def getText(self) -> str: return self.get("1.0", "end-1c")
+    def setText(self, text:str):
+        state = self.cget("state")
+
+        if state == "disabled": self.configure(state="normal")
+        self.delete("1.0", "end")
+        self.insert("1.0", text)
+        if state == "disabled": self.configure(state="disabled")
+
+    def setBackground(self, color:str):
+        if color == self._bg_color: return
+
+        self._bg_color = color
+        self.configure(bg=color)
+        self._rebuildBackground()
+        self.redraw()
+
+    def editable(self, editable:bool=None) -> bool:
+        if editable is not None:
+            self._editable = editable
+            self.configure(state="normal" if editable else "disabled")
+
+        return self._editable
+
+    def render(self, image:UImage, xy_offset:tuple[int,int]=(0, 0)): pass
+
+    @property
+    def _tk_font(self): return self._font_pack.name, self._font_pack.size, self._font_pack.weight
+
+    def _backgroundSkin(self, width:int=None, height:int=None) -> Skin:
+        return Skin.fromColors( self.width if width is None else width,
+                                self.height if height is None else height,
+                                self._bg_color )
+
+    def _rebuildBackground(self):
+        self.setSkin(self._backgroundSkin(), implied=True)
+        self.dirty = True
+
+    def _emptySelectAll(self, event=None):
+        if not self._text:
+            self.tag_remove("sel", "1.0", "end")
+            self.mark_set("insert", "1.0")
+            return "break"
+
+    def _emptyMouse(self, event=None):
+        if self._text: return
+
+        self.tag_remove("sel", "1.0", "end")
+        self.mark_set("insert", "1.0")
+
+        return "break"
+
+    def _doubleClick(self, event):
+        end_info = self.bbox("end-1c")
+        line_info = self.dlineinfo("end-1c")
+
+        if end_info is None or line_info is None: return
+
+        end_x = end_info[0]
+        line_y, line_h = line_info[1], line_info[3]
+
+        if line_y <= event.y < line_y + line_h and event.x >= end_x:
+            self.tag_remove("sel", "1.0", "end")
+            self.tag_add("sel", "1.0", "end-1c")
+            self.mark_set("insert", "end-1c")
+            return "break"
+
+    def _copySelection(self, event=None):
+        selection = self.tag_ranges("sel")
+        if not selection: return "break"
+
+        start, end = selection
+        text_end = self.index("end-1c")
+
+        if self.compare(end, ">", text_end): end = text_end
+
+        text = self.get(start, end)
+
+        self.clipboard_clear()
+        self.clipboard_append(text)
+        return "break"
 
     def _afterGeometryChanges(self):
+        if self._last_geometry[2:] != self._geometry[2:]: self._rebuildBackground()
         super()._afterGeometryChanges()
-        self._positionLabel()
+
+
+class TextLine(Textable):
+    def __init__(self, parent, width:int, height:int, text:str="",
+                 editable:bool=True, max_chars:int=None,
+                 placeholder:str=None, placeholder_pack:FontPack=None,
+                 mask:str=None, masked:bool=False, **kwargs):
+
+        self._text = self._singleLine(text)
+        self._max_chars = max_chars
+        self._placeholder = placeholder
+        self._placeholder_pack = placeholder_pack
+        self._mask = mask[:1] if mask else None
+        self._masked = bool(masked and self._mask)
+        self._has_focus = False
+
+        kwargs["wrap"] = "none"
+        kwargs.setdefault("takefocus", 1)
+
+        super().__init__(parent, width, height, text="", editable=editable, **kwargs)
+
+        self.bind("<Return>", self._blockLineBreak)
+        self.bind("<KP_Enter>", self._blockLineBreak)
+        self.bind("<KeyPress>", self._keyPressed)
+        self.bind("<<Paste>>", self._paste)
+        self.bind("<<PasteSelection>>", self._pasteSelection)
+
+        self.bind("<Tab>", self._focusNext)
+        self.bind("<Shift-Tab>", self._focusPrevious)
+        self.bind("<ISO_Left_Tab>", self._focusPrevious)
+
+        self.bind("<FocusIn>", self._focusIn, "+")
+        self.bind("<FocusOut>", self._focusOut, "+")
+
+        self._refreshDisplay()
+
+    def getText(self) -> str:
+        return self._text
+
+    def setText(self, text:str):
+        text = self._singleLine(text)
+
+        if self.validateInput(text):
+            self._text = text
+            self._refreshDisplay()
+
+    def setMaxChars(self, max_chars:int=None): self._max_chars = max_chars
+
+    def setPlaceholder(self, text:str=None, font_pack:FontPack=None):
+        self._placeholder = text
+
+        if font_pack is not None:
+            self._placeholder_pack = font_pack
+
+        self._refreshDisplay()
+
+    def setMask(self, character:str=None, masked:bool=None):
+        self._mask = character[:1] if character else None
+
+        if self._mask is None:
+            self._masked = False
+        elif masked is not None: self._masked = masked
+
+        self._refreshDisplay()
+
+    def masked(self, masked:bool=None) -> bool:
+        if masked is not None:
+            self._masked = bool(masked and self._mask)
+            self._refreshDisplay()
+
+        return self._masked
+
+    def selectAll(self):
+        if self._text:
+            self.tag_add("sel", "1.0", f"1.{len(self._text)}")
+            self.mark_set("insert", f"1.{len(self._text)}")
+
+    def validateInput(self, proposed:str) -> bool: return self._max_chars is None or len(proposed) <= self._max_chars
+
+    def _focusIn(self, event=None):
+        self._has_focus = True
+        self._refreshDisplay()
+
+    def _focusOut(self, event=None):
+        self._has_focus = False
+        self._refreshDisplay()
+
+    def _replaceSelection(self, text:str):
+        if not self.editable(): return False
+
+        text = self._singleLine(text)
+        start, end = self.index("insert"), self.index("insert")
+
+        selection = self.tag_ranges("sel")
+        if selection: start, end = selection
+
+        offset1, offset2 = int(str(start).split(".")[1]), int(str(end).split(".")[1])
+        proposed = self._text[:offset1] + text + self._text[offset2:]
+
+        if not self.validateInput(proposed): return False
+
+        self._text = proposed
+        self._refreshDisplay(offset1 + len(text))
+        return True
+
+    def _keyPressed(self, event):
+        if not self.editable(): return
+
+        if event.keysym == "BackSpace": return self._deleteBackward()
+        if event.keysym == "Delete": return self._deleteForward()
+
+        if event.char and event.char >= " " and event.keysym != "Tab":
+            self._replaceSelection(event.char)
+            return "break"
+
+    def _deleteBackward(self):
+        selection = self.tag_ranges("sel")
+        if selection:
+            self._replaceSelection("")
+            return "break"
+
+        pos = int(self.index("insert").split(".")[1])
+        if pos:
+            self.tag_add("sel", f"1.{pos - 1}", f"1.{pos}")
+            self._replaceSelection("")
+
+        return "break"
+
+    def _deleteForward(self):
+        selection = self.tag_ranges("sel")
+        if selection:
+            self._replaceSelection("")
+            return "break"
+
+        pos = int(self.index("insert").split(".")[1])
+        if pos < len(self._text):
+            self.tag_add("sel", f"1.{pos}", f"1.{pos + 1}")
+            self._replaceSelection("")
+
+        return "break"
+
+    def _refreshDisplay(self, cursor:int=None):
+        placeholder = self._placeholderActive()
+
+        display = self._placeholder if placeholder else self._mask * len(self._text) if self._masked else self._text
+
+        state = self.cget("state")
+        if state == "disabled": self.configure(state="normal")
+
+        super().delete("1.0", "end")
+        super().insert("1.0", display or "")
+
+        if placeholder:
+            pack = self._placeholder_pack or self._font_pack
+
+            self.tag_configure("_placeholder", foreground=pack.color, font=(pack.name, pack.size, pack.weight))
+            self.tag_add("_placeholder", "1.0", "end-1c")
+            self.mark_set("insert", "1.0")
+
+        elif cursor is not None:
+            cursor = min(cursor, len(self._text))
+            self.mark_set("insert", f"1.{cursor}")
+            self.see("insert")
+
+        if state == "disabled": self.configure(state="disabled")
+
+    def _paste(self, event=None):
+        try: text = self.clipboard_get()
+        except tk.TclError: return "break"
+
+        self._replaceSelection(text)
+        return "break"
+
+    def _pasteSelection(self, event=None):
+        try: text = self.selection_get(selection="PRIMARY")
+        except tk.TclError: return "break"
+
+        self._replaceSelection(text)
+        return "break"
+
+    def _placeholderActive(self) -> bool: return not self._text and bool(self._placeholder) and not self._has_focus
+
+    @staticmethod
+    def _singleLine(text:str) -> str: return text.replace("\r", " ").replace("\n", " ")
+
+    @staticmethod
+    def _blockLineBreak(event=None): return "break"
+
+    def _focusNext(self, event=None):
+        self.tk_focusNext().focus_set()
+        return "break"
+
+    def _focusPrevious(self, event=None):
+        self.tk_focusPrev().focus_set()
+        return "break"
 
 
 """ Toggleable stores a true/false state and redirects image() calls by index+_state_offset when true. This allows the
@@ -1074,48 +1472,3 @@ class Collection(Expandable, Measurable, Nothing):
 
     @property
     def skin(self): return self._parent.skin
-
-
-"""
-A FakeCanvas is a tk.Text window configured to eliminate all text-features and provide a simple canvas. This is needed
-because tkinter's tk.Canvas does not track/update its 'dirty' rectangle correctly. This issue of slow/wrong redraws
-was solved in the Text widget, but nowhere else. So tk.Text is used as a render-floor for moving other widgets atop.
-"""
-class FakeCanvas(tk.Text):
-    def __init__(self, parent, *args, **kwargs):
-        kwargs.pop("width", None)
-        kwargs.pop("height", None)
-
-        super().__init__(parent, *args, bd=0, borderwidth=0, padx=0, pady=0, highlightthickness=0,
-                                        takefocus=0, state="disabled", cursor="arrow", **kwargs)
-
-        tags = list(self.bindtags())
-        if "Text" in tags: tags.remove("Text")
-        self.bindtags(tuple(tags))
-
-        self.configure(bg=self.cget("bg"))
-        self._img = self.image_create("end", image=UImage())
-
-    def place(self, **kwargs):
-        if "width" not in kwargs and self.width > 0: kwargs["width"] = self.width
-        if "height" not in kwargs and self.height > 0: kwargs["height"] = self.height
-
-        return super().place(**kwargs)
-
-    def configure(self, **kw):
-        if "bg" in kw:      # Pass changes to bg through to the 'selectbackground' to maintain non-tk.Text() illusion.
-            kw["selectbackground"] = kw["bg"]
-        if "background" in kw:
-            kw["selectbackground"] = kw["background"]
-        super().configure(**kw)
-
-    def render(self, image:UImage, xy_offset:tuple[int,int] = (0,0)):
-        self.image_configure(self._img, image=image, padx=xy_offset[0], pady=xy_offset[1])
-
-
-"""
-TextCanvas uses tk.Text as guiABLE's standard image-rendering surface. Tk's other child widgets can produce incorrect
-dirty rectangles when overlapping siblings move across them, causing clipping, stretching, or ghosting. tk.Text's
-redisplay handling does not exhibit that behavior, so FakeCanvas provides a stable render floor for guiABLE widgets.
-"""
-class TextCanvas(Renderable, FakeCanvas): pass
