@@ -3,21 +3,8 @@ from tkinter import TclError, Widget
 from os import path as osPath
 from sys import argv as sysArgV
 from typing import NamedTuple
-from dataclasses import dataclass
 
 from guiABLE.uimage import UImage
-
-
-@dataclass
-class FontPack():
-    name: str = "Arial"
-    size: int = 12
-    weight: str = "normal"
-    color: str = "#dddddd"
-    drop_color: str = "#222222"
-    text_pos: tuple[int,int] = (0, 0)
-    drop_offset: tuple[int,int] = (2, 2)
-    anchor: str = "nw"
 
 
 class Overlap(NamedTuple):

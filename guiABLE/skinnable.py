@@ -143,6 +143,28 @@ class ColorSkin(CoreSkin):
             self.updateRecipients()
 
 
+class NoSkin(ColorSkin):
+    """ Per-widget fallback Skin whose blank source always matches its widget's geometry. """
+    def __init__(self, width:int=0, height:int=0):
+        super().__init__()
+        self.resize(width, height, notify=False)
+
+    def resize(self, width:int, height:int, notify:bool=True):
+        width, height = max(0, width), max(0, height)
+        if (width, height) == self._skin_res and self._images: return
+
+        self._images = []
+        self._skin_res = (0, 0)
+
+        if width and height:
+            self._expand(1)
+            self._saveImage(UImage(width=width, height=height), 0)
+
+        # CoreSkin.image() may already have created the internal FilterSkin.
+        if self._filter is not None: self._filter.dirty = True
+        if notify: self.updateRecipients()
+
+
 """
     Skin() provides many different pathways for populating/modifying the image/background colors within the Skin.
     .fromColors()       - new_skin = Skin.fromColors('yellow', 'blue', 'orange', 'gray15')
@@ -780,6 +802,8 @@ class Placeable(Measurable):
 """ Skinnable is a mixin that provides core Skin() handling functionality to guiABLE widgets. """
 class Skinnable(Placeable):
     def __init__(self, *args, skin:Skin|BarSkin|FilterSkin|str|UImage|tuple|list = None, **kwargs):
+        default_skin = getattr(self, "_default_skin", None)
+
         if skin:
             self._skin_passed = True
             # Handle all possible forms of passing a non-skin Skin().
@@ -791,13 +815,21 @@ class Skinnable(Placeable):
                 if 'width' not in kwargs or kwargs['width'] is None: kwargs['width'] = res[0]
                 if 'height' not in kwargs or kwargs['height'] is None: kwargs['height'] = res[1]
             self._skin = skin
+
+        elif default_skin is not None:
+            self._skin_passed = False
+            self._skin = default_skin
+
         else:
             self._skin_passed = False
-            self._skin = getattr(self, "_default_skin", Skin())
+            self._skin = NoSkin()
 
         self._skin.bindWidget(self)     # Register widget as a user of skin, so changes to the skin can be propagated.
 
         super().__init__(*args, **kwargs)
+
+        if isinstance(self._skin, NoSkin): self._skin.resize(self.width, self.height, notify=False)
+
         self._scratch = UImage(width=self.width, height=self.height)
         self.dirty = True
 
@@ -815,7 +847,9 @@ class Skinnable(Placeable):
     def dropSkin(self):
         self._skin_passed = False
         if self._skin: self._skin.unbindWidget(self)
-        self._skin = Skin()
+
+        self._skin = NoSkin(self.width, self.height)
+        self._skin.bindWidget(self)
 
     def isOpaque(self): return  self.skin.resolution(self.state) == self.size and \
                                (self.skin.usesBgColors() or self.skin.isOpaque(self.state))
@@ -825,17 +859,15 @@ class Skinnable(Placeable):
 
     # _refresh runs on instantiation, and when any tracked change takes place thereafter.
     def refresh(self): self._refresh()
-    def _refresh(self, event=None):
-        super()._refresh(event)
-        # If skin provides no image, generate a Skin, utilizing the FilterSkin override for skins that useBgColors().
-        if not self._skin.hasImages():
-            self._skin._images = []
-            self._skin._expand(1)       # Sneaking in via private methods to preserve _use_bg_colors.
-            self._skin._saveImage(UImage(width=self._geometry[2], height=self._geometry[3]), 0)
-            self._skin.updateRecipients()
+    def _refresh(self, event=None): super()._refresh(event)
 
     def _afterGeometryChanges(self):
         if self._last_geometry[2:] != self._geometry[2:]:
             self._scratch = UImage(width=self.width, height=self.height)
+
+            if isinstance(self._skin, NoSkin):
+                self._skin.resize(self.width, self.height, notify=False)
+                self.dirty = True
+
         self.redraw()
         super()._afterGeometryChanges()

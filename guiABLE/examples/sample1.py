@@ -9,7 +9,7 @@ def test_gui():
     app.bindDrag(app)       # Make app Drag by grabbing the background.
 
     # Create a Label
-    label_font = FontPack(color="White", weight="bold", text_pos=(10,5))
+    label_font = FontPack(color="White", weight="bold", text_offset=(10, 5))
     test_label = Label(app, "This is a label.", label_font)
     test_label.place(x=0, y=0)
 
@@ -104,7 +104,12 @@ def test_gui():
     text_test = TextLine(scroll_area.plate, 200, 18, font_pack=label_font, max_chars=12).place(90, 60)
     text_test.setMask("*", True)
     text_test.setPlaceholder("Enter Password",FontPack(weight="italic", color="#BBBBBB"))
-    url = TextLine(scroll_area.plate, 200, 18, "https://roninpawn.com", editable=False, bg_color="#161a1a").place(90, 92)
+    url = TextLabel(scroll_area.plate, "https://roninpawn.com\nVisit today!\nTry our new centerable text!",
+                    None, label_font, "#161a1a", border=10, align="center").place(90, 92)
+    url.setFontAttributes(weight="bold", text_offset=(-4, -2), color="lime")
+    url.setFontPack(FontPack(color="blue", weight="normal", anchor="right"))
+
+    sel_btn = Button(scroll_area.plate, None, text_test.selectAll, width=18, height=18).place(290, 60)
 
     # Prove lower/lift functionality    : Buggy right now.
     #click_btn.lift(test_toggle1)

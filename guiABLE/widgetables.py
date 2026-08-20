@@ -1,30 +1,13 @@
 import tkinter as tk
+
 from time import time
 from typing import Callable
-from pathlib import Path
 
 from guiABLE.skinnable import Skinnable, Measurable, Skin, Childable
+from guiABLE.fontable import Fontable, FontPack
 from guiABLE.utilities import (rectsOverlap, rectUnion, pointIsInRect, getOverlap, decimateRect, rectIntersect,
-                               rectsUnion, LimitedDict, FontPack)
+                               rectsUnion, LimitedDict)
 from guiABLE.uimage import UImage
-
-
-""" NText is a fix for Tk's nonsensical, CLI-style text selection standards, developed by Keith Nash. """
-def _enableNtext(widget):
-    try:
-        widget.tk.call("package", "present", "ntext")
-    except tk.TclError:
-        source = Path(__file__).parent / "vendor" / "ntext" / "ntext.tcl"
-        widget.tk.call("source", str(source))
-
-    tags = list(widget.bindtags())
-
-    if "Text" in tags:
-        tags[tags.index("Text")] = "Ntext"
-    elif "Ntext" not in tags:
-        tags.insert(1, "Ntext")
-
-    widget.bindtags(tuple(tags))
 
 
 """ Siblingable is a mixin that provides parent/sibling awareness & overlap tracking.  """
@@ -446,26 +429,29 @@ class Anchorable:
         if offset is not None: self._anchor_offset = offset
         self._positionAnchoredChild()
 
-    def _positionAnchoredChild(self):
-        child = self._anchored_child
-        if child is None: return
+    def anchorArea(self) -> tuple[int,int,int,int]: return 0, 0, self.width, self.height
+    def anchorOffset(self) -> tuple[int,int]: return self._anchor_offset
 
-        pw, ph = self.size
-        cw, ch = child.size
-        dx, dy = self._anchor_offset
+    def _positionAnchoredChild(self):
+        if self._anchored_child is None: return
+
+        ax, ay, aw, ah = self.anchorArea()
+        cw, ch = self._anchored_child.size
+        dx, dy = self.anchorOffset()
         anchor = self._anchor
 
-        x = 0 if anchor in ("nw", "w", "sw") else \
-            pw - cw if anchor in ("ne", "e", "se") else (pw - cw) // 2
+        x = ax if anchor in ("nw", "w", "sw") else \
+            ax + aw - cw if anchor in ("ne", "e", "se") else ax + (aw - cw) // 2
 
-        y = 0 if anchor in ("nw", "n", "ne") else \
-            ph - ch if anchor in ("sw", "s", "se") else (ph - ch) // 2
+        y = ay if anchor in ("nw", "n", "ne") else \
+            ay + ah - ch if anchor in ("sw", "s", "se") else ay + (ah - ch) // 2
 
         x, y = x + dx, y + dy
 
-        if not child._placed:
-            child.place(x, y)
-        elif child.location != (x, y): child.place_configure(x=x, y=y, implied=True)
+        if not self._anchored_child._placed:
+            self._anchored_child.place(x, y)
+        elif self._anchored_child.location != (x, y):
+            self._anchored_child.place_configure(x=x, y=y, implied=True)
 
     def childChanged(self, child):
         super().childChanged(child)
@@ -473,6 +459,136 @@ class Anchorable:
 
     def _afterGeometryChanges(self):
         super()._afterGeometryChanges()
+        self._positionAnchoredChild()
+
+
+class Borderable(Anchorable):
+    def __init__(self, *args, border=None, **kwargs):
+        self._explicit_size = [kwargs.get("width") is not None, kwargs.get("height") is not None]
+
+        self._border = (0, 0, 0, 0)             # top, right, bottom, left
+        self._border_offset_axes = [False, False]
+        self._offset_override = [None, None]
+
+        super().__init__(*args, **kwargs)
+
+        # Intrinsically-sized Skins also provide deliberate room in which an offset can operate.
+        self._offset_size_axes = [
+            self._explicit_size[0] or (getattr(self, "_skin_passed", False) and self.width > 0),
+            self._explicit_size[1] or (getattr(self, "_skin_passed", False) and self.height > 0)
+        ]
+
+        if border is not None: self.setBorder(border)
+
+    @property
+    def border(self) -> tuple[int,int,int,int]: return self._border
+
+    def setBorder(self, border, implied:bool=False):
+        new_border = self._normalizeBorder(border)
+        if new_border == self._border: return
+
+        self._border = new_border
+        top, right, bottom, left = new_border
+
+        if not implied:
+            self._border_offset_axes = [bool(left or right), bool(top or bottom)]
+
+        self._positionAnchoredChild()
+
+    def borderedSize(self, width:int, height:int) -> tuple[int,int]:
+        top, right, bottom, left = self._border
+        return width + left + right, height + top + bottom
+
+    def anchorArea(self) -> tuple[int,int,int,int]:
+        top, right, bottom, left = self._border
+
+        return (left, top,
+                max(0, self.width - left - right),
+                max(0, self.height - top - bottom))
+
+    def anchorOffset(self) -> tuple[int,int]:
+        dx, dy = super().anchorOffset()
+        use_x, use_y = self._usesAnchorOffset()
+        return dx if use_x else 0, dy if use_y else 0
+
+    def useAnchorOffset(self, x:bool=None, y:bool=None) -> tuple[bool,bool]:
+        if x is not None: self._offset_override[0] = x
+        if y is not None: self._offset_override[1] = y
+
+        self._positionAnchoredChild()
+        return self._usesAnchorOffset()
+
+    def automaticAnchorOffset(self, x:bool=True, y:bool=True):
+        if x: self._offset_override[0] = None
+        if y: self._offset_override[1] = None
+        self._positionAnchoredChild()
+
+    def _automaticAnchorOffsetAxes(self) -> tuple[bool,bool]:
+        return (    self._offset_size_axes[0] or self._border_offset_axes[0] or self._size_declared[0],
+                    self._offset_size_axes[1] or self._border_offset_axes[1] or self._size_declared[1]  )
+
+    def _usesAnchorOffset(self) -> tuple[bool,bool]:
+        automatic = self._automaticAnchorOffsetAxes()
+
+        return tuple(   automatic[axis] if self._offset_override[axis] is None else self._offset_override[axis]
+                        for axis in range(2)    )
+
+    @staticmethod
+    def _normalizeBorder(border) -> tuple[int,int,int,int]:
+        values = (border,) if isinstance(border, int|float) else tuple(border)
+
+        if len(values) == 1:
+            top = right = bottom = left = values[0]
+        elif len(values) == 2:
+            top = bottom = values[0]
+            right = left = values[1]
+        elif len(values) == 3:
+            top, right, bottom = values
+            left = right
+        elif len(values) == 4:
+            top, right, bottom, left = values
+        else:
+            raise ValueError("border must contain 1 to 4 values")
+
+        return top, right, bottom, left
+
+
+class Paddable(Borderable):
+    def __init__(self, *args, expand=None, **kwargs):
+        self._padding = (0, 0)
+        self._padding_axes = [False, False]
+
+        super().__init__(*args, **kwargs)
+
+        if expand is not None: self.expand(expand)
+
+    def expand(self, width=None, height=None) -> tuple[int,int]:
+        if width is None and height is None: return self._padding
+
+        if isinstance(width, (tuple, list)):
+            if len(width) != 2: raise ValueError("expand must contain width and height")
+            width, height = width
+
+        elif height is None:
+            height = width
+
+        width, height = max(0, int(width)), max(0, int(height))
+
+        if (width, height) != self._padding:
+            self._padding = (width, height)
+            self._padding_axes = [width > 0, height > 0]
+            self._paddingChanged()
+
+        return self._padding
+
+    def paddedSize(self, width:int, height:int) -> tuple[int,int]:
+        return width + self._padding[0], height + self._padding[1]
+
+    def _automaticAnchorOffsetAxes(self) -> tuple[bool,bool]:
+        x, y = super()._automaticAnchorOffsetAxes()
+        return x or self._padding_axes[0], y or self._padding_axes[1]
+
+    def _paddingChanged(self):
         self._positionAnchoredChild()
 
 
@@ -587,31 +703,10 @@ class Pushable(Clickable):
         else: super().mouseIn(event)
 
 
-class Labelable(Siblingable, Canvas):
+class Labelable(Fontable, Siblingable, Canvas):
     event_passthrough = True
 
-    _font_attributes = {
-        "font":        (0, "name"),
-        "font_size":   (1, "size"),
-        "weight":      (2, "weight"),
-        "color":       (3, "color"),
-        "drop_color":  (4, "drop_color"),
-        "drop_pos":    (5, "drop_offset"),
-        "drop_offset": (5, "drop_offset")
-    }
-
     def __init__(self, parent, text:str="", font_pack:FontPack=None, **kwargs):
-        self._using = [0] * 6
-        self._override_pack = FontPack()
-        self._pack = font_pack or FontPack()
-
-        for key in tuple(kwargs):
-            if key in self._font_attributes:
-                index, attribute = self._font_attributes[key]
-                self._using[index] = 1
-                setattr(self._override_pack, attribute, kwargs.pop(key))
-
-        self._packs = [self._pack, self._override_pack]
         self.text = text
         self._img_text, self._img_text_shadow = None, None
 
@@ -620,7 +715,7 @@ class Labelable(Siblingable, Canvas):
         kwargs.pop("height", None)
         kwargs.pop("skin", None)
 
-        super().__init__(parent, skin=Skin(UImage()), width=1, height=1, **kwargs)
+        super().__init__(parent, skin=Skin(UImage()), width=1, height=1, font_pack=font_pack, **kwargs)
         self.drawText()
 
     @staticmethod
@@ -632,16 +727,10 @@ class Labelable(Siblingable, Canvas):
         self._event_parent = widget
 
         for button in (1, 2, 3):
-            self.bind(
-                f"<Button-{button}>",
-                lambda event, b=button: self._forwardMouse(event, f"<Button-{b}>"),
-                "+"
-            )
-            self.bind(
-                f"<ButtonRelease-{button}>",
-                lambda event, b=button: self._forwardMouse(event, f"<ButtonRelease-{b}>"),
-                "+"
-            )
+            self.bind(  f"<Button-{button}>",
+                        lambda event, b=button: self._forwardMouse(event, f"<Button-{b}>"), "+" )
+            self.bind(  f"<ButtonRelease-{button}>",
+                        lambda event, b=button: self._forwardMouse(event, f"<ButtonRelease-{b}>"), "+" )
 
         self.bind("<B1-Motion>", lambda event: self._forwardMouse(event, "<B1-Motion>"), "+")
 
@@ -654,27 +743,10 @@ class Labelable(Siblingable, Canvas):
             self.text = text
             self.drawText()
 
-    def setFontPack(self, font_pack:FontPack):
-        self._pack = font_pack
-        self._packs[0] = font_pack
-        self._using = [0] * 6
-        self.drawText()
-
-    def setFontAttributes(self, **kwargs):
-        for key, value in kwargs.items():
-            if key not in self._font_attributes:
-                raise TypeError(f"Unknown Labelable font attribute: {key}")
-
-            index, attribute = self._font_attributes[key]
-            self._using[index] = 1
-            setattr(self._override_pack, attribute, value)
-
-        self.drawText()
-
     def drawText(self):
-        dx, dy = self._packs[self._using[5]].drop_offset
-        color = self._packs[self._using[3]].color
-        drop_color = self._packs[self._using[4]].drop_color
+        dx, dy = self._fontValue("drop_offset")
+        color = self._fontValue("color")
+        drop_color = self._fontValue("drop_color")
 
         if drop_color is None:
             if self._img_text_shadow is not None:
@@ -702,6 +774,8 @@ class Labelable(Siblingable, Canvas):
             self.itemconfigure(self._img_text, text=self.text, fill=color, font=self._tk_font)
 
         self._fitText()
+
+    def _fontChanged(self): self.drawText()
 
     def _fitText(self):
         items = tuple(item for item in (self._img_text, self._img_text_shadow) if item is not None)
@@ -732,374 +806,44 @@ class Labelable(Siblingable, Canvas):
         if self._img_text_shadow is not None: self.tag_raise(self._img_text_shadow)
         if self._img_text is not None: self.tag_raise(self._img_text)
 
-    @property
-    def _tk_font(self):
-        return (
-            self._packs[self._using[0]].name,
-            self._packs[self._using[1]].size,
-            self._packs[self._using[2]].weight
-        )
 
-
-class Labeled(Anchorable):
+class Labeled(Fontable, Anchorable):
     def __init__(self, *args, text:str=None, font_pack:FontPack=None, label_kwargs:dict=None, **kwargs):
         self._label = None
-        self._label_pack = font_pack or FontPack()
         self._label_options = dict(label_kwargs or {})
 
-        self._text_pos = self._label_options.pop("text_pos", kwargs.pop("text_pos", None))
-        self._text_anchor = self._label_options.pop("anchor", kwargs.pop("anchor", None))
+        # Font configuration belongs to Labeled. label_kwargs retains only child-specific options.
+        for key in tuple(self._label_options):
+            if key in self._font_attributes:
+                kwargs.setdefault(key, self._label_options.pop(key))
 
-        for key in tuple(kwargs):
-            if key in Labelable._font_attributes:
-                self._label_options[key] = kwargs.pop(key)
+        super().__init__(*args, font_pack=font_pack, **kwargs)
 
-        super().__init__(*args, **kwargs)
-
-        if text is not None:
-            self._label = Labelable(self, text=text, font_pack=self._label_pack, **self._label_options)
-            self._label.passMouseTo(self)
-            self._anchorLabel()
+        if text is not None: self._createLabel(text)
 
     @property
     def label(self): return self._label
 
+    def setText(self, text:str):
+        if self._label is None: self._createLabel(text)
+        else: self._label.setText(text)
+
+        self._anchorLabel()
+
+    def _createLabel(self, text:str):
+        self._label = Labelable(self, text=text, font_pack=self._font_pack, **self._label_options)
+        self._syncFontTo(self._label)
+        self._label.passMouseTo(self)
+        self._anchorLabel()
+
     def _anchorLabel(self):
         if self._label is None: return
-
-        self.anchorChild(   self._label,
-                            self._text_anchor or self._label_pack.anchor,
-                            self._text_pos if self._text_pos is not None else self._label_pack.text_pos )
-
-    def setText(self, text:str):
-        if self._label is None:
-            self._label = Labelable(self, text=text, font_pack=self._label_pack, **self._label_options)
-            self._label.passMouseTo(self)
-        else:
-            self._label.setText(text)
-
-        self._anchorLabel()
-
-    def setFontPack(self, font_pack:FontPack):
-        self._label_pack = font_pack
-        if self._label is not None: self._label.setFontPack(font_pack)
-        self._anchorLabel()
-
-    def setFontAttributes(self, **kwargs):
-        if "text_pos" in kwargs: self._text_pos = kwargs.pop("text_pos")
-        if "anchor" in kwargs: self._text_anchor = kwargs.pop("anchor")
-
-        if self._label is not None and kwargs: self._label.setFontAttributes(**kwargs)
-
-        self._anchorLabel()
-
-
-"""
-Textable is a native tk.Text surface that participates honestly in guiABLE compositing.
-Tk renders the native text/caret/selection, while a matching solid-color Skin represents
-the widget's opaque surface to the raster compositor.
-"""
-class Textable(Siblingable, Renderable, BareText):
-    def __init__(self, parent, width:int, height:int, text:str="",
-                 bg_color:str="#6B6B6B", font_pack:FontPack=None,
-                 editable:bool=True, **kwargs):
-
-        self._bg_color = bg_color
-        self._font_pack = font_pack or FontPack()
-        self._editable = editable
-
-        kwargs.setdefault("font", self._tk_font)
-        kwargs.setdefault("fg", self._font_pack.color)
-        kwargs.setdefault("insertbackground", self._font_pack.color)
-        kwargs.setdefault("selectbackground", "#252595")
-        kwargs.setdefault("selectforeground", self._font_pack.color)
-        kwargs.setdefault("selectborderwidth", 0)
-
-        super().__init__(parent, skin=self._backgroundSkin(width, height),
-                            width=width, height=height,bg=bg_color, **kwargs)
-        _enableNtext(self)  # Fix Tk's inane text selection policies.
-
-        self.bind("<Double-Button-1>", self._doubleClick, "+")
-
-        if text: self.insert("1.0", text)
-
-        self.editable(editable)
-        self.bind("<<Copy>>", self._copySelection)
-        self.bind("<Button-1>", lambda event: self.focus_set(), "+")
-        self.bind("<<SelectAll>>", self._emptySelectAll, "+")
-
-    def getText(self) -> str: return self.get("1.0", "end-1c")
-    def setText(self, text:str):
-        state = self.cget("state")
-
-        if state == "disabled": self.configure(state="normal")
-        self.delete("1.0", "end")
-        self.insert("1.0", text)
-        if state == "disabled": self.configure(state="disabled")
-
-    def setBackground(self, color:str):
-        if color == self._bg_color: return
-
-        self._bg_color = color
-        self.configure(bg=color)
-        self._rebuildBackground()
-        self.redraw()
-
-    def editable(self, editable:bool=None) -> bool:
-        if editable is not None:
-            self._editable = editable
-            self.configure(state="normal" if editable else "disabled")
-
-        return self._editable
-
-    def render(self, image:UImage, xy_offset:tuple[int,int]=(0, 0)): pass
-
-    @property
-    def _tk_font(self): return self._font_pack.name, self._font_pack.size, self._font_pack.weight
-
-    def _backgroundSkin(self, width:int=None, height:int=None) -> Skin:
-        return Skin.fromColors( self.width if width is None else width,
-                                self.height if height is None else height,
-                                self._bg_color )
-
-    def _rebuildBackground(self):
-        self.setSkin(self._backgroundSkin(), implied=True)
-        self.dirty = True
-
-    def _emptySelectAll(self, event=None):
-        if not self._text:
-            self.tag_remove("sel", "1.0", "end")
-            self.mark_set("insert", "1.0")
-            return "break"
-
-    def _doubleClick(self, event):
-        end_info = self.bbox("end-1c")
-        line_info = self.dlineinfo("end-1c")
-
-        if end_info is None or line_info is None: return
-
-        end_x = end_info[0]
-        line_y, line_h = line_info[1], line_info[3]
-
-        if line_y <= event.y < line_y + line_h and event.x >= end_x:
-            self.tag_remove("sel", "1.0", "end")
-            self.tag_add("sel", "1.0", "end-1c")
-            self.mark_set("insert", "end-1c")
-            return "break"
-
-    def _copySelection(self, event=None):
-        selection = self.tag_ranges("sel")
-        if not selection: return "break"
-
-        start, end = selection
-        text_end = self.index("end-1c")
-
-        if self.compare(end, ">", text_end): end = text_end
-
-        text = self.get(start, end)
-
-        self.clipboard_clear()
-        self.clipboard_append(text)
-        return "break"
-
-    def _afterGeometryChanges(self):
-        if self._last_geometry[2:] != self._geometry[2:]: self._rebuildBackground()
-        super()._afterGeometryChanges()
-
-
-class TextLine(Textable):
-    def __init__(self, parent, width:int, height:int, text:str="",
-                 editable:bool=True, max_chars:int=None,
-                 placeholder:str=None, placeholder_pack:FontPack=None,
-                 mask:str=None, masked:bool=False, **kwargs):
-
-        self._text = self._singleLine(text)
-        self._max_chars = max_chars
-        self._placeholder = placeholder
-        self._placeholder_pack = placeholder_pack
-        self._mask = mask[:1] if mask else None
-        self._masked = bool(masked and self._mask)
-        self._has_focus = False
-
-        kwargs["wrap"] = "none"
-        kwargs.setdefault("takefocus", 1)
-
-        super().__init__(parent, width, height, text="", editable=editable, **kwargs)
-
-        self.bind("<Return>", self._blockLineBreak)
-        self.bind("<KP_Enter>", self._blockLineBreak)
-        self.bind("<KeyPress>", self._keyPressed)
-        self.bind("<<Paste>>", self._paste)
-        self.bind("<<PasteSelection>>", self._pasteSelection)
-
-        self.bind("<Tab>", self._focusNext)
-        self.bind("<Shift-Tab>", self._focusPrevious)
-        self.bind("<ISO_Left_Tab>", self._focusPrevious)
-
-        self.bind("<FocusIn>", self._focusIn, "+")
-        self.bind("<FocusOut>", self._focusOut, "+")
-
-        self._refreshDisplay()
-
-    def getText(self) -> str:
-        return self._text
-
-    def setText(self, text:str):
-        text = self._singleLine(text)
-
-        if self.validateInput(text):
-            self._text = text
-            self._refreshDisplay()
-
-    def setMaxChars(self, max_chars:int=None): self._max_chars = max_chars
-
-    def setPlaceholder(self, text:str=None, font_pack:FontPack=None):
-        self._placeholder = text
-
-        if font_pack is not None:
-            self._placeholder_pack = font_pack
-
-        self._refreshDisplay()
-
-    def setMask(self, character:str=None, masked:bool=None):
-        self._mask = character[:1] if character else None
-
-        if self._mask is None:
-            self._masked = False
-        elif masked is not None: self._masked = masked
-
-        self._refreshDisplay()
-
-    def masked(self, masked:bool=None) -> bool:
-        if masked is not None:
-            self._masked = bool(masked and self._mask)
-            self._refreshDisplay()
-
-        return self._masked
-
-    def selectAll(self):
-        if self._text:
-            self.tag_add("sel", "1.0", f"1.{len(self._text)}")
-            self.mark_set("insert", f"1.{len(self._text)}")
-
-    def validateInput(self, proposed:str) -> bool: return self._max_chars is None or len(proposed) <= self._max_chars
-
-    def _focusIn(self, event=None):
-        self._has_focus = True
-        self._refreshDisplay()
-
-    def _focusOut(self, event=None):
-        self._has_focus = False
-        self._refreshDisplay()
-
-    def _replaceSelection(self, text:str):
-        if not self.editable(): return False
-
-        text = self._singleLine(text)
-        start, end = self.index("insert"), self.index("insert")
-
-        selection = self.tag_ranges("sel")
-        if selection: start, end = selection
-
-        offset1, offset2 = int(str(start).split(".")[1]), int(str(end).split(".")[1])
-        proposed = self._text[:offset1] + text + self._text[offset2:]
-
-        if not self.validateInput(proposed): return False
-
-        self._text = proposed
-        self._refreshDisplay(offset1 + len(text))
-        return True
-
-    def _keyPressed(self, event):
-        if not self.editable(): return
-
-        if event.keysym == "BackSpace": return self._deleteBackward()
-        if event.keysym == "Delete": return self._deleteForward()
-
-        if event.char and event.char >= " " and event.keysym != "Tab":
-            self._replaceSelection(event.char)
-            return "break"
-
-    def _deleteBackward(self):
-        selection = self.tag_ranges("sel")
-        if selection:
-            self._replaceSelection("")
-            return "break"
-
-        pos = int(self.index("insert").split(".")[1])
-        if pos:
-            self.tag_add("sel", f"1.{pos - 1}", f"1.{pos}")
-            self._replaceSelection("")
-
-        return "break"
-
-    def _deleteForward(self):
-        selection = self.tag_ranges("sel")
-        if selection:
-            self._replaceSelection("")
-            return "break"
-
-        pos = int(self.index("insert").split(".")[1])
-        if pos < len(self._text):
-            self.tag_add("sel", f"1.{pos}", f"1.{pos + 1}")
-            self._replaceSelection("")
-
-        return "break"
-
-    def _refreshDisplay(self, cursor:int=None):
-        placeholder = self._placeholderActive()
-
-        display = self._placeholder if placeholder else self._mask * len(self._text) if self._masked else self._text
-
-        state = self.cget("state")
-        if state == "disabled": self.configure(state="normal")
-
-        super().delete("1.0", "end")
-        super().insert("1.0", display or "")
-
-        if placeholder:
-            pack = self._placeholder_pack or self._font_pack
-
-            self.tag_configure("_placeholder", foreground=pack.color, font=(pack.name, pack.size, pack.weight))
-            self.tag_add("_placeholder", "1.0", "end-1c")
-            self.mark_set("insert", "1.0")
-
-        elif cursor is not None:
-            cursor = min(cursor, len(self._text))
-            self.mark_set("insert", f"1.{cursor}")
-            self.see("insert")
-
-        if state == "disabled": self.configure(state="disabled")
-
-    def _paste(self, event=None):
-        try: text = self.clipboard_get()
-        except tk.TclError: return "break"
-
-        self._replaceSelection(text)
-        return "break"
-
-    def _pasteSelection(self, event=None):
-        try: text = self.selection_get(selection="PRIMARY")
-        except tk.TclError: return "break"
-
-        self._replaceSelection(text)
-        return "break"
-
-    def _placeholderActive(self) -> bool: return not self._text and bool(self._placeholder) and not self._has_focus
-
-    @staticmethod
-    def _singleLine(text:str) -> str: return text.replace("\r", " ").replace("\n", " ")
-
-    @staticmethod
-    def _blockLineBreak(event=None): return "break"
-
-    def _focusNext(self, event=None):
-        self.tk_focusNext().focus_set()
-        return "break"
-
-    def _focusPrevious(self, event=None):
-        self.tk_focusPrev().focus_set()
-        return "break"
+        self.anchorChild(self._label, self._fontValue("anchor"), self._fontValue("text_offset"))
+
+    def _fontChanged(self):
+        if self._label is not None:
+            self._syncFontTo(self._label)
+            self._anchorLabel()
 
 
 """ Toggleable stores a true/false state and redirects image() calls by index+_state_offset when true. This allows the
