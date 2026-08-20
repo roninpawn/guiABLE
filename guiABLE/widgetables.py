@@ -1,11 +1,30 @@
 import tkinter as tk
 from time import time
 from typing import Callable
+from pathlib import Path
 
 from guiABLE.skinnable import Skinnable, Measurable, Skin, Childable
 from guiABLE.utilities import (rectsOverlap, rectUnion, pointIsInRect, getOverlap, decimateRect, rectIntersect,
                                rectsUnion, LimitedDict, FontPack)
 from guiABLE.uimage import UImage
+
+
+""" NText is a fix for Tk's nonsensical, CLI-style text selection standards, developed by Keith Nash. """
+def _enableNtext(widget):
+    try:
+        widget.tk.call("package", "present", "ntext")
+    except tk.TclError:
+        source = Path(__file__).parent / "vendor" / "ntext" / "ntext.tcl"
+        widget.tk.call("source", str(source))
+
+    tags = list(widget.bindtags())
+
+    if "Text" in tags:
+        tags[tags.index("Text")] = "Ntext"
+    elif "Ntext" not in tags:
+        tags.insert(1, "Ntext")
+
+    widget.bindtags(tuple(tags))
 
 
 """ Siblingable is a mixin that provides parent/sibling awareness & overlap tracking.  """
@@ -628,12 +647,7 @@ class Labelable(Siblingable, Canvas):
 
     def _forwardMouse(self, event, sequence:str):
         if self._event_parent is not None:
-            self._event_parent.event_generate(
-                sequence,
-                x=self.x + event.x,
-                y=self.y + event.y,
-                when="now"
-            )
+            self._event_parent.event_generate(sequence, x=self.x + event.x, y=self.y + event.y, when="now")
 
     def setText(self, text:str):
         if text != self.text:
@@ -803,6 +817,7 @@ class Textable(Siblingable, Renderable, BareText):
 
         super().__init__(parent, skin=self._backgroundSkin(width, height),
                             width=width, height=height,bg=bg_color, **kwargs)
+        _enableNtext(self)  # Fix Tk's inane text selection policies.
 
         self.bind("<Double-Button-1>", self._doubleClick, "+")
 
@@ -811,10 +826,6 @@ class Textable(Siblingable, Renderable, BareText):
         self.editable(editable)
         self.bind("<<Copy>>", self._copySelection)
         self.bind("<Button-1>", lambda event: self.focus_set(), "+")
-        self.bind("<Button-1>", self._emptyMouse, "+")
-        self.bind("<B1-Motion>", self._emptyMouse, "+")
-        self.bind("<Double-Button-1>", self._emptyMouse, "+")
-        self.bind("<Triple-Button-1>", self._emptyMouse, "+")
         self.bind("<<SelectAll>>", self._emptySelectAll, "+")
 
     def getText(self) -> str: return self.get("1.0", "end-1c")
@@ -860,14 +871,6 @@ class Textable(Siblingable, Renderable, BareText):
             self.tag_remove("sel", "1.0", "end")
             self.mark_set("insert", "1.0")
             return "break"
-
-    def _emptyMouse(self, event=None):
-        if self._text: return
-
-        self.tag_remove("sel", "1.0", "end")
-        self.mark_set("insert", "1.0")
-
-        return "break"
 
     def _doubleClick(self, event):
         end_info = self.bbox("end-1c")
