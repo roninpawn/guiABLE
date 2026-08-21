@@ -66,22 +66,22 @@ def test_gui():
     trough_skin = Skin("../skins/default/scroll_trough-48.png")
     cap_skin = Skin("../skins/default/up_glyph-48.png", orientation="n")
     scroll_skin = ScrollSkin.fromSkins(cap_skin, trough_skin, None, True, cap_skin, "n")
-    scroll_area = Scrollable(app, 450, 280, scroll_skin, "#3B4F4F")
-    scroll_area.place(x=20, y=100)
+    scroll_win = ScrollWindow(app, 450, 280, scroll_skin, "#3B4F4F")
+    scroll_win.place(x=20, y=100)
 
     #scroll_area.dominant_axis = 0
     #scroll_area.showBars(1, 1)
 
     # Create Togglables for changing the scrollbar settings.
-    test_toggle3 = Checkbox(app, toggle_skin, scroll_area.getInstantPage()[0])
-    test_toggle3.function = (scroll_area.setInstantPage, test_toggle3.isTrue)
+    test_toggle3 = Checkbox(app, toggle_skin, scroll_win.getInstantPage()[0])
+    test_toggle3.function = (scroll_win.setInstantPage, test_toggle3.isTrue)
     test_toggle3.place(x=380, y=24)
 
     # Toggle both line and page smoothing simultaneously
     test_toggle4 = Checkbox(app, toggle_skin, state=True)
     def toggle_smoothing(state):
-        scroll_area.setLineSmoothing(state)
-        scroll_area.setPageSmoothing(state)
+        scroll_win.setLineSmoothing(state)
+        scroll_win.setPageSmoothing(state)
     test_toggle4.function = (toggle_smoothing, test_toggle4.isTrue)
     test_toggle4.place(x=444, y=24)
 
@@ -92,24 +92,35 @@ def test_gui():
 
     for i in range(50):
         #label = Button(scroll_area.frame, function=lambda: print(f"Label clicked!"), skin=btn_skin, width=24, height=24)
-        label = Button(scroll_area.frame, btn_skin, lambda: print("Label clicked!"), f"Item {i + 1}", label_font,
+        label = Button(scroll_win.frame, btn_skin, lambda: print("Label clicked!"), f"Item {i + 1}", label_font,
                       width=100, height=24)
         #label = tk.Label(scroll_area.scroll_plate, text=f"Item {i + 1}", anchor="w", background="teal")
         label.place(x=10, y=30*i)
         #label.pack(padx=10, pady=10, fill="both")
 
-    test_drag2 = Drag(scroll_area.frame, skin=drag_skin)
-    test_drag2.place(x=190, y=285)
-
-    text_test = TextLine(scroll_area.plate, 200, 18, font_pack=label_font, max_chars=12).place(90, 60)
+    text_test = InputLine(scroll_win.plate, 200, 18, font_pack=label_font, max_chars=12).place(90, 60)
     text_test.setMask("*", True)
+    text_test.setSubmitFunction(lambda:text_test.editable(False))
     text_test.setPlaceholder("Enter Password",FontPack(weight="italic", color="#BBBBBB"))
-    url = TextLabel(scroll_area.plate, "https://roninpawn.com\nVisit today!\nTry our new centerable text!",
+    sel_btn = Button(scroll_win.plate, None, text_test.selectAll, width=18, height=18).place(290, 60)
+
+    url = TextLabel(scroll_win.plate, "https://roninpawn.com\nVisit today!\nTry our new centerable text!",
                     None, label_font, "#161a1a", border=10, align="center").place(90, 92)
     url.setFontAttributes(weight="bold", text_offset=(-4, -2), color="lime")
     url.setFontPack(FontPack(color="blue", weight="normal", anchor="right"))
 
-    sel_btn = Button(scroll_area.plate, None, text_test.selectAll, width=18, height=18).place(290, 60)
+
+    class AssignmentBlob(TextBlob):
+        def enterPressed(self) -> bool:
+            line = self.get("insert linestart", "insert lineend")
+            return not line or "=" in line
+
+    blob = AssignmentBlob(scroll_win.plate, 260, 120, "", bg_color="#161a1a", tab_focus=False)
+    blob.setText("This is an editable text blob.")
+    blob.place(90, 188)
+
+    test_drag2 = Drag(scroll_win.frame, skin=drag_skin)
+    test_drag2.place(x=190, y=285)
 
     # Prove lower/lift functionality    : Buggy right now.
     #click_btn.lift(test_toggle1)

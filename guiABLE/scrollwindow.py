@@ -7,7 +7,7 @@ from .widgets import RepeatButton, TroughButton, LoneDrag, Background
 from .uimage import UImage
 
 
-class Scrollable(Measurable, Siblingable, tk.Frame):
+class ScrollWindow(Measurable, Siblingable, tk.Frame):
     def __init__(self, parent, width:int, height:int, scroll_skin:ScrollSkin,
                  bg_color:str="#6B6B6B", **kwargs):
         kwargs["bg"] = bg_color
@@ -228,7 +228,7 @@ class Scrollable(Measurable, Siblingable, tk.Frame):
 
 
 class ScrollFrame(CoordinateSpace, Background):
-    def __init__(self, parent:Scrollable, bg_color:str, **kwargs):
+    def __init__(self, parent:ScrollWindow, bg_color:str, **kwargs):
         self._floor_color = bg_color
         width, height = kwargs.get("width", 1), kwargs.get("height", 1)
         super().__init__(parent, self._floorSkin(width, height), **kwargs)
@@ -249,7 +249,7 @@ class ScrollFrame(CoordinateSpace, Background):
 
 
 class ScrollPlate(CoordinateSpace, Placeable, tk.Frame):
-    def __init__(self, parent:ScrollFrame, owner:Scrollable, bg_color:str, **kwargs):
+    def __init__(self, parent:ScrollFrame, owner:ScrollWindow, bg_color:str, **kwargs):
         self._owner = owner
         self._content_size = (0, 0)
         self._visible_children = set()
@@ -358,7 +358,7 @@ class ScrollButton(RepeatButton):
 
 
 class ScrollBar(LinearAnimator, Background):
-    def __init__(self, parent:Scrollable, bar_skin:BarSkin|None = None,
+    def __init__(self, parent:ScrollWindow, bar_skin: BarSkin | None = None,
                  handle_skin:BarSkin|None = None, button_pack:ButtonPack|None = None, breadth:int = 0, **kwargs):
         self._bar_skin = bar_skin or BarSkin()
         self._buttons = button_pack
