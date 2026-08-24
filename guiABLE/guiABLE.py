@@ -1,9 +1,9 @@
 import tkinter as tk
 
 from .windowing import Window, ChildWindow
-from .widgets import (Background, Group, Collection, Image, Hover, InstantButton, Button, Label, Checkbox,
-                      RepeatButton, LoneDrag, Drag, TroughButton, Slider, AnimatedSlider, DynamicSlider, LinearAnimator,
-                      Collection)
+from .containables import Collection
+from .widgets import (Background, Group, Image, Hover, InstantButton, Button, Label, Checkbox,
+                      RepeatButton, LoneDrag, Drag, TroughButton, Slider, AnimatedSlider, DynamicSlider, LinearAnimator)
 from .textable import TextLabel, InputLine, TextBlob
 from .scrollwindow import ScrollWindow, ScrollBar, ScrollTrough, ScrollHandle
 from .skinnable import Skin, BarSkin, FilterSkin, ScrollSkin
