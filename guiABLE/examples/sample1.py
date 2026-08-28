@@ -116,7 +116,7 @@ def test_gui():
             return not line or "=" in line
 
     blob = AssignmentBlob(scroll_win.plate, 260, 120, "", bg_color="#161a1a", tab_focus=False)
-    blob.setText("This is an editable text blob.")
+    blob.setText("This is an 'editable' (text) blob.")
     blob.place(90, 144)
 
     test_drag2 = Drag(scroll_win.frame, skin=drag_skin)

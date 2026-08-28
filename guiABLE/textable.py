@@ -28,13 +28,349 @@ def _enableNtext(widget):
     widget.bindtags(tuple(tags))
 
 
+""" TextSelectable aims to fix Tk's eggregious command-line-style text selection system. NText was tried and found to be
+    an incomplete solution that added thousands of lines of code and hundreds of kB of waste. """
+class TextSelectable:
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+
+        self._selection_core = None
+        self._drag_anchor = None
+        self._drag_position = None
+        self._drag_after = None
+
+        self.bind("<<SelectAll>>", self._selectAll)
+        self.bind("<<SelectNextChar>>", self._selectNextChar)
+        self.bind("<<SelectPrevChar>>", self._selectPrevChar)
+        self.bind("<<SelectNextWord>>", self._selectNextWord)
+        self.bind("<<SelectPrevWord>>", self._selectPrevWord)
+
+        self.bind("<Button-1>", self._selectionPress, "+")
+        self.bind("<Double-Button-1>", self._doubleClick)
+        self.bind("<Triple-Button-1>", self._tripleClick)
+        self.bind("<B1-Motion>", self._selectionDrag)
+        self.bind("<ButtonRelease-1>", self._selectionRelease, "+")
+        self.bind("<B1-Leave>", self._selectionLeave)
+
+    def selectAll(self):
+        end = self.index("end-1c")
+        if self.compare(end, ">", "1.0"):
+            self._setSelection("1.0", end)
+
+    def _selectAll(self, event=None):
+        self.selectAll()
+        return "break"
+
+    def _doubleClick(self, event):
+        index = self._characterAt(event)
+        if index is None: return "break"
+
+        start, end = self._selectionUnit(index)
+
+        self._selection_core = (start, end)
+        self._setSelection(start, end)
+        return "break"
+
+    def _selectionUnit(self, index):
+        kind = self._selectionKind(self.get(index))
+        start, end = index, self.index(f"{index} +1c")
+
+        # Glyphs stand alone. Words and whitespace expand to like neighbors.
+        if kind == "glyph": return start, end
+
+        line_start = self.index(f"{index} linestart")
+        line_end = self.index(f"{index} lineend")
+
+        while self.compare(start, ">", line_start):
+            previous = self.index(f"{start} -1c")
+            if self._selectionKind(self.get(previous)) != kind: break
+            start = previous
+
+        while self.compare(end, "<", line_end):
+            if self._selectionKind(self.get(end)) != kind: break
+            end = self.index(f"{end} +1c")
+
+        return start, end
+
+    def _tripleClick(self, event):
+        index = self.index(f"@{event.x},{event.y}")
+        start = self.index(f"{index} linestart")
+        end = self.index(f"{index} lineend")
+
+        self._setSelection(start, end)
+        return "break"
+
+    def _characterAt(self, event):
+        return self._characterAtXY(event.x, event.y)
+
+    def _characterAtXY(self, x:int, y:int):
+        index = self.index(f"@{x},{y}")
+        line_start = self.index(f"{index} display linestart")
+        line_end = self.index(f"{index} display lineend")
+
+        # Empty display line.
+        if self.compare(line_start, "==", line_end): return None
+
+        last = self.index(f"{line_end} -1c")
+        bbox = self.bbox(last)
+
+        if bbox is not None:
+            bx, by, width, height = bbox
+
+            # Clicking beyond the rendered EOL behaves as clicking the final glyph.
+            if by <= y < by + height and x >= bx + width:
+                return last
+
+        # Never expose Tk's newline/sentinel as a glyph.
+        if self.compare(index, ">=", f"{index} lineend"): return None
+        return index
+
+    def _setSelection(self, start, end, insert=None):
+        self.tag_remove("sel", "1.0", "end")
+
+        if self.compare(start, "!=", end):
+            self.tag_add("sel", start, end)
+
+        self.mark_set("insert", insert or end)
+        self.see("insert")
+        self._selectionChanged()
+
+    def _setDragSelection(self, anchor, target):
+        if self.compare(target, "<", anchor):
+            self._setSelection(target, anchor, target)
+        else:
+            self._setSelection(anchor, target, target)
+
+    def _selectionPress(self, event): self._drag_anchor = self._dragBoundaryAt(event.x, event.y)
+
+    def _selectionChanged(self): pass
+
+    def _selectionDrag(self, event):
+        if self._selection_core is None and self._drag_anchor is None: return
+
+        self._drag_position = (event.x, event.y)
+
+        if event.y < 0 or event.y >= self.winfo_height():
+            self._startSelectionScan()
+        else:
+            self._stopSelectionScan()
+
+        self._updateSelectionDrag(event.x, event.y)
+        return "break"
+
+    def _updateSelectionDrag(self, x:int, y:int):
+        height = self.winfo_height()
+
+        if self._selection_core is None:
+            target = self._dragBoundaryAt(x, y)
+            if target is not None: self._setDragSelection(self._drag_anchor, target)
+            return
+
+        if y < 0:
+            target = self.index("@0,0 display linestart")
+            target_start, target_end = self._selectionUnit(target)
+
+        elif y >= height:
+            visible_end = self.index(f"@0,{height - 1} display lineend")
+            if self.compare(visible_end, "==", "1.0"): return
+
+            target = self.index(f"{visible_end} -1c")
+            target_start, target_end = self._selectionUnit(target)
+
+        else:
+            target = self._characterAtXY(x, y)
+            if target is None: return
+
+            target_start, target_end = self._selectionUnit(target)
+
+        core_start, core_end = self._selection_core
+
+        if self.compare(target_end, "<=", core_start):
+            self._setSelection(target_start, core_end, target_start)
+
+        elif self.compare(target_start, ">=", core_end):
+            self._setSelection(core_start, target_end, target_end)
+
+        else:
+            self._setSelection(core_start, core_end, core_end)
+
+    def _dragBoundaryAt(self, x:int, y:int):
+        height = self.winfo_height()
+
+        if y < 0:
+            return self.index("@0,0 display linestart")
+
+        if y >= height:
+            return self.index(f"@0,{height - 1} display lineend")
+
+        index = self.index(f"@{x},{y}")
+        line_end = self.index(f"{index} display lineend")
+        line_start = self.index(f"{index} display linestart")
+
+        if self.compare(line_start, "==", line_end): return line_end
+
+        last = self.index(f"{line_end} -1c")
+        bbox = self.bbox(last)
+
+        if bbox is not None:
+            bx, by, width, height = bbox
+
+            # Blank space beyond the final rendered glyph means "line end",
+            # never Tk's selectable newline/sentinel.
+            if by <= y < by + height and x >= bx + width:
+                return line_end
+
+        bbox = self.bbox(index)
+        if bbox is None: return index
+
+        bx, by, width, height = bbox
+
+        # Resolve to the nearest character boundary.
+        if x >= bx + width / 2 and self.compare(index, "<", line_end):
+            return self.index(f"{index} +1c")
+
+        return index
+
+    def _selectionRelease(self, event=None):
+        self._stopSelectionScan()
+        self._selection_core = None
+        self._drag_anchor = None
+        self._drag_position = None
+
+    def _selectionLeave(self, event=None):
+        if self._selection_core is not None or self._drag_anchor is not None:
+            return "break"
+
+    def _startSelectionScan(self):
+        if self._drag_after is None:
+            self._drag_after = self.after(50, self._selectionScan)
+
+    def _selectionScan(self):
+        self._drag_after = None
+
+        if self._drag_position is None: return
+        if self._selection_core is None and self._drag_anchor is None: return
+
+        x, y = self._drag_position
+        height = self.winfo_height()
+
+        if y < 0:
+            self.yview_scroll(-1, "units")
+        elif y >= height:
+            self.yview_scroll(1, "units")
+        else:
+            return
+
+        # Make the new viewport authoritative before resolving @x,y.
+        self.update_idletasks()
+        self._updateSelectionDrag(x, y)
+
+        self._drag_after = self.after(50, self._selectionScan)
+
+    def _stopSelectionScan(self):
+        if self._drag_after is not None:
+            self.after_cancel(self._drag_after)
+            self._drag_after = None
+
+    @staticmethod
+    def _selectionKind(char:str) -> str:
+        if char.isalnum() or char == "_": return "word"
+        if char != "\n" and char.isspace(): return "space"
+        return "glyph"
+
+    def _selectNextChar(self, event=None):
+        insert = self.index("insert")
+        line_end = self.index("insert lineend")
+
+        target = self.index(f"{insert} +1c") if self.compare(insert, "<", line_end) else insert
+        return self._extendSelection(target)
+
+    def _selectPrevChar(self, event=None):
+        insert = self.index("insert")
+        line_start = self.index("insert linestart")
+
+        target = self.index(f"{insert} -1c") if self.compare(insert, ">", line_start) else insert
+        return self._extendSelection(target)
+
+    def _selectNextWord(self, event=None):
+        insert = self.index("insert")
+        line_end = self.index("insert lineend")
+
+        if self.compare(insert, ">=", line_end):
+            return self._extendSelection(insert)
+
+        kind = self._selectionKind(self.get(insert))
+        target = self.index(f"{insert} +1c")
+
+        if kind != "glyph":
+            while self.compare(target, "<", line_end):
+                if self._selectionKind(self.get(target)) != kind: break
+                target = self.index(f"{target} +1c")
+
+        return self._extendSelection(target)
+
+    def _selectPrevWord(self, event=None):
+        insert = self.index("insert")
+        line_start = self.index("insert linestart")
+
+        if self.compare(insert, "<=", line_start):
+            return self._extendSelection(insert)
+
+        target = self.index(f"{insert} -1c")
+        kind = self._selectionKind(self.get(target))
+
+        if kind != "glyph":
+            while self.compare(target, ">", line_start):
+                previous = self.index(f"{target} -1c")
+                if self._selectionKind(self.get(previous)) != kind: break
+                target = previous
+
+        return self._extendSelection(target)
+
+    def _extendSelection(self, target):
+        insert = self.index("insert")
+        anchor = self._selectionAnchor()
+
+        self.tag_remove("sel", "1.0", "end")
+
+        if self.compare(target, "<", anchor):
+            self.tag_add("sel", target, anchor)
+        elif self.compare(target, ">", anchor):
+            self.tag_add("sel", anchor, target)
+
+        self.mark_set("insert", target)
+        self.see("insert")
+
+        if self.compare(target, "!=", insert): self._selectionChanged()
+        return "break"
+
+    def _selectionAnchor(self):
+        selection = self.tag_ranges("sel")
+        insert = self.index("insert")
+
+        if not selection: return insert
+
+        start, end = selection[0], selection[-1]
+
+        if self.compare(insert, "==", start): return end
+        return start
+
+    @staticmethod
+    def _selectionKind(char:str) -> str:
+        if char.isalnum() or char == "_": return "word"
+        if char != "\n" and char.isspace(): return "space"
+        return "glyph"
+
+    def _selectionChanged(self): pass
+
+
 """
 Textable is a native tk.Text surface that participates honestly in guiABLE compositing.
 Tk renders the native text/caret/selection, while a matching solid-color Skin represents
 the widget's opaque surface to the raster compositor.
 """
 
-class Textable(Fontable, Siblingable, Renderable, BareText):
+class Textable(TextSelectable, Fontable, Siblingable, Renderable, BareText):
     def __init__(self, parent, width:int, height:int, text:str="",
                  bg_color:str="#6B6B6B", font_pack:FontPack=None,
                  editable:bool=True, align:str="left", **kwargs):
@@ -50,13 +386,11 @@ class Textable(Fontable, Siblingable, Renderable, BareText):
                          bg=bg_color, font_pack=font_pack, **kwargs)
 
         self._fontChanged()
-        _enableNtext(self)  # Fix Tk's inane text selection policies.
 
         if text: self.insert("1.0", text)
         self._applyAlignment()
 
         self.editable(editable)
-        self.bind("<<SelectAll>>", self._selectAll)
         self.bind("<Button-1>", lambda event: self.focus_set(), "+")
 
     def getText(self) -> str: return self.get("1.0", "end-1c")
@@ -79,11 +413,6 @@ class Textable(Fontable, Siblingable, Renderable, BareText):
                 self._applyAlignment()
 
         return self._alignment
-
-    def selectAll(self):
-        if self.getText():
-            self.tag_add("sel", "1.0", "end-1c")
-            self.mark_set("insert", "end-1c")
 
     def setBackground(self, color:str):
         if color == self._bg_color: return
@@ -116,10 +445,6 @@ class Textable(Fontable, Siblingable, Renderable, BareText):
     def _rebuildBackground(self):
         self.setSkin(self._backgroundSkin(), implied=True)
         self.dirty = True
-
-    def _selectAll(self, event=None):
-        self.selectAll()
-        return "break"
 
     def _applyAlignment(self):
         self.tag_configure("_alignment", justify=self._alignment)
@@ -526,6 +851,8 @@ class Inputable:
             self._replaceSelection("", "cut")
 
         return "break"
+
+    def _selectionChanged(self): self._undo_history.breakGroup()
 
     def _inputFocusIn(self, event=None):
         if not self.editable() and self.getText(): self.selectAll()
