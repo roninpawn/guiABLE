@@ -1,6 +1,5 @@
 import tkinter as tk
 import tkinter.font as tkfont
-from pathlib import Path
 
 from guiABLE.fontable import Fontable, FontPack
 from guiABLE.skinnable import Skin
@@ -8,24 +7,6 @@ from guiABLE.uimage import UImage
 from guiABLE.utilities import warnPrint
 from guiABLE.history import EditHistory
 from guiABLE.widgetables import Paddable, Imageable, Siblingable, TextCanvas, Renderable, BareText
-
-
-""" NText is a fix for Tk's nonsensical, CLI-style text selection standards, developed by Keith Nash. """
-def _enableNtext(widget):
-    try:
-        widget.tk.call("package", "present", "ntext")
-    except tk.TclError:
-        source = Path(__file__).parent / "vendor" / "ntext" / "ntext.tcl"
-        widget.tk.call("source", str(source))
-
-    tags = list(widget.bindtags())
-
-    if "Text" in tags:
-        tags[tags.index("Text")] = "Ntext"
-    elif "Ntext" not in tags:
-        tags.insert(1, "Ntext")
-
-    widget.bindtags(tuple(tags))
 
 
 """ TextSelectable aims to fix Tk's eggregious command-line-style text selection system. NText was tried and found to be
@@ -44,6 +25,8 @@ class TextSelectable:
         self.bind("<<SelectPrevChar>>", self._selectPrevChar)
         self.bind("<<SelectNextWord>>", self._selectNextWord)
         self.bind("<<SelectPrevWord>>", self._selectPrevWord)
+
+        self.bind("<KeyRelease>", self._navigationReleased, "+")
 
         self.bind("<Button-1>", self._selectionPress, "+")
         self.bind("<Double-Button-1>", self._doubleClick)
@@ -91,6 +74,12 @@ class TextSelectable:
             end = self.index(f"{end} +1c")
 
         return start, end
+
+    def _navigationReleased(self, event):
+        if event.state & 0x0001: return  # Shift held: this was selection navigation.
+
+        if event.keysym in ("Left", "Right", "Up", "Down", "Home", "End", "Prior", "Next"):
+            self.mark_set("anchor", "insert")
 
     def _tripleClick(self, event):
         index = self.index(f"@{event.x},{event.y}")
@@ -299,14 +288,7 @@ class TextSelectable:
         if self.compare(insert, ">=", line_end):
             return self._extendSelection(insert)
 
-        kind = self._selectionKind(self.get(insert))
-        target = self.index(f"{insert} +1c")
-
-        if kind != "glyph":
-            while self.compare(target, "<", line_end):
-                if self._selectionKind(self.get(target)) != kind: break
-                target = self.index(f"{target} +1c")
-
+        target = self._nextSelectionTarget(insert, line_end)
         return self._extendSelection(target)
 
     def _selectPrevWord(self, event=None):
@@ -316,16 +298,65 @@ class TextSelectable:
         if self.compare(insert, "<=", line_start):
             return self._extendSelection(insert)
 
-        target = self.index(f"{insert} -1c")
-        kind = self._selectionKind(self.get(target))
-
-        if kind != "glyph":
-            while self.compare(target, ">", line_start):
-                previous = self.index(f"{target} -1c")
-                if self._selectionKind(self.get(previous)) != kind: break
-                target = previous
-
+        target = self._previousSelectionTarget(insert, line_start)
         return self._extendSelection(target)
+
+    def _nextSelectionTarget(self, index, line_end):
+        kind = self._selectionKind(self.get(index))
+
+        # Starting in meaningful text: finish only this unit.
+        if kind != "space":
+            return self._unitEnd(index, line_end)
+
+        # Starting in whitespace: absorb it and the following unit.
+        target = self._unitEnd(index, line_end)
+
+        if self.compare(target, "<", line_end):
+            target = self._unitEnd(target, line_end)
+
+        return target
+
+    def _previousSelectionTarget(self, index, line_start):
+        previous = self.index(f"{index} -1c")
+        kind = self._selectionKind(self.get(previous))
+
+        # Starting beside meaningful text: finish only this unit.
+        if kind != "space":
+            return self._unitStart(previous, line_start)
+
+        # Starting beside whitespace: absorb it and the preceding unit.
+        target = self._unitStart(previous, line_start)
+
+        if self.compare(target, ">", line_start):
+            previous = self.index(f"{target} -1c")
+            target = self._unitStart(previous, line_start)
+
+        return target
+
+    def _unitEnd(self, index, line_end):
+        kind = self._selectionKind(self.get(index))
+        target = self.index(f"{index} +1c")
+
+        if kind == "glyph": return target
+
+        while self.compare(target, "<", line_end):
+            if self._selectionKind(self.get(target)) != kind: break
+            target = self.index(f"{target} +1c")
+
+        return target
+
+    def _unitStart(self, index, line_start):
+        kind = self._selectionKind(self.get(index))
+        target = index
+
+        if kind == "glyph": return target
+
+        while self.compare(target, ">", line_start):
+            previous = self.index(f"{target} -1c")
+            if self._selectionKind(self.get(previous)) != kind: break
+            target = previous
+
+        return target
 
     def _extendSelection(self, target):
         insert = self.index("insert")
@@ -598,6 +629,7 @@ class Inputable:
         self.bind("<<Paste>>", self._paste)
         self.bind("<<PasteSelection>>", self._pasteSelection)
         self.bind("<<Cut>>", self._cut)
+        self.bind("<<Copy>>", self._copy)
 
         self.bind("<<Undo>>", self._undo)
         self.bind("<<Redo>>", self._redo)
@@ -841,6 +873,16 @@ class Inputable:
 
         return "break"
 
+    def _copy(self, event=None):
+        selection = self.tag_ranges("sel")
+        if not selection: return "break"
+
+        text = self.get(selection[0], selection[-1])
+
+        self.clipboard_clear()
+        self.clipboard_append(text)
+        return "break"
+
     def _cut(self, event=None):
         if not self.editable(): return "break"
 
@@ -940,7 +982,16 @@ class InputLine(Inputable, Textable):
         if state == "disabled": self.configure(state="disabled")
         self._applyAlignment()
 
+    def _copy(self, event=None):
+        if self._masked: return "break"
+        return super()._copy(event)
+
+    def _cut(self, event=None):
+        if self._masked: return "break"
+        return super()._cut(event)
+
     def _paste(self, event=None):
+        if self._masked: return "break"
         try: text = self.clipboard_get()
         except tk.TclError: return "break"
 
@@ -948,6 +999,7 @@ class InputLine(Inputable, Textable):
         return "break"
 
     def _pasteSelection(self, event=None):
+        if self._masked: return "break"
         try: text = self.selection_get(selection="PRIMARY")
         except tk.TclError: return "break"
 
