@@ -16,6 +16,8 @@ class TextSelectable:
         super().__init__(*args, **kwargs)
 
         self._selection_core = None
+        self._selection_line_core = None
+
         self._drag_anchor = None
         self._drag_position = None
         self._drag_after = None
@@ -86,6 +88,8 @@ class TextSelectable:
         start = self.index(f"{index} linestart")
         end = self.index(f"{index} lineend")
 
+        self._selection_core = None
+        self._selection_line_core = (start, end)
         self._setSelection(start, end)
         return "break"
 
@@ -135,7 +139,7 @@ class TextSelectable:
     def _selectionChanged(self): pass
 
     def _selectionDrag(self, event):
-        if self._selection_core is None and self._drag_anchor is None: return
+        if self._selection_core is None and self._selection_line_core is None and self._drag_anchor is None: return
 
         self._drag_position = (event.x, event.y)
 
@@ -148,6 +152,10 @@ class TextSelectable:
         return "break"
 
     def _updateSelectionDrag(self, x:int, y:int):
+        if self._selection_line_core is not None:
+            self._updateLineSelectionDrag(x, y)
+            return
+
         height = self.winfo_height()
 
         if self._selection_core is None:
@@ -173,6 +181,30 @@ class TextSelectable:
             target_start, target_end = self._selectionUnit(target)
 
         core_start, core_end = self._selection_core
+
+        if self.compare(target_end, "<=", core_start):
+            self._setSelection(target_start, core_end, target_start)
+
+        elif self.compare(target_start, ">=", core_end):
+            self._setSelection(core_start, target_end, target_end)
+
+        else:
+            self._setSelection(core_start, core_end, core_end)
+
+    def _updateLineSelectionDrag(self, x:int, y:int):
+        height = self.winfo_height()
+
+        if y < 0:
+            target = self.index("@0,0")
+        elif y >= height:
+            target = self.index(f"@0,{height - 1}")
+        else:
+            target = self.index(f"@{x},{y}")
+
+        target_start = self.index(f"{target} linestart")
+        target_end = self.index(f"{target} lineend")
+
+        core_start, core_end = self._selection_line_core
 
         if self.compare(target_end, "<=", core_start):
             self._setSelection(target_start, core_end, target_start)
@@ -223,11 +255,12 @@ class TextSelectable:
     def _selectionRelease(self, event=None):
         self._stopSelectionScan()
         self._selection_core = None
+        self._selection_line_core = None
         self._drag_anchor = None
         self._drag_position = None
 
     def _selectionLeave(self, event=None):
-        if self._selection_core is not None or self._drag_anchor is not None:
+        if self._selection_core is not None or self._selection_line_core is not None or self._drag_anchor is not None:
             return "break"
 
     def _startSelectionScan(self):
@@ -238,7 +271,7 @@ class TextSelectable:
         self._drag_after = None
 
         if self._drag_position is None: return
-        if self._selection_core is None and self._drag_anchor is None: return
+        if self._selection_core is None and self._selection_line_core is None and self._drag_anchor is None: return
 
         x, y = self._drag_position
         height = self.winfo_height()
