@@ -98,14 +98,14 @@ def test_gui():
         label.place(x=10, y=30*i)
         #label.pack(padx=10, pady=10, fill="both")
 
-    text_test = InputLine(scroll_win.plate, 200, 18, font_pack=label_font, max_chars=12).place(90, 20)
+    text_test = InputLine(scroll_win.plate, 200, 28, font_pack=label_font, max_chars=12).place(90, 20)
     text_test.setMask("*", True)
     text_test.setSubmitFunction(lambda:text_test.editable(False))
-    text_test.setPlaceholder("Enter Password",FontPack(weight="italic", color="#BBBBBB"))
-    sel_btn = Button(scroll_win.plate, None, text_test.selectAll, width=18, height=18).place(290, 20)
+    text_test.setPlaceholder("Enter Password", FontPack(weight="italic", color="#BBBBBB"))
+    sel_btn = Button(scroll_win.plate, None, text_test.selectAll, width=28, height=28).place(292, 20)
 
     url = TextLabel(scroll_win.plate, "https://roninpawn.com\nVisit today!\nTry our new centerable text!",
-                    None, label_font, "#161a1a", border=10, align="center").place(90, 52)
+                    None, label_font, "#161a1a", border=10, align="center").place(90, 58)
     url.setFontAttributes(weight="bold", text_offset=(-4, -2), color="lime")
     url.setFontPack(FontPack(color="blue", weight="normal", anchor="right"))
 
@@ -118,7 +118,6 @@ def test_gui():
     blob = AssignmentBlob(scroll_win.plate, 260, 120, "", bg_color="#161a1a", tab_focus=False)
     blob.setText("This is an 'editable' (text) blob. And it wraps at the edge.")
     blob.setBorder(2)
-    blob.textArea.configure(padx=2, pady=2)
     blob.place(90, 144)
 
     test_drag2 = Drag(scroll_win.frame, skin=drag_skin)

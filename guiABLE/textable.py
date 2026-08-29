@@ -446,7 +446,6 @@ class Textable(TextSelectable, Fontable, Siblingable, Renderable, BareText):
         self.bind("<Button-1>", lambda event: self.focus_set(), "+")
 
     def getText(self) -> str: return self.get("1.0", "end-1c")
-
     def setText(self, text:str):
         state = self.cget("state")
 
@@ -455,6 +454,12 @@ class Textable(TextSelectable, Fontable, Siblingable, Renderable, BareText):
         self.insert("1.0", text)
         self._applyAlignment()
         if state == "disabled": self.configure(state="disabled")
+
+    def padding(self, x:int=None, y:int=None) -> tuple[int,int]:
+        if x is not None: self.configure(padx=max(0, int(x)))
+        if y is not None: self.configure(pady=max(0, int(y)))
+
+        return int(self.cget("padx")), int(self.cget("pady"))
 
     def align(self, alignment:str=None) -> str:
         if alignment is not None:
@@ -540,6 +545,8 @@ class TextNestable(Fontable, Nestable):
 
     @property
     def _text(self): return self._nested_child
+    @property
+    def textArea(self): return self._text
 
     def nestText(self, text, fill:bool=False):
         self.nestChild(text, fill)
@@ -547,12 +554,14 @@ class TextNestable(Fontable, Nestable):
         self._syncTextBackground()
 
     def getText(self) -> str: return self._text.getText()
-
     def setText(self, text:str):
         self._text.setText(text)
         self._textChanged()
 
     def selectAll(self): self._text.selectAll()
+
+    def padding(self, x:int=None, y:int=None) -> tuple[int,int]: return self._text.padding(x, y)
+
     def align(self, alignment:str=None) -> str: return self._text.align(alignment)
 
     def setBackground(self, color:str=None):
@@ -916,8 +925,9 @@ class NestedInputable(Inputable):
 
 """ Image-backed text input whose native editing surface fills the bordered inner area. """
 class InputHostable(TextNestable):
-    @property
-    def textArea(self): return self._text
+    def __init__(self, *args, padding:tuple[int,int]=(5, 3), **kwargs):
+        self._text_padding = padding
+        super().__init__(*args, **kwargs)
 
     @property
     def undoHistory(self): return self._text.undoHistory
@@ -930,6 +940,10 @@ class InputHostable(TextNestable):
     def validateInput(self, proposed:str) -> bool: return True
     def inputOverflow(self, requested:str, accepted:str): pass
     def enterPressed(self) -> bool: return True
+
+    def nestInput(self, text):
+        self.nestText(text, True)
+        self.padding(*self._text_padding)
 
 
 """ Single-line Inputable with placeholder, masking, submission behavior, and single-line normalization. """
@@ -1067,7 +1081,7 @@ class InputLine(InputHostable, Imageable, Siblingable, TextCanvas):
             mask=mask, masked=masked, submit_function=submit_function, align=align
         )
 
-        self.nestText(text_widget, True)
+        self.nestInput(text_widget)
 
     def setPlaceholder(self, text:str=None, font_pack:FontPack=None): self._text.setPlaceholder(text, font_pack)
     def setMask(self, character:str=None, masked:bool=None): self._text.setMask(character, masked)
@@ -1115,6 +1129,6 @@ class TextBlob(InputHostable, Imageable, Siblingable, TextCanvas):
             tab_focus=tab_focus, wrap=wrap, align=align
         )
 
-        self.nestText(text_widget, True)
+        self.nestInput(text_widget)
 
     def setMaxLines(self, max_lines:int=None): self._text.setMaxLines(max_lines)
