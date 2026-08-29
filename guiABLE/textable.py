@@ -6,7 +6,7 @@ from guiABLE.skinnable import Skin
 from guiABLE.uimage import UImage
 from guiABLE.utilities import warnPrint
 from guiABLE.history import EditHistory
-from guiABLE.widgetables import Paddable, Imageable, Siblingable, TextCanvas, Renderable, BareText
+from guiABLE.widgetables import Nestable, Imageable, Siblingable, TextCanvas, Renderable, BareText
 
 
 """ TextSelectable aims to fix Tk's eggregious command-line-style text selection system. NText was tried and found to be
@@ -59,9 +59,6 @@ class TextSelectable:
     def _selectionUnit(self, index):
         kind = self._selectionKind(self.get(index))
         start, end = index, self.index(f"{index} +1c")
-
-        # Glyphs stand alone. Words and whitespace expand to like neighbors.
-        if kind == "glyph": return start, end
 
         line_start = self.index(f"{index} linestart")
         line_end = self.index(f"{index} lineend")
@@ -298,7 +295,7 @@ class TextSelectable:
     def _selectionKind(char:str) -> str:
         if char.isalnum() or char == "_": return "word"
         if char != "\n" and char.isspace(): return "space"
-        return "glyph"
+        return "symbol"
 
     def _selectNextChar(self, event=None):
         insert = self.index("insert")
@@ -370,8 +367,6 @@ class TextSelectable:
         kind = self._selectionKind(self.get(index))
         target = self.index(f"{index} +1c")
 
-        if kind == "glyph": return target
-
         while self.compare(target, "<", line_end):
             if self._selectionKind(self.get(target)) != kind: break
             target = self.index(f"{target} +1c")
@@ -381,8 +376,6 @@ class TextSelectable:
     def _unitStart(self, index, line_start):
         kind = self._selectionKind(self.get(index))
         target = index
-
-        if kind == "glyph": return target
 
         while self.compare(target, ">", line_start):
             previous = self.index(f"{target} -1c")
@@ -428,12 +421,7 @@ class TextSelectable:
     def _selectionChanged(self): pass
 
 
-"""
-Textable is a native tk.Text surface that participates honestly in guiABLE compositing.
-Tk renders the native text/caret/selection, while a matching solid-color Skin represents
-the widget's opaque surface to the raster compositor.
-"""
-
+""" Base text widget providing rendering, font, alignment, focus, and shared text behavior. """
 class Textable(TextSelectable, Fontable, Siblingable, Renderable, BareText):
     def __init__(self, parent, width:int, height:int, text:str="",
                  bg_color:str="#6B6B6B", font_pack:FontPack=None,
@@ -544,29 +532,19 @@ class Textable(TextSelectable, Fontable, Siblingable, Renderable, BareText):
         super()._afterGeometryChanges()
 
 
-class TextLabel(Fontable, Paddable, Imageable, Siblingable, TextCanvas):
-    def __init__(self, parent, text:str="", skin=None, font_pack:FontPack=None,
-                 bg_color:str=None, anchor:str=None, text_offset:tuple[int,int]=None,
-                 align:str="left", **kwargs):
-
+""" Nestable specialized for an inner Textable, synchronizing shared font and graphical background state. """
+class TextNestable(Fontable, Nestable):
+    def __init__(self, *args, bg_color:str=None, **kwargs):
         self._bg_color = bg_color
+        super().__init__(*args, **kwargs)
 
-        if anchor is not None: kwargs["anchor"] = anchor
-        if text_offset is not None: kwargs["text_offset"] = text_offset
+    @property
+    def _text(self): return self._nested_child
 
-        width_declared = kwargs.get("width") is not None
-        height_declared = kwargs.get("height") is not None
-
-        super().__init__(parent, skin=skin, font_pack=font_pack, **kwargs)
-
-        self._auto_width = not width_declared and self.width <= 0
-        self._auto_height = not height_declared and self.height <= 0
-
-        self._text = Textable(self, 1, 1, text=text, font_pack=self._font_pack, bg_color=self._textBackground(),
-                              editable=False, wrap="none", takefocus=0, align=align)
-
-        self._syncFontTo(self._text)
-        self._textChanged()
+    def nestText(self, text, fill:bool=False):
+        self.nestChild(text, fill)
+        self._syncFontTo(text)
+        self._syncTextBackground()
 
     def getText(self) -> str: return self._text.getText()
 
@@ -581,13 +559,10 @@ class TextLabel(Fontable, Paddable, Imageable, Siblingable, TextCanvas):
         self._bg_color = color
         self._syncTextBackground()
 
-    def _textChanged(self):
-        self._text._fitText()
-        self._fitToText()
-        self._anchorText()
+    def _textChanged(self): pass
 
     def _fontChanged(self):
-        if hasattr(self, "_text"):
+        if self._text is not None:
             self._syncFontTo(self._text)
             self._textChanged()
 
@@ -596,45 +571,44 @@ class TextLabel(Fontable, Paddable, Imageable, Siblingable, TextCanvas):
         return color or "#6B6B6B"
 
     def _syncTextBackground(self):
-        if hasattr(self, "_text"):
+        if self._text is not None:
             color = self._textBackground()
             if self._text._bg_color != color: self._text.setBackground(color)
-
-    def _anchorText(self):
-        self.anchorChild(self._text, self._fontValue("anchor"), self._fontValue("text_offset"))
-
-    def _fitToText(self):
-        width, height = self.paddedSize(*self._text.size)
-        width, height = self.borderedSize(width, height)
-
-        width = width if self._auto_width else self.width
-        height = height if self._auto_height else self.height
-
-        if (width, height) == self.size: return
-
-        self._geometry = (*self.location, width, height)
-        self._scratch = UImage(width=width, height=height)
-
-        if self._placed:
-            self.place_configure(width=width, height=height, implied=True)
-
-    def _borderChanged(self):
-        if hasattr(self, "_text"): self._fitToText()
-        super()._borderChanged()
-
-    def _paddingChanged(self):
-        if hasattr(self, "_text"): self._fitToText()
-        super()._paddingChanged()
-
-    def childChanged(self, child):
-        if child is self._text: self._fitToText()
-        super().childChanged(child)
 
     def redraw(self):
         self._syncTextBackground()
         return super().redraw()
 
 
+""" Read-only text display built around Textable, with automatic sizing and image-backed presentation. """
+class TextLabel(TextNestable, Imageable, Siblingable, TextCanvas):
+    def __init__(self, parent, text:str="", skin=None, font_pack:FontPack=None,
+                 bg_color:str=None, anchor:str=None, text_offset:tuple[int,int]=None,
+                 align:str="left", **kwargs):
+
+        if anchor is not None: kwargs["anchor"] = anchor
+        if text_offset is not None: kwargs["text_offset"] = text_offset
+
+        super().__init__(parent, skin=skin, font_pack=font_pack, bg_color=bg_color, **kwargs)
+
+        text_widget = Textable(self, 1, 1, text=text, font_pack=self._font_pack, bg_color=self._textBackground(),
+                              editable=False, wrap="none", takefocus=0, align=align)
+
+        self.nestText(text_widget)
+        self._textChanged()
+
+    def _textChanged(self):
+        self._text._fitText()
+        self._fitToNested()
+        self._anchorText()
+
+    def _anchorText(self):
+        self.anchorChild(self._text, self._fontValue("anchor"), self._fontValue("text_offset"))
+
+
+"""
+Editable text layer providing validation, selection-aware editing, clipboard actions, undo history, and input policy.
+"""
 class Inputable:
     def __init__(self, *args, text:str="", editable:bool=True, max_chars:int=None,
                  tab_focus:bool=True, tab_size:int=4, **kwargs):
@@ -819,7 +793,7 @@ class Inputable:
         selection = self.tag_ranges("sel")
 
         if selection: start, end = selection
-        return self._replaceRange(start, end, text, "insert")
+        return self._replaceRange(start, end, text, operation)
 
     def _replaceRange(self, start, end, text:str, operation:str="replace"):
         text = self._normalizeInput(text)
@@ -933,7 +907,33 @@ class Inputable:
         if not self.editable() and self.getText(): self.selectAll()
 
 
-class InputLine(Inputable, Textable):
+""" Bridges developer-overridable Inputable hooks back to the public outer widget. """
+class NestedInputable(Inputable):
+    def validateInput(self, proposed:str) -> bool: return self.parent.validateInput(proposed)
+    def inputOverflow(self, requested:str, accepted:str): self.parent.inputOverflow(requested, accepted)
+    def enterPressed(self) -> bool: return self.parent.enterPressed()
+
+
+""" Image-backed text input whose native editing surface fills the bordered inner area. """
+class InputHostable(TextNestable):
+    @property
+    def textArea(self): return self._text
+
+    @property
+    def undoHistory(self): return self._text.undoHistory
+
+    def editable(self, editable:bool=None) -> bool: return self._text.editable(editable)
+    def setMaxChars(self, max_chars:int=None): self._text.setMaxChars(max_chars)
+    def tabFocus(self, enabled:bool=None) -> bool: return self._text.tabFocus(enabled)
+    def tabSize(self, size:int=None) -> int: return self._text.tabSize(size)
+
+    def validateInput(self, proposed:str) -> bool: return True
+    def inputOverflow(self, requested:str, accepted:str): pass
+    def enterPressed(self) -> bool: return True
+
+
+""" Single-line Inputable with placeholder, masking, submission behavior, and single-line normalization. """
+class InputLineable(NestedInputable, Textable):
     def __init__(self, parent, width:int, height:int, text:str="",
                  editable:bool=True, max_chars:int=None,
                  placeholder:str=None, placeholder_pack:FontPack=None,
@@ -977,10 +977,6 @@ class InputLine(Inputable, Textable):
     def setSubmitFunction(self, function): self._submit_function = function
     def submit(self):
         if self._submit_function is not None: self._submit_function()
-
-    def enterPressed(self) -> bool:
-        self.submit()
-        return False
 
     def _normalizeInput(self, text:str) -> str:
         return text.replace("\r\n", " ").replace("\r", " ").replace("\n", " ")
@@ -1056,7 +1052,36 @@ class InputLine(Inputable, Textable):
         self._refreshDisplay()
 
 
-class TextBlob(Inputable, Textable):
+""" Single-line image-backed text input with placeholder, masking, submission, and validation support. """
+class InputLine(InputHostable, Imageable, Siblingable, TextCanvas):
+    def __init__(self, parent, width:int, height:int, text:str="", skin=None, font_pack:FontPack=None,
+                 bg_color:str=None, editable:bool=True, max_chars:int=None,
+                 placeholder:str=None, placeholder_pack:FontPack=None,
+                 mask:str=None, masked:bool=False, submit_function=None, align:str="left", **kwargs):
+
+        super().__init__(parent, width=width, height=height, skin=skin, font_pack=font_pack, bg_color=bg_color, **kwargs)
+
+        text_widget = InputLineable(
+            self, 1, 1, text=text, font_pack=self._font_pack, bg_color=self._textBackground(),
+            editable=editable, max_chars=max_chars, placeholder=placeholder, placeholder_pack=placeholder_pack,
+            mask=mask, masked=masked, submit_function=submit_function, align=align
+        )
+
+        self.nestText(text_widget, True)
+
+    def setPlaceholder(self, text:str=None, font_pack:FontPack=None): self._text.setPlaceholder(text, font_pack)
+    def setMask(self, character:str=None, masked:bool=None): self._text.setMask(character, masked)
+    def masked(self, masked:bool=None) -> bool: return self._text.masked(masked)
+    def setSubmitFunction(self, function): self._text.setSubmitFunction(function)
+    def submit(self): self._text.submit()
+
+    def enterPressed(self) -> bool:
+        self.submit()
+        return False
+
+
+""" Multi-line Inputable supporting wrapping, line limits, indentation, and general text-entry behavior. """
+class TextBlobable(NestedInputable, Textable):
     def __init__(self, parent, width:int, height:int, text:str="",
                  editable:bool=True, max_chars:int=None, max_lines:int=None,
                  tab_focus:bool=True, wrap:str="word", **kwargs):
@@ -1074,3 +1099,22 @@ class TextBlob(Inputable, Textable):
         return super()._validateInput(proposed)
 
     def _normalizeInput(self, text:str) -> str: return text.replace("\r\n", "\n").replace("\r", "\n")
+
+
+""" Multi-line image-backed text input supporting wrapping, line limits, indentation, and validation. """
+class TextBlob(InputHostable, Imageable, Siblingable, TextCanvas):
+    def __init__(self, parent, width:int, height:int, text:str="", skin=None, font_pack:FontPack=None,
+                 bg_color:str=None, editable:bool=True, max_chars:int=None, max_lines:int=None,
+                 tab_focus:bool=True, wrap:str="word", align:str="left", **kwargs):
+
+        super().__init__(parent, width=width, height=height, skin=skin, font_pack=font_pack, bg_color=bg_color, **kwargs)
+
+        text_widget = TextBlobable(
+            self, 1, 1, text=text, font_pack=self._font_pack, bg_color=self._textBackground(),
+            editable=editable, max_chars=max_chars, max_lines=max_lines,
+            tab_focus=tab_focus, wrap=wrap, align=align
+        )
+
+        self.nestText(text_widget, True)
+
+    def setMaxLines(self, max_lines:int=None): self._text.setMaxLines(max_lines)

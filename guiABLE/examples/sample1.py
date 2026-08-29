@@ -113,10 +113,12 @@ def test_gui():
     class AssignmentBlob(TextBlob):
         def enterPressed(self) -> bool:
             line = self.get("insert linestart", "insert lineend")
-            return not line or "=" in line
+            return "=" in line
 
     blob = AssignmentBlob(scroll_win.plate, 260, 120, "", bg_color="#161a1a", tab_focus=False)
-    blob.setText("This is an 'editable' (text) blob.")
+    blob.setText("This is an 'editable' (text) blob. And it wraps at the edge.")
+    blob.setBorder(2)
+    blob.textArea.configure(padx=2, pady=2)
     blob.place(90, 144)
 
     test_drag2 = Drag(scroll_win.frame, skin=drag_skin)

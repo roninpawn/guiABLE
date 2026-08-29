@@ -463,11 +463,15 @@ class Anchorable:
 
 
 class Borderable(Anchorable):
-    def __init__(self, *args, border=None, **kwargs):
+    def __init__(self, *args, border=None, expand=None, **kwargs):
         self._explicit_size = [kwargs.get("width") is not None, kwargs.get("height") is not None]
 
         self._border = (0, 0, 0, 0)             # top, right, bottom, left
         self._border_offset_axes = [False, False]
+
+        self._expansion = (0, 0)
+        self._expansion_axes = [False, False]
+
         self._offset_override = [None, None]
 
         super().__init__(*args, **kwargs)
@@ -479,6 +483,7 @@ class Borderable(Anchorable):
         ]
 
         if border is not None: self.setBorder(border)
+        if expand is not None: self.expand(expand)
 
     @property
     def border(self) -> tuple[int,int,int,int]: return self._border
@@ -493,11 +498,33 @@ class Borderable(Anchorable):
         if not implied:
             self._border_offset_axes = [bool(left or right), bool(top or bottom)]
 
-        self._positionAnchoredChild()
+        self._borderChanged()
+
+    def expand(self, width=None, height=None) -> tuple[int,int]:
+        if width is None and height is None: return self._expansion
+
+        if isinstance(width, (tuple, list)):
+            if len(width) != 2: raise ValueError("expand must contain width and height")
+            width, height = width
+
+        elif height is None:
+            height = width
+
+        width, height = max(0, int(width)), max(0, int(height))
+
+        if (width, height) != self._expansion:
+            self._expansion = (width, height)
+            self._expansion_axes = [width > 0, height > 0]
+            self._expansionChanged()
+
+        return self._expansion
 
     def borderedSize(self, width:int, height:int) -> tuple[int,int]:
         top, right, bottom, left = self._border
         return width + left + right, height + top + bottom
+
+    def expandedSize(self, width:int, height:int) -> tuple[int,int]:
+        return width + self._expansion[0], height + self._expansion[1]
 
     def anchorArea(self) -> tuple[int,int,int,int]:
         top, right, bottom, left = self._border
@@ -524,14 +551,21 @@ class Borderable(Anchorable):
         self._positionAnchoredChild()
 
     def _automaticAnchorOffsetAxes(self) -> tuple[bool,bool]:
-        return (    self._offset_size_axes[0] or self._border_offset_axes[0] or self._size_declared[0],
-                    self._offset_size_axes[1] or self._border_offset_axes[1] or self._size_declared[1]  )
+        return (
+            self._offset_size_axes[0] or self._border_offset_axes[0] or self._expansion_axes[0] or self._size_declared[0],
+            self._offset_size_axes[1] or self._border_offset_axes[1] or self._expansion_axes[1] or self._size_declared[1]
+        )
 
     def _usesAnchorOffset(self) -> tuple[bool,bool]:
         automatic = self._automaticAnchorOffsetAxes()
 
-        return tuple(   automatic[axis] if self._offset_override[axis] is None else self._offset_override[axis]
-                        for axis in range(2)    )
+        return tuple(
+            automatic[axis] if self._offset_override[axis] is None else self._offset_override[axis]
+            for axis in range(2)
+        )
+
+    def _borderChanged(self): self._positionAnchoredChild()
+    def _expansionChanged(self): self._positionAnchoredChild()
 
     @staticmethod
     def _normalizeBorder(border) -> tuple[int,int,int,int]:
@@ -553,43 +587,73 @@ class Borderable(Anchorable):
         return top, right, bottom, left
 
 
-class Paddable(Borderable):
-    def __init__(self, *args, expand=None, **kwargs):
-        self._padding = (0, 0)
-        self._padding_axes = [False, False]
+""" Provides one distinguished inner child whose geometry can determine the outer widget's automatic size. """
+class Nestable(Borderable):
+    def __init__(self, *args, **kwargs):
+        width_declared = kwargs.get("width") is not None
+        height_declared = kwargs.get("height") is not None
+        self._nested_child = None
+        self._nested_fill = False
 
         super().__init__(*args, **kwargs)
 
-        if expand is not None: self.expand(expand)
+        self._auto_width = not width_declared and self.width <= 0
+        self._auto_height = not height_declared and self.height <= 0
 
-    def expand(self, width=None, height=None) -> tuple[int,int]:
-        if width is None and height is None: return self._padding
+    @property
+    def nestedChild(self): return self._nested_child
 
-        if isinstance(width, (tuple, list)):
-            if len(width) != 2: raise ValueError("expand must contain width and height")
-            width, height = width
+    def nestChild(self, child, fill:bool=False):
+        self._nested_child = child
+        self._nested_fill = fill
+        self._layoutNested()
 
-        elif height is None:
-            height = width
+    def _layoutNested(self):
+        if self._nested_child is None: return
 
-        width, height = max(0, int(width)), max(0, int(height))
+        if not self._nested_fill:
+            self._fitToNested()
+            return
 
-        if (width, height) != self._padding:
-            self._padding = (width, height)
-            self._padding_axes = [width > 0, height > 0]
-            self._paddingChanged()
+        x, y, width, height = self.anchorArea()
 
-        return self._padding
+        if not self._nested_child._placed:
+            self._nested_child.place(x=x, y=y, width=width, height=height)
+        elif self._nested_child.geometry != (x, y, width, height):
+            self._nested_child.place_configure(x=x, y=y, width=width, height=height, implied=True)
 
-    def paddedSize(self, width:int, height:int) -> tuple[int,int]:
-        return width + self._padding[0], height + self._padding[1]
+    def _borderChanged(self):
+        self._layoutNested()
+        super()._borderChanged()
 
-    def _automaticAnchorOffsetAxes(self) -> tuple[bool,bool]:
-        x, y = super()._automaticAnchorOffsetAxes()
-        return x or self._padding_axes[0], y or self._padding_axes[1]
+    def _expansionChanged(self):
+        self._layoutNested()
+        super()._expansionChanged()
 
-    def _paddingChanged(self):
-        self._positionAnchoredChild()
+    def childChanged(self, child):
+        if child is self._nested_child and not self._nested_fill: self._fitToNested()
+        super().childChanged(child)
+
+    def _fitToNested(self):
+        if self._nested_child is None: return
+
+        width, height = self.expandedSize(*self._nested_child.size)
+        width, height = self.borderedSize(width, height)
+
+        width = width if self._auto_width else self.width
+        height = height if self._auto_height else self.height
+
+        if (width, height) == self.size: return
+
+        self._geometry = (*self.location, width, height)
+        self._scratch = UImage(width=width, height=height)
+
+        if self._placed:
+            self.place_configure(width=width, height=height, implied=True)
+
+    def _afterGeometryChanges(self):
+        super()._afterGeometryChanges()
+        if getattr(self, "_nested_fill", False): self._layoutNested()
 
 
 """ Imageable simply displays an image. """
