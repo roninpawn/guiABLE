@@ -2,14 +2,15 @@ import tkinter as tk
 import tkinter.font as tkfont
 
 from guiABLE.fontable import Fontable, FontPack
-from guiABLE.skinnable import Skin
+from guiABLE.skinnable import Skin, ScrollSkin
+from guiABLE.scrollable import Scrollable
 from guiABLE.uimage import UImage
 from guiABLE.utilities import warnPrint
 from guiABLE.history import EditHistory
 from guiABLE.widgetables import Nestable, Imageable, Siblingable, TextCanvas, Renderable, BareText
 
 
-""" TextSelectable aims to fix Tk's eggregious command-line-style text selection system. NText was tried and found to be
+""" TextSelectable aims to fix Tk's egregious command-line-style text selection system. NText was tried and found to be
     an incomplete solution that added thousands of lines of code and hundreds of kB of waste. """
 class TextSelectable:
     def __init__(self, *args, **kwargs):
@@ -27,6 +28,11 @@ class TextSelectable:
         self.bind("<<SelectPrevChar>>", self._selectPrevChar)
         self.bind("<<SelectNextWord>>", self._selectNextWord)
         self.bind("<<SelectPrevWord>>", self._selectPrevWord)
+
+        self.bind("<<SelectPrevLine>>", self._selectPrevLine)
+        self.bind("<<SelectNextLine>>", self._selectNextLine)
+        self.bind("<<SelectPrevPara>>", self._selectPrevPara)
+        self.bind("<<SelectNextPara>>", self._selectNextPara)
 
         self.bind("<KeyRelease>", self._navigationReleased, "+")
 
@@ -329,6 +335,22 @@ class TextSelectable:
             return self._extendSelection(insert)
 
         target = self._previousSelectionTarget(insert, line_start)
+        return self._extendSelection(target)
+
+    def _selectPrevLine(self, event=None):
+        target = self.index(self.tk.call("tk::TextUpDownLine", self._w, -1))
+        return self._extendSelection(target)
+
+    def _selectNextLine(self, event=None):
+        target = self.index(self.tk.call("tk::TextUpDownLine", self._w, 1))
+        return self._extendSelection(target)
+
+    def _selectPrevPara(self, event=None):
+        target = self.index(self.tk.call("tk::TextPrevPara", self._w, "insert"))
+        return self._extendSelection(target)
+
+    def _selectNextPara(self, event=None):
+        target = self.index(self.tk.call("tk::TextNextPara", self._w, "insert"))
         return self._extendSelection(target)
 
     def _nextSelectionTarget(self, index, line_end):
@@ -652,6 +674,14 @@ class Inputable:
         self.bind("<FocusOut>", lambda event: self._undo_history.breakGroup(), "+")
         self.bind("<Button-1>", lambda event: self._undo_history.breakGroup(), "+")
 
+        # Eliminate ancient Tk nonsense-bindings.
+        self.bind("<Control-i>", lambda event: "break")    # Insert tab
+        self.bind("<Control-t>", lambda event: "break")    # Transpose characters
+        self.bind("<Control-d>", lambda event: "break")    # Delete character right
+        self.bind("<Control-k>", lambda event: "break")    # Delete to end of line
+        self.bind("<Control-o>", lambda event: "break")    # Insert newline before cursor
+        self.bind("<Control-h>", lambda event: "break")    # Alternate Backspace
+
         self._refreshDisplay()
 
     @property
@@ -829,7 +859,12 @@ class Inputable:
         )
 
         self._text = proposed
-        self._refreshDisplay(offset1 + len(text))
+
+        cursor = offset1 + len(text)
+        reveal = "insert -1c" if operation == "backspace" and cursor else None
+        self._refreshDisplay(cursor, reveal)
+        if operation == "delete": self._revealForwardLine()
+
         return True
 
     def _deleteBackward(self):
@@ -854,7 +889,9 @@ class Inputable:
 
         return "break"
 
-    def _refreshDisplay(self, cursor:int=None):
+    def _refreshDisplay(self, cursor:int=None, reveal=None):
+        x_view, y_view = self.xview(), self.yview()
+
         state = self.cget("state")
         if state == "disabled": self.configure(state="normal")
 
@@ -864,9 +901,57 @@ class Inputable:
 
         if cursor is not None:
             self.mark_set("insert", self._indexFromOffset(cursor))
-            self.see("insert")
+
+            # Rebuilds should not relocate a viewport that still contains the cursor.
+            self.xview_moveto(x_view[0])
+            self.yview_moveto(y_view[0])
+            self.update_idletasks()
+
+            if not self._cursorVisible(): self.see("insert")
+
+            elif reveal is not None and self.cget("wrap") == "none":
+                self._revealHorizontal(reveal, y_view)
 
         if state == "disabled": self.configure(state="disabled")
+
+    def _cursorVisible(self) -> bool:
+        line = self.dlineinfo("insert")
+        if line is None: return False
+
+        _, y, _, height, _ = line
+        if y < 0 or y + height > self.winfo_height(): return False
+
+        # Confirm horizontal visibility separately.
+        bbox = self.bbox("insert")
+        if bbox is not None: return True
+
+        # An insertion cursor can sit at EOL where no following glyph exists.
+        if self.compare("insert", ">", "1.0"):
+            return self.bbox("insert -1c") is not None
+
+        return False
+
+    def _revealHorizontal(self, index, y_view):
+        if self.bbox(index) is not None: return
+        self.see(index)
+
+        # This reveal exists only to create horizontal feedback.
+        self.yview_moveto(y_view[0])
+
+    def _revealForwardLine(self):
+        next_line = self.index("insert +1 display lines")
+        if self.compare(next_line, "==", "insert"): return
+
+        info = self.dlineinfo(next_line)
+
+        # Keep one complete display line ahead of a forward-destructive cursor.
+        if info is None:
+            self.yview_scroll(1, "units")
+            return
+
+        _, y, _, height, _ = info
+        if y < 0 or y + height > self.winfo_height():
+            self.yview_scroll(1, "units")
 
     def _textOffset(self, index) -> int: return len(self.get("1.0", index))
     def _indexFromOffset(self, offset:int): return self.index(f"1.0 + {offset} chars")
@@ -941,8 +1026,8 @@ class InputHostable(TextNestable):
     def inputOverflow(self, requested:str, accepted:str): pass
     def enterPressed(self) -> bool: return True
 
-    def nestInput(self, text):
-        self.nestText(text, True)
+    def nestInput(self, text, fill:bool=True):
+        self.nestText(text, fill)
         self.padding(*self._text_padding)
 
 
@@ -995,7 +1080,8 @@ class InputLineable(NestedInputable, Textable):
     def _normalizeInput(self, text:str) -> str:
         return text.replace("\r\n", " ").replace("\r", " ").replace("\n", " ")
 
-    def _refreshDisplay(self, cursor:int=None):
+    def _refreshDisplay(self, cursor:int=None, reveal=None):
+        y_view = self.yview()
         placeholder = self._placeholderActive()
 
         display = self._placeholder if placeholder else self._mask * len(self._text) if self._masked else self._text
@@ -1020,7 +1106,9 @@ class InputLineable(NestedInputable, Textable):
         elif cursor is not None:
             cursor = min(cursor, len(self._text))
             self.mark_set("insert", f"1.{cursor}")
-            self.see("insert")
+            self.see(reveal or "insert")
+
+            if y_view: self.yview_moveto(y_view[0])
 
         if state == "disabled": self.configure(state="disabled")
         self._applyAlignment()
@@ -1032,22 +1120,6 @@ class InputLineable(NestedInputable, Textable):
     def _cut(self, event=None):
         if self._masked: return "break"
         return super()._cut(event)
-
-    def _paste(self, event=None):
-        if self._masked: return "break"
-        try: text = self.clipboard_get()
-        except tk.TclError: return "break"
-
-        self._replaceSelection(text, "paste")
-        return "break"
-
-    def _pasteSelection(self, event=None):
-        if self._masked: return "break"
-        try: text = self.selection_get(selection="PRIMARY")
-        except tk.TclError: return "break"
-
-        self._replaceSelection(text, "paste")
-        return "break"
 
     def _placeholderActive(self) -> bool: return not self._text and bool(self._placeholder) and not self._has_focus
 
@@ -1096,15 +1168,36 @@ class InputLine(InputHostable, Imageable, Siblingable, TextCanvas):
 
 """ Multi-line Inputable supporting wrapping, line limits, indentation, and general text-entry behavior. """
 class TextBlobable(NestedInputable, Textable):
+    WRAP_NONE = "none"
+    WRAP_CHAR = "char"
+    WRAP_WORD = "word"
+
     def __init__(self, parent, width:int, height:int, text:str="",
                  editable:bool=True, max_chars:int=None, max_lines:int=None,
-                 tab_focus:bool=True, wrap:str="word", **kwargs):
+                 tab_focus:bool=True, wrap:str=WRAP_WORD, **kwargs):
 
         self._max_lines = max_lines
-        kwargs["wrap"] = wrap
+        kwargs["wrap"] = self._normalizeWrap(wrap)
 
         super().__init__(parent, width, height, text=text, editable=editable,
                          max_chars=max_chars, tab_focus=tab_focus, **kwargs)
+
+    def getWrap(self) -> str: return self.cget("wrap")
+    def setWrap(self, wrap:str):
+        wrap = self._normalizeWrap(wrap)
+
+        if wrap != self.getWrap():
+            self.configure(wrap=wrap)
+            self._notifyLayoutChanged()
+
+    @classmethod
+    def _normalizeWrap(cls, wrap:str) -> str:
+        wrap = str(wrap).lower()
+
+        if wrap not in (cls.WRAP_NONE, cls.WRAP_CHAR, cls.WRAP_WORD):
+            raise ValueError("wrap must be WRAP_NONE, WRAP_CHAR, WRAP_WORD, or their Tk string equivalents")
+
+        return wrap
 
     def setMaxLines(self, max_lines:int=None): self._max_lines = max_lines
 
@@ -1114,14 +1207,29 @@ class TextBlobable(NestedInputable, Textable):
 
     def _normalizeInput(self, text:str) -> str: return text.replace("\r\n", "\n").replace("\r", "\n")
 
+    def _refreshDisplay(self, cursor:int=None, reveal=None):
+        super()._refreshDisplay(cursor, reveal)
+        self._notifyLayoutChanged()
 
-""" Multi-line image-backed text input supporting wrapping, line limits, indentation, and validation. """
-class TextBlob(InputHostable, Imageable, Siblingable, TextCanvas):
-    def __init__(self, parent, width:int, height:int, text:str="", skin=None, font_pack:FontPack=None,
-                 bg_color:str=None, editable:bool=True, max_chars:int=None, max_lines:int=None,
+    def _notifyLayoutChanged(self):
+        if hasattr(self.parent, "_textLayoutChanged"):
+            self.parent._textLayoutChanged()
+
+
+""" Multi-line image-backed text input with native Text scrolling and guiABLE ScrollBars. """
+class TextBlob(Scrollable, InputHostable, Imageable, Siblingable, TextCanvas):
+    def __init__(self, parent, width:int, height:int, scroll_skin:ScrollSkin, text:str="",
+                 skin=None, font_pack:FontPack=None, bg_color:str=None,
+                 editable:bool=True, max_chars:int=None, max_lines:int=None,
                  tab_focus:bool=True, wrap:str="word", align:str="left", **kwargs):
 
-        super().__init__(parent, width=width, height=height, skin=skin, font_pack=font_pack, bg_color=bg_color, **kwargs)
+        self._text_layout_after = None
+        self._text_scroll_ready = False
+
+        super().__init__(
+            parent, width=width, height=height, skin=skin, scroll_skin=scroll_skin,
+            font_pack=font_pack, bg_color=bg_color, **kwargs
+        )
 
         text_widget = TextBlobable(
             self, 1, 1, text=text, font_pack=self._font_pack, bg_color=self._textBackground(),
@@ -1129,6 +1237,84 @@ class TextBlob(InputHostable, Imageable, Siblingable, TextCanvas):
             tab_focus=tab_focus, wrap=wrap, align=align
         )
 
-        self.nestInput(text_widget)
+        self.nestInput(text_widget, False)
+        x, y, width, height = self._scrollArea()
+        self._sizeTextViewport(width, height)
+
+        self._text.configure(
+            xscrollcommand=lambda first, last: self._textViewChanged(0, first, last),
+            yscrollcommand=lambda first, last: self._textViewChanged(1, first, last)
+        )
+
+        self._text.bind("<Map>", self._textMapped, "+")
+        self._text.bind("<MouseWheel>", self._textMouseWheel)
+
+        self._spawnScrollbars()
+        self._text_scroll_ready = True
+        self._textLayoutChanged()
 
     def setMaxLines(self, max_lines:int=None): self._text.setMaxLines(max_lines)
+
+    def getWrap(self) -> str: return self._text.getWrap()
+    def setWrap(self, wrap:str): self._text.setWrap(wrap)
+
+    def _scrollArea(self) -> tuple[int,int,int,int]: return self.anchorArea()
+    def _scrollViewportSize(self, axis:int) -> int: return self._text.size[axis]
+    def _scrollView(self, axis:int) -> tuple[float,float]:
+        return self._text.xview() if axis == 0 else self._text.yview()
+
+    def _scrollToPercent(self, axis:int, percent:float):
+        percent = max(0.0, min(1.0, percent))
+        first, last = self._scrollView(axis)
+        destination = percent * max(1.0 - (last - first), 0.0)
+
+        if axis == 0: self._text.xview_moveto(destination)
+        else:         self._text.yview_moveto(destination)
+
+    def _scrollOverflow(self, axis:int, viewport_size:tuple[int,int]) -> bool:
+        self._sizeTextViewport(*viewport_size)
+
+        if axis:
+            self._syncTextMetrics()
+        else: self.update_idletasks()
+
+        first, last = self._scrollView(axis)
+        return first > 0.0 or last < 1.0
+
+    def _applyScrollViewport(self, width:int, height:int):
+        self._sizeTextViewport(width, height)
+        self._syncTextMetrics()
+
+    def _sizeTextViewport(self, width:int, height:int):
+        x, y, _, _ = self._scrollArea()
+        geometry = x, y, width, height
+
+        if not self._text._placed:
+            self._text.place(x=x, y=y, width=width, height=height)
+        elif self._text.geometry != geometry:
+            self._text.place_configure(x=x, y=y, width=width, height=height, implied=True)
+
+    def _textViewChanged(self, axis:int, first, last):
+        if not self._bars or self._layout_lock: return
+        self._viewChanged(axis, float(first), float(last))
+
+    def _textLayoutChanged(self):
+        if not self._text_scroll_ready or self._text_layout_after is not None: return
+        self._text_layout_after = self.after_idle(self._syncTextLayout)
+
+    def _textMapped(self, event=None):
+        self._textLayoutChanged()
+
+    def _syncTextLayout(self):
+        self._text_layout_after = None
+
+        if not self._text.winfo_ismapped(): return
+        self._syncLayout()
+
+    def _syncTextMetrics(self):
+        self.update_idletasks()
+        self._text.count("1.0", "end", "update", "ypixels")
+
+    def _textMouseWheel(self, event):
+        self.scrollByWheel(event)
+        return "break"

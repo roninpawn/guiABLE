@@ -462,7 +462,14 @@ class BarSkin(DirtySkin, ColorSkin):
     def fromTwo(cls, cap_skin:Skin|FilterSkin, trough_skin:Skin|FilterSkin, vertical:bool = False, breadth:int = 0):
         return cls(cap_skin, trough_skin, vertical=vertical, breadth=breadth)
 
-    def image(self, index:int = 0, length:int = None) -> UImage:
+    def usesBgColors(self, use:bool=None) -> bool:
+        if use is not None:
+            if use: self._expand(max(len(self._images), len(self._bg_colors)))
+            self.dirty = True
+
+        return super().usesBgColors(use)
+
+    def image(self, index:int=0, length:int=None) -> UImage:
         if length and length != self.length and length > 2: self.length = length
         return super().image(index)
 

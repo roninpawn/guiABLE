@@ -68,6 +68,7 @@ def test_gui():
     scroll_skin = ScrollSkin.fromSkins(cap_skin, trough_skin, None, True, cap_skin, "n")
     scroll_win = ScrollWindow(app, 450, 280, scroll_skin, "#3B4F4F")
     scroll_win.place(x=20, y=100)
+    scroll_win.setScrollbarVisibility(1)
 
     #scroll_area.dominant_axis = 0
     #scroll_area.showBars(1, 1)
@@ -109,14 +110,13 @@ def test_gui():
     url.setFontAttributes(weight="bold", text_offset=(-4, -2), color="lime")
     url.setFontPack(FontPack(color="blue", weight="normal", anchor="right"))
 
-
     class AssignmentBlob(TextBlob):
         def enterPressed(self) -> bool:
             line = self.get("insert linestart", "insert lineend")
             return "=" in line
 
-    blob = AssignmentBlob(scroll_win.plate, 260, 120, "", bg_color="#161a1a", tab_focus=False)
-    blob.setText("This is an 'editable' (text) blob. And it wraps at the edge.")
+    blob = TextBlob(scroll_win.plate, 260, 200, scroll_skin, bg_color="#161a1a", tab_focus=False, wrap="char")
+    blob.setText("This is an 'editable' (text) blob... And it wraps at the edge. This is an 'editable' (text) blob... And it wraps at the edge. This is an 'editable' (text) blob... And it wraps at the edge. This is an 'editable' (text) blob... And it wraps at the edge. This is an 'editable' (text) blob... And it wraps at the edge. This is an 'editable' (text) blob... And it wraps at the edge. This is an 'editable' (text) blob... And it wraps at the edge. This is an 'editable' (text) blob... And it wraps at the edge. This is an 'editable' (text) blob... And it wraps at the edge. This is an 'editable' (text) blob... And it wraps at the edge. This is an 'editable' (text) blob... And it wraps at the edge. ")
     blob.setBorder(2)
     blob.place(90, 144)
 
