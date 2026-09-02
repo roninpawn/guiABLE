@@ -9,7 +9,7 @@ def test_gui():
     app.bindDrag(app)       # Make app Drag by grabbing the background.
 
     # Create a Label
-    label_font = FontPack(color="White", weight="bold", text_offset=(10, 5))
+    label_font = FontPack(color="White", weight="bold")
     test_label = Label(app, "This is a label.", label_font)
     test_label.place(x=0, y=0)
 
@@ -31,7 +31,7 @@ def test_gui():
     opaque_test.place(x=280, y=45)
 
     # Create a Button with text
-    test_btn = Button(app, btn_skin, lambda: print("Label clicked!"), "Button!", label_font, width=100, height=24)
+    test_btn = Button(app, btn_skin, lambda: print("Label clicked!"), "Button!", label_font, width=100, height=0)
     test_btn.place(x=360, y=0)
 
     glyphs = UImage(file='../skins/default/window-glyphs-40.png')
@@ -68,7 +68,8 @@ def test_gui():
     scroll_skin = ScrollSkin.fromSkins(cap_skin, trough_skin, None, True, cap_skin, "n")
     scroll_win = ScrollWindow(app, 450, 280, scroll_skin, "#3B4F4F")
     scroll_win.place(x=20, y=100)
-    scroll_win.setScrollbarVisibility(1)
+    #scroll_win.setScrollbarVisibility(1)
+    #scroll_win.setScrollbarState(1)
 
     #scroll_area.dominant_axis = 0
     #scroll_area.showBars(1, 1)
@@ -99,29 +100,48 @@ def test_gui():
         label.place(x=10, y=30*i)
         #label.pack(padx=10, pady=10, fill="both")
 
-    text_test = InputLine(scroll_win.plate, 200, 28, font_pack=label_font, max_chars=12).place(90, 20)
+    brdr_skin2 = BorderSkin(
+        Skin("../skins/default/border-gray-nw-corner-round-4px.png"),
+        Skin("../skins/default/border-gray-n-edge-4px.png")
+    )
+
+    text_test = InputLine(scroll_win.plate, 200, skin=brdr_skin2, font_pack=label_font, max_chars=12).place(90, 5)
     text_test.setMask("*", True)
     text_test.setSubmitFunction(lambda:text_test.editable(False))
     text_test.setPlaceholder("Enter Password", FontPack(weight="italic", color="#BBBBBB"))
-    sel_btn = Button(scroll_win.plate, None, text_test.selectAll, width=28, height=28).place(292, 20)
+    sel_btn = Button(scroll_win.plate, None, text_test.selectAll, width=28, height=28).place(292, 5)
 
+    brdr_skin = BorderSkin(
+        Skin("../skins/default/border-gray-nw-corner-round-4px.png"),
+        Skin("../skins/default/border-gray-n-edge-4px.png")
+    )
     url = TextLabel(scroll_win.plate, "https://roninpawn.com\nVisit today!\nTry our new centerable text!",
-                    None, label_font, "#161a1a", border=10, align="center").place(90, 58)
-    url.setFontAttributes(weight="bold", text_offset=(-4, -2), color="lime")
-    url.setFontPack(FontPack(color="blue", weight="normal", anchor="right"))
+                    brdr_skin, label_font, "#161a1a", align="center").place(90, 69)
+    url.setFontAttributes(weight="bold", color="lime")
 
     class AssignmentBlob(TextBlob):
         def enterPressed(self) -> bool:
             line = self.get("insert linestart", "insert lineend")
             return "=" in line
 
-    blob = TextBlob(scroll_win.plate, 260, 200, scroll_skin, bg_color="#161a1a", tab_focus=False, wrap="char")
+    brdr_skin3 = BorderSkin(
+        Skin("../skins/default/border-gray-nw-corner-round-4px.png"),
+        Skin("../skins/default/border-gray-n-edge-4px.png")
+    )
+
+    blob = TextBlob(scroll_win.plate, 260, 200, scroll_skin, skin=brdr_skin3, bg_color="#161a1a", tab_focus=False, wrap="word")
     blob.setText("This is an 'editable' (text) blob... And it wraps at the edge. This is an 'editable' (text) blob... And it wraps at the edge. This is an 'editable' (text) blob... And it wraps at the edge. This is an 'editable' (text) blob... And it wraps at the edge. This is an 'editable' (text) blob... And it wraps at the edge. This is an 'editable' (text) blob... And it wraps at the edge. This is an 'editable' (text) blob... And it wraps at the edge. This is an 'editable' (text) blob... And it wraps at the edge. This is an 'editable' (text) blob... And it wraps at the edge. This is an 'editable' (text) blob... And it wraps at the edge. This is an 'editable' (text) blob... And it wraps at the edge. ")
-    blob.setBorder(2)
-    blob.place(90, 144)
+    blob.place(90, 164)
+
+    # Create Togglables for changing the scrollbar settings.
+    test_toggle5 = Checkbox(scroll_win.plate, toggle_skin, None, True if blob.getWrap() != "none" else False)
+    def changeWrap(on: bool):
+        blob.setWrap("word" if on else "none")
+    test_toggle5.function = (changeWrap, test_toggle5.isTrue)
+    test_toggle5.place(x=300, y=350)
 
     test_drag2 = Drag(scroll_win.frame, skin=drag_skin)
-    test_drag2.place(x=190, y=285)
+    test_drag2.place(x=190, y=385)
 
     # Prove lower/lift functionality    : Buggy right now.
     #click_btn.lift(test_toggle1)

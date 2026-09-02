@@ -3,7 +3,7 @@ import tkinter as tk
 from time import time
 from typing import Callable
 
-from guiABLE.skinnable import Skinnable, Measurable, Skin, Childable
+from guiABLE.skinnable import Skinnable, Measurable, Skin, BorderSkin, Childable
 from guiABLE.fontable import Fontable, FontPack
 from guiABLE.utilities import (rectsOverlap, rectUnion, pointIsInRect, getOverlap, decimateRect, rectIntersect,
                                rectsUnion, LimitedDict)
@@ -467,12 +467,12 @@ class Borderable(Anchorable):
         self._explicit_size = [kwargs.get("width") is not None, kwargs.get("height") is not None]
 
         self._border = (0, 0, 0, 0)             # top, right, bottom, left
+        self._border_explicit = border is not None
         self._border_offset_axes = [False, False]
+        self._offset_override = [None, None]
 
         self._expansion = (0, 0)
         self._expansion_axes = [False, False]
-
-        self._offset_override = [None, None]
 
         super().__init__(*args, **kwargs)
 
@@ -482,6 +482,7 @@ class Borderable(Anchorable):
             self._explicit_size[1] or (getattr(self, "_skin_passed", False) and self.height > 0)
         ]
 
+        self._syncBorderSkin()
         if border is not None: self.setBorder(border)
         if expand is not None: self.expand(expand)
 
@@ -489,6 +490,8 @@ class Borderable(Anchorable):
     def border(self) -> tuple[int,int,int,int]: return self._border
 
     def setBorder(self, border, implied:bool=False):
+        if not implied: self._border_explicit = True
+
         new_border = self._normalizeBorder(border)
         if new_border == self._border: return
 
@@ -586,6 +589,22 @@ class Borderable(Anchorable):
 
         return top, right, bottom, left
 
+    def _syncBorderSkin(self):
+        if isinstance(self.skin, BorderSkin):
+            if (self.skin.width, self.skin.height) != self.size:
+                self.skin.resize(*self.size, notify=False)
+                self.dirty = True
+
+            if not self._border_explicit:
+                self.setBorder(self.skin.insets(), implied=True)
+
+        elif not self._border_explicit and self._border != (0, 0, 0, 0):
+            self.setBorder(0, implied=True)
+
+    def _afterGeometryChanges(self):
+        self._syncBorderSkin()
+        super()._afterGeometryChanges()
+
 
 """ Provides one distinguished inner child whose geometry can determine the outer widget's automatic size. """
 class Nestable(Borderable):
@@ -597,8 +616,8 @@ class Nestable(Borderable):
 
         super().__init__(*args, **kwargs)
 
-        self._auto_width = not width_declared and self.width <= 0
-        self._auto_height = not height_declared and self.height <= 0
+        self._auto_width = not width_declared
+        self._auto_height = not height_declared
 
     @property
     def nestedChild(self): return self._nested_child
@@ -611,9 +630,8 @@ class Nestable(Borderable):
     def _layoutNested(self):
         if self._nested_child is None: return
 
-        if not self._nested_fill:
-            self._fitToNested()
-            return
+        if self._auto_width or self._auto_height: self._fitToNested()
+        if not self._nested_fill: return
 
         x, y, width, height = self.anchorArea()
 
@@ -634,10 +652,16 @@ class Nestable(Borderable):
         if child is self._nested_child and not self._nested_fill: self._fitToNested()
         super().childChanged(child)
 
+    def _nestedSize(self) -> tuple[int,int]:
+        if hasattr(self._nested_child, "naturalSize"):
+            return self._nested_child.naturalSize()
+
+        return self._nested_child.size
+
     def _fitToNested(self):
         if self._nested_child is None: return
 
-        width, height = self.expandedSize(*self._nested_child.size)
+        width, height = self.expandedSize(*self._nestedSize())
         width, height = self.borderedSize(width, height)
 
         width = width if self._auto_width else self.width
@@ -647,6 +671,7 @@ class Nestable(Borderable):
 
         self._geometry = (*self.location, width, height)
         self._scratch = UImage(width=width, height=height)
+        self._syncBorderSkin()
 
         if self._placed:
             self.place_configure(width=width, height=height, implied=True)
@@ -660,7 +685,8 @@ class Nestable(Borderable):
 class Imageable(Stateable):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
-        self._skin.setBGColors('#6B6B6B')      # Eliminate interactive colors for simple image.
+        if not isinstance(self._skin, BorderSkin):
+            self._skin.setBGColors('#6B6B6B')     # Eliminate interactive colors for simple image.
 
     def changeImage(self, img_number, force_draw=False):
         if force_draw or self._img_state != img_number: self.setState(img_number)
@@ -790,13 +816,14 @@ class Labelable(Fontable, Siblingable, Canvas):
     def passMouseTo(self, widget):
         self._event_parent = widget
 
+        for sequence in ("<Enter>", "<Leave>", "<B1-Motion>"):
+            self.bind(sequence, lambda event, s=sequence: self._forwardMouse(event, s), "+")
+
         for button in (1, 2, 3):
             self.bind(  f"<Button-{button}>",
                         lambda event, b=button: self._forwardMouse(event, f"<Button-{b}>"), "+" )
             self.bind(  f"<ButtonRelease-{button}>",
                         lambda event, b=button: self._forwardMouse(event, f"<ButtonRelease-{b}>"), "+" )
-
-        self.bind("<B1-Motion>", lambda event: self._forwardMouse(event, "<B1-Motion>"), "+")
 
     def _forwardMouse(self, event, sequence:str):
         if self._event_parent is not None:

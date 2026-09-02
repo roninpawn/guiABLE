@@ -280,6 +280,8 @@ class DirtySkin:
     # Define redraw() because widget-recipients of skin changes are asked to redraw.
     def redraw(self): pass
 
+    def isOpaque(self, image_index:int=0) -> bool: return self.image(image_index).isOpaque()
+
     # _cleanIndex redraws/recalculates dirty images/resolutions and returns an in-range index value.
     def _cleanIndex(self, index:int, *args) -> int:
         if index >= len(self._img_dirty): index = index % len(self._img_dirty)
@@ -517,6 +519,161 @@ class BarSkin(DirtySkin, ColorSkin):
     def _expand(self, size:int):       # Expands path and image lists to new length.
         for n in range(size):
             if len(self._images) < size: self._images.append(True)       # True appears as though hasImages()
+
+
+""" Nine-slice border assembled from four corners, four repeatable edges, and an optional center color. """
+class BorderSkin(DirtySkin, ColorSkin):
+    def __init__(self, northwest:CoreSkin, north:CoreSkin, northeast:CoreSkin=None, east:CoreSkin=None,
+                 southeast:CoreSkin=None, south:CoreSkin=None, southwest:CoreSkin=None, west:CoreSkin=None,
+                 width:int=0, height:int=0):
+        DirtySkin.__init__(self)
+        ColorSkin.__init__(self)
+
+        self.northwest, self.north = northwest, north
+        self.northeast = northeast or FilterSkin(northwest, mirror_x=True)
+        self.east = east or FilterSkin(north, rotate=True, mirror_x=True)
+        self.southeast = southeast or FilterSkin(northwest, mirror_x=True, mirror_y=True)
+        self.south = south or FilterSkin(north, mirror_y=True)
+        self.southwest = southwest or FilterSkin(northwest, mirror_y=True)
+        self.west = west or FilterSkin(north, rotate=True)
+
+        self._parts = (self.northwest, self.north, self.northeast, self.east,
+                       self.southeast, self.south, self.southwest, self.west)
+        self._bindParts()
+
+        # Background colors describe only the center region. Border artwork remains untouched.
+        self._bg_colors = [""]
+        self._use_bg_colors = True
+
+        natural_w, natural_h = self._naturalSize()
+        min_w, min_h = self._minimumSize()
+        self.width = max(min_w, int(width)) if width > 0 else natural_w
+        self.height = max(min_h, int(height)) if height > 0 else natural_h
+
+    def image(self, index:int=0, width:int=None, height:int=None) -> UImage:
+        if width is not None or height is not None: self.resize(width, height, notify=False)
+        return super().image(index)
+
+    def resize(self, width:int=None, height:int=None, notify:bool=True):
+        min_w, min_h = self._minimumSize()
+        width = self.width if width is None else max(min_w, int(width))
+        height = self.height if height is None else max(min_h, int(height))
+        if (width, height) == (self.width, self.height): return
+
+        self.width, self.height = width, height
+        self.dirty = True
+        if notify: self.updateRecipients()
+
+    def setBGColors(self, *colors:str):
+        if colors:
+            self._bg_colors = list(colors)
+            self._invalidate()
+
+    def setBGColor(self, color:str, index:int=0):
+        while index < -len(self._bg_colors) or index >= len(self._bg_colors):
+            self._bg_colors.extend(self._bg_colors)
+
+        self._bg_colors[index] = color
+        self._invalidate()
+
+    def appendBGColors(self, *colors:str):
+        if colors:
+            self._bg_colors.extend(colors)
+            self._invalidate()
+
+    def usesBgColors(self, use:bool=None) -> bool:
+        if use is not None and bool(use) != self._use_bg_colors:
+            self._use_bg_colors = bool(use)
+            self._invalidate()
+
+        return self._use_bg_colors
+
+    def redraw(self): self.updateRecipients()
+
+    def _invalidate(self):
+        self.dirty = True
+        self.updateRecipients()
+
+    def _bindParts(self):
+        bound = set()
+
+        for part in self._parts:
+            source = part.linked_skin if isinstance(part, FilterSkin) else part
+
+            if source not in bound:
+                source.bindWidget(self)
+                bound.add(source)
+
+    def _cleanSkin(self):
+        states = max(1, len(self._bg_colors) if self._use_bg_colors else 1,
+                     *(part.linked_skin.numStates() if isinstance(part, FilterSkin) else part.numStates()
+                       for part in self._parts))
+
+        if len(self._images) > states: del self._images[states:]
+        if len(self._img_dirty) > states: del self._img_dirty[states:]
+
+        self._expand(states)
+        DirtySkin._cleanSkin(self)
+
+    def _cleanIndex(self, index:int) -> int:
+        index %= len(self._img_dirty)
+
+        if self._img_dirty[index] or self._images[index].resolution != (self.width, self.height):
+            self._draw(index)
+            self._img_dirty[index] = False
+
+        return index
+
+    def _draw(self, index:int):
+        w, h = self.width, self.height
+        left, right, top, bottom = self._bands(index)
+        new_img = UImage(width=w, height=h)
+
+        color = self.bgColor(index)
+        if color and w > left + right and h > top + bottom:
+            new_img.put(color, to=(left, top, w - right, h - bottom))
+
+        nw, n, ne, e, se, s, sw, west = [part.image(index) for part in self._parts]
+
+        n.tileTo(new_img, (left, 0, w - right, n.height()))
+        e.tileTo(new_img, (w - e.width(), top, w, h - bottom))
+        s.tileTo(new_img, (left, h - s.height(), w - right, h))
+        west.tileTo(new_img, (0, top, west.width(), h - bottom))
+
+        nw.cropTo(new_img)
+        ne.cropTo(new_img, dest_x=w - ne.width())
+        se.cropTo(new_img, dest_x=w - se.width(), dest_y=h - se.height())
+        sw.cropTo(new_img, dest_y=h - sw.height())
+
+        self._saveImage(new_img, index)
+
+    def _bands(self, index:int=0) -> tuple[int,int,int,int]:
+        nw, n, ne, e, se, s, sw, west = [part.resolution(index) for part in self._parts]
+
+        left = max(nw[0], west[0], sw[0])
+        right = max(ne[0], e[0], se[0])
+        top = max(nw[1], n[1], ne[1])
+        bottom = max(sw[1], s[1], se[1])
+
+        return left, right, top, bottom
+
+    def insets(self, index:int=0) -> tuple[int,int,int,int]:
+        left, right, top, bottom = self._bands(index)
+        return top, right, bottom, left
+
+    def _minimumSize(self) -> tuple[int,int]:
+        left, right, top, bottom = self._bands()
+        return left + right, top + bottom
+
+    def _naturalSize(self) -> tuple[int,int]:
+        min_w, min_h = self._minimumSize()
+        north_w, south_w = self.north.resolution()[0], self.south.resolution()[0]
+        east_h, west_h = self.east.resolution()[1], self.west.resolution()[1]
+
+        return min_w + max(north_w, south_w, 1), min_h + max(east_h, west_h, 1)
+
+    def _expand(self, size:int):
+        while len(self._images) < size: self._images.append(True)
 
 
 """ SkinPack is a container class for holding multiple skins, that exists only to be extended by its children. """
@@ -858,8 +1015,8 @@ class Skinnable(Placeable):
         self._skin = NoSkin(self.width, self.height)
         self._skin.bindWidget(self)
 
-    def isOpaque(self): return  self.skin.resolution(self.state) == self.size and \
-                               (self.skin.usesBgColors() or self.skin.isOpaque(self.state))
+    def isOpaque(self):
+        return self.skin.resolution(self.state) == self.size and self.skin.isOpaque(self.state)
 
     # Persistent UImage provides an INSTANT redraw canvas in compositing.
     def scratchImage(self): return self._scratch

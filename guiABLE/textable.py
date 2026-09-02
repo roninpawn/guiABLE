@@ -221,11 +221,8 @@ class TextSelectable:
     def _dragBoundaryAt(self, x:int, y:int):
         height = self.winfo_height()
 
-        if y < 0:
-            return self.index("@0,0 display linestart")
-
-        if y >= height:
-            return self.index(f"@0,{height - 1} display lineend")
+        if y < 0: return self.index("@0,0 display linestart")
+        if y >= height: return self.index(f"@0,{height - 1} display lineend")
 
         index = self.index(f"@{x},{y}")
         line_end = self.index(f"{index} display lineend")
@@ -510,6 +507,16 @@ class Textable(TextSelectable, Fontable, Siblingable, Renderable, BareText):
 
     def render(self, image:UImage, xy_offset:tuple[int,int]=(0, 0)): pass
 
+    def naturalSize(self) -> tuple[int,int]:
+        font = tkfont.Font(font=self.cget("font"))
+        lines = self.getText().split("\n")
+        padx, pady = self.padding()
+
+        width = max(1, max(font.measure(line) for line in lines) + padx * 2)
+        height = max(1, font.metrics("linespace") * len(lines) + pady * 2)
+
+        return width, height
+
     def _fontChanged(self):
         color = self._fontValue("color")
         self.configure(font=self._tk_font, fg=color, insertbackground=color, selectforeground=color)
@@ -540,12 +547,7 @@ class Textable(TextSelectable, Fontable, Siblingable, Renderable, BareText):
         return alignment
 
     def _fitText(self):
-        font = tkfont.Font(font=self.cget("font"))
-        lines = self.getText().split("\n")
-
-        width = max(1, max(font.measure(line) for line in lines))
-        height = max(1, font.metrics("linespace") * len(lines))
-
+        width, height = self.naturalSize()
         if (width, height) == self.size: return
 
         if self._placed:
@@ -582,7 +584,10 @@ class TextNestable(Fontable, Nestable):
 
     def selectAll(self): self._text.selectAll()
 
-    def padding(self, x:int=None, y:int=None) -> tuple[int,int]: return self._text.padding(x, y)
+    def padding(self, x:int=None, y:int=None) -> tuple[int,int]:
+        padding = self._text.padding(x, y)
+        if x is not None or y is not None: self._textChanged()
+        return padding
 
     def align(self, alignment:str=None) -> str: return self._text.align(alignment)
 
@@ -1140,12 +1145,15 @@ class InputLineable(NestedInputable, Textable):
 
 """ Single-line image-backed text input with placeholder, masking, submission, and validation support. """
 class InputLine(InputHostable, Imageable, Siblingable, TextCanvas):
-    def __init__(self, parent, width:int, height:int, text:str="", skin=None, font_pack:FontPack=None,
+    def __init__(self, parent, width:int, height:int=None, text:str="", skin=None, font_pack:FontPack=None,
                  bg_color:str=None, editable:bool=True, max_chars:int=None,
                  placeholder:str=None, placeholder_pack:FontPack=None,
                  mask:str=None, masked:bool=False, submit_function=None, align:str="left", **kwargs):
 
-        super().__init__(parent, width=width, height=height, skin=skin, font_pack=font_pack, bg_color=bg_color, **kwargs)
+        kwargs["width"] = width
+        if height is not None: kwargs["height"] = height
+
+        super().__init__(parent, skin=skin, font_pack=font_pack, bg_color=bg_color, **kwargs)
 
         text_widget = InputLineable(
             self, 1, 1, text=text, font_pack=self._font_pack, bg_color=self._textBackground(),

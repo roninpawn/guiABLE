@@ -142,16 +142,28 @@ class UImage(PhotoImage):
     def tileTo(self, recipient:'UImage', bbox:tuple[int,int,int,int]):
         x1, y1, x2, y2 = bbox
         box_w, box_h = x2 - x1, y2 - y1
-        bw, bh = min(self.width(), box_w), min(self.height(), box_h)
+        tile_w, tile_h = min(self.width(), box_w), min(self.height(), box_h)
 
-        # TODO: Do the largest blit from brush possible. Do 4 operations instead of 400.
-        if bw and bh:
-            for y in range(y1, y2, bh):
-                h = min(bh, y2-y)
-                for x in range(x1, x2, bw):
-                    w = min(bw, x2-x)
-                    if w >= 0 and h >= 0:
-                        recipient.copy_replace(self, from_coords=(0, 0, w, h), to=(x, y))
+        if tile_w <= 0 or tile_h <= 0: return
+
+        # Seed one tile.
+        recipient.copy_replace(self, from_coords=(0, 0, tile_w, tile_h), to=(x1, y1))
+
+        # Repeatedly double the completed horizontal strip.
+        filled_w = tile_w
+        while filled_w < box_w:
+            copy_w = min(filled_w, box_w - filled_w)
+            recipient.copy_replace(recipient, from_coords=(x1, y1, x1 + copy_w, y1 + tile_h),
+                                   to=(x1 + filled_w, y1))
+            filled_w += copy_w
+
+        # Repeatedly double the completed strip vertically.
+        filled_h = tile_h
+        while filled_h < box_h:
+            copy_h = min(filled_h, box_h - filled_h)
+            recipient.copy_replace(recipient, from_coords=(x1, y1, x2, y1 + copy_h),
+                                   to=(x1, y1 + filled_h))
+            filled_h += copy_h
 
     def getSprites(self, width_per_sprite:int, rows:int = 1, margins:tuple = (0, 0)) -> list['UImage']:
         # Ensure row sanity and collect geometry.
