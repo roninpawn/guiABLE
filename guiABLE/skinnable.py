@@ -263,8 +263,8 @@ class Skin(ColorSkin):
             else: fallback = self._images[i]
 
 
-""" DirtySkin is a mix-in that adds per-image dirtiness tracking to a CoreSkin descendant. """
 class DirtySkin:
+    """ A mix-in that adds per-image dirtiness tracking to a CoreSkin descendant. """
     def __init__(self):
         self.dirty = True
         self._img_dirty = []
@@ -303,23 +303,55 @@ class DirtySkin:
     def _draw(self, index:int): pass
 
 
+class LinkedSkin(CoreSkin):
+    """ Base for Skins that remain live-linked to another Skin. """
+    def __init__(self, linked_skin:CoreSkin):
+        CoreSkin.__init__(self)
+        self._linked_skin = None
+        self.link(linked_skin, notify=False)
+
+    @property
+    def linked_skin(self): return self._linked_skin
+
+    def link(self, skin:CoreSkin, notify:bool=True):
+        if skin is self._linked_skin: return
+        if self._linked_skin is not None:
+            self._linked_skin.unbindWidget(self)
+
+        self._linked_skin = skin
+        skin.bindWidget(self)
+        self.dirty = True
+
+        if notify: self.updateRecipients()
+
+    def unlink(self):
+        if self._linked_skin is None: return
+        self._linked_skin.unbindWidget(self)
+        self._linked_skin = None
+
+    def redraw(self):
+        self.dirty = True
+        self.updateRecipients()
+
+
 """
     FilterSkin provides a cached and ready view of another skin, as mirrored/rotated/flood-filled in place.
     Changes to the original skin will be reflected in the FilterSkin as well. 
 """
-class FilterSkin(DirtySkin, CoreSkin):
-    def __init__(self, linked_skin:CoreSkin, crop:tuple[int,int,int,int]|None = None,
-                 rotate:bool = False, mirror_x:bool = False, mirror_y:bool = False):
+class FilterSkin(DirtySkin, LinkedSkin):
+    def __init__(self, linked_skin:CoreSkin, crop:tuple[int,int,int,int]|None=None,
+                 rotate:bool=False, mirror_x:bool=False, mirror_y:bool=False):
         DirtySkin.__init__(self)
-        CoreSkin.__init__(self)
 
-        # If the source skin is -itself- a FilterSkin, link directly to that skin's source, and sum with its transforms.
+        # Flatten FilterSkin chains while preserving the combined transformation.
         if isinstance(linked_skin, FilterSkin):
             rotate, mirror_x, mirror_y = self._state_sum(
-                (linked_skin.rotate, linked_skin.mirror_x, linked_skin.mirror_y), (rotate, mirror_x, mirror_y)
+                (linked_skin.rotate, linked_skin.mirror_x, linked_skin.mirror_y),
+                (rotate, mirror_x, mirror_y)
             )
-            self._linked_skin = linked_skin.linked_skin
-        else: self._linked_skin = linked_skin
+            linked_skin = linked_skin.linked_skin
+
+        LinkedSkin.__init__(self, linked_skin)
 
         self.crop = crop
         self.mirror_x = mirror_x
@@ -328,18 +360,17 @@ class FilterSkin(DirtySkin, CoreSkin):
 
         try:
             self._orientation = self._linked_skin.orientation
-            if self._orientation:
-                self._transformOrientation()
-        except: self._orientation = None
+            if self._orientation: self._transformOrientation()
+        except:
+            self._orientation = None
 
-        self._linked_skin.bindWidget(self)
         self._cleanSkin()
 
-    @property
-    def linked_skin(self): return self._linked_skin
-
-    def bindWidget(self, widget): self._linked_skin.bindWidget(widget)
-    def unbindWidget(self, widget): self._linked_skin.unbindWidget(widget)
+    def set(self, *args, **kwargs):
+        raise TypeError(
+            "FilterSkin is a live transformation and cannot be set directly. \n"
+            "Use filter.linked_skin.set to change the source, or replace the consuming slot instead."
+        )
 
     def _cleanSkin(self):
         # Take on all qualities of the linked skin.
@@ -419,6 +450,51 @@ class FilterSkin(DirtySkin, CoreSkin):
         return bool(r), bool(x), bool(y)
 
 
+class SkinView(LinkedSkin):
+    """ Fixed-resolution live view of an AssembledSkin realization. """
+    def __init__(self, linked_skin:'AssembledSkin', width:int, height:int):
+        CoreSkin.__init__(self)
+
+        self._linked_skin = linked_skin
+        self._size = width, height
+        self._linked = False
+
+    @property
+    def size(self): return self._size
+
+    def image(self, index:int=0) -> UImage:
+        return self._linked_skin.imageFor(self, index)
+
+    def imageFor(self, recipient, index:int=0) -> UImage: return self.image(index)
+
+    def resolution(self, image_index:int=None) -> tuple[int,int]: return self._size
+    def resolutionFor(self, recipient, image_index:int=None) -> tuple[int,int]: return self._size
+
+    def isOpaque(self, image_index:int=0) -> bool: return self.image(image_index).isOpaque()
+    def isOpaqueFor(self, recipient, image_index:int=0) -> bool: return self.isOpaque(image_index)
+
+    def numStates(self): return self._linked_skin.numStates()
+    def hasImages(self): return True
+    def bgColor(self, index:int=0): return self._linked_skin.bgColor(index)
+
+    def bindWidget(self, widget):
+        if not self._linked:
+            self._linked_skin.bindWidget(self)
+            self._linked = True
+
+        CoreSkin.bindWidget(self, widget)
+
+    def unbindWidget(self, widget):
+        CoreSkin.unbindWidget(self, widget)
+
+        if self._linked and not self._recipients:
+            self._linked_skin.unbindWidget(self)
+            self._linked = False
+
+    def redraw(self):
+        self.updateRecipients()
+
+
 class AssembledSkin(ColorSkin):
     """ Source-driven Skin that caches assembled rasters by recipient geometry. """
     def __init__(self, *parts:CoreSkin, width:int=0, height:int=0):
@@ -441,7 +517,7 @@ class AssembledSkin(ColorSkin):
     @property
     def height(self): return self._resolvedSize()[1]
 
-    def view(self, width:int=None, height:int=None, enforce_geometry:bool=False) -> 'SkinView':
+    def view(self, width:int=None, height:int=None, enforce_geometry:bool=False) -> SkinView:
         return SkinView(self, *self._viewSize(width, height, enforce_geometry))
 
     def _invalidate(self):
@@ -571,69 +647,23 @@ class AssembledSkin(ColorSkin):
         for dirty in self._realization_dirty.values():
             dirty[:] = [True] * len(dirty)
 
+    def _setParts(self, *parts:CoreSkin, notify:bool=True):
+        old_parts, new_parts = set(self._parts), set(parts)
+
+        for part in old_parts - new_parts: part.unbindWidget(self)
+        self._parts = tuple(parts)
+        for part in new_parts - old_parts: part.bindWidget(self)
+
+        if notify: self.updateRecipients()
+        else: self._markRealizationsDirty()
+
     def _bindParts(self):
-        bound = set()
-
-        for part in self._parts:
-            source = part.linked_skin if isinstance(part, FilterSkin) else part
-
-            if source not in bound:
-                source.bindWidget(self)
-                bound.add(source)
+        for part in set(self._parts): part.bindWidget(self)
 
     def _stateCount(self) -> int: return 1
     def _minimumSize(self) -> tuple[int,int]: return 1, 1
     def _naturalSize(self) -> tuple[int,int]: return self._minimumSize()
     def _draw(self, index:int, width:int, height:int) -> UImage: return self._empty_image
-
-
-class SkinView(CoreSkin):
-    """ Fixed-resolution live view of an AssembledSkin realization. """
-    def __init__(self, source:AssembledSkin, width:int, height:int):
-        super().__init__()
-
-        self._linked_skin = source
-        self._size = width, height
-
-    @property
-    def linked_skin(self): return self._linked_skin
-    @property
-    def size(self): return self._size
-    @property
-    def bg_colors(self): return self._linked_skin.bg_colors
-
-    def bgColor(self, index:int=0): return self._linked_skin.bgColor(index)
-    def numStates(self): return self._linked_skin.numStates()
-    def hasImages(self): return True
-
-    def usesBgColors(self, use:bool=None):
-        if use is not None: raise ValueError("SkinView background behavior belongs to its source AssembledSkin")
-        return self._linked_skin.usesBgColors()
-
-    def image(self, index:int=0) -> UImage: return self._linked_skin._realizedImage(self._size, index)
-    def imageFor(self, recipient, index:int=0) -> UImage: return self.image(index)
-
-    def resolution(self, image_index:int=None) -> tuple[int,int]: return self._size
-    def resolutionFor(self, recipient, image_index:int=None) -> tuple[int,int]: return self._size
-
-    def isOpaque(self, image_index:int=0) -> bool: return self.image(image_index).isOpaque()
-    def isOpaqueFor(self, recipient, image_index:int=0) -> bool: return self.isOpaque(image_index)
-
-    def bindWidget(self, widget):
-        if not self._recipients:
-            self._linked_skin.bindWidget(self)
-            self._linked_skin._associate(self, self._size)
-
-        super().bindWidget(widget)
-
-    def unbindWidget(self, widget):
-        super().unbindWidget(widget)
-
-        if not self._recipients:
-            self._linked_skin.unbindWidget(self)
-
-    def redraw(self):
-        self.updateRecipients()
 
 
 """
@@ -783,28 +813,144 @@ class ThreeSliceSkin(DirtySkin, ColorSkin):
             if len(self._images) < size: self._images.append(True)       # True appears as though hasImages()
 BarSkin = ThreeSliceSkin
 
-""" Nine-slice border assembled from four corners, four repeatable edges, and an optional center color. """
+
 class NineSliceSkin(AssembledSkin):
-    def __init__(self, northwest:CoreSkin, north:CoreSkin, northeast:CoreSkin=None, east:CoreSkin=None,
+    """ Nine-slice border assembled from four corners, four repeatable edges, and an optional center color. """
+    _PART_NAMES = ("northwest", "north", "northeast", "east",
+                   "southeast", "south", "southwest", "west")
+    _PART_ALIASES = {"nw":"northwest", "n":"north", "ne":"northeast", "e":"east",
+                     "se":"southeast", "s":"south", "sw":"southwest", "w":"west"}
+
+    def __init__(self, northwest:CoreSkin=None, north:CoreSkin=None, northeast:CoreSkin=None, east:CoreSkin=None,
                  southeast:CoreSkin=None, south:CoreSkin=None, southwest:CoreSkin=None, west:CoreSkin=None,
                  width:int=0, height:int=0):
 
-        self.northwest, self.north = northwest, north
-        self.northeast = northeast or FilterSkin(northwest, mirror_x=True)
-        self.east = east or FilterSkin(north, rotate=True, mirror_x=True)
-        self.southeast = southeast or FilterSkin(northwest, mirror_x=True, mirror_y=True)
-        self.south = south or FilterSkin(north, mirror_y=True)
-        self.southwest = southwest or FilterSkin(northwest, mirror_y=True)
-        self.west = west or FilterSkin(north, rotate=True)
+        self._explicit_parts = {
+            "northwest": northwest, "north": north, "northeast": northeast, "east": east,
+            "southeast": southeast, "south": south, "southwest": southwest, "west": west
+        }
 
-        parts = (self.northwest, self.north, self.northeast, self.east,
-                 self.southeast, self.south, self.southwest, self.west)
+        self._resolved_parts, self._generated_parts = self._resolveParts(self._explicit_parts)
 
-        AssembledSkin.__init__(self, *parts, width=width, height=height)
+        super().__init__(*[self._resolved_parts[name] for name in self._PART_NAMES], width=width, height=height)
 
-        # Background colors describe only the center region. Border artwork remains untouched.
         self._bg_colors = [""]
         self._use_bg_colors = True
+
+    @property
+    def northwest(self): return self._resolved_parts["northwest"]
+    @property
+    def north(self): return self._resolved_parts["north"]
+    @property
+    def northeast(self): return self._resolved_parts["northeast"]
+    @property
+    def east(self): return self._resolved_parts["east"]
+    @property
+    def southeast(self): return self._resolved_parts["southeast"]
+    @property
+    def south(self): return self._resolved_parts["south"]
+    @property
+    def southwest(self): return self._resolved_parts["southwest"]
+    @property
+    def west(self): return self._resolved_parts["west"]
+
+    def part(self, name:str) -> CoreSkin: return self._resolved_parts[self._partName(name)]
+    def setPart(self, name:str, skin:CoreSkin=None, relink:bool=False):
+        name = self._partName(name)
+
+        # Releasing a slot necessarily requires the topology to be reconsidered.
+        if skin is None or relink:
+            explicit = dict(self._explicit_parts)
+            explicit[name] = skin
+            self._relinkParts(explicit)
+            return
+
+        old_part = self._resolved_parts[name]
+        was_generated = name in self._generated_parts
+
+        if old_part is skin and not was_generated: return
+
+        self._explicit_parts[name] = skin
+        self._resolved_parts[name] = skin
+        self._generated_parts.discard(name)
+
+        self._setParts(*[self._resolved_parts[n] for n in self._PART_NAMES], notify=False)
+
+        if was_generated and old_part not in self._parts:
+            old_part.unlink()
+
+        self._invalidate()
+
+    def relinkParts(self): self._relinkParts(dict(self._explicit_parts))
+    def _relinkParts(self, explicit:dict):
+        old_generated = [self._resolved_parts[name] for name in self._generated_parts]
+        resolved, generated = self._resolveParts(explicit)
+
+        self._explicit_parts = explicit
+        self._resolved_parts = resolved
+        self._generated_parts = generated
+
+        self._setParts(*[resolved[name] for name in self._PART_NAMES], notify=False)
+
+        for part in old_generated:
+            if part not in self._parts: part.unlink()
+
+        self._invalidate()
+
+    def _resolveParts(self, explicit:dict) -> tuple[dict,set]:
+        parts = dict(explicit)
+        generated = set()
+
+        corners = ("northwest", "northeast", "southeast", "southwest")
+        edges = ("north", "east", "south", "west")
+
+        if not any(parts[name] is not None for name in corners):
+            raise ValueError("NineSliceSkin requires at least one corner")
+        if not any(parts[name] is not None for name in edges):
+            raise ValueError("NineSliceSkin requires at least one edge")
+
+        def derive(target:str, source:str, **kwargs):
+            if parts[target] is None and parts[source] is not None:
+                parts[target] = FilterSkin(parts[source], **kwargs)
+                generated.add(target)
+
+        # Corners: prefer a single-axis mirror. Resolve rows first, then columns.
+        derive("northeast", "northwest", mirror_x=True)
+        derive("northwest", "northeast", mirror_x=True)
+        derive("southeast", "southwest", mirror_x=True)
+        derive("southwest", "southeast", mirror_x=True)
+
+        derive("southwest", "northwest", mirror_y=True)
+        derive("northwest", "southwest", mirror_y=True)
+        derive("southeast", "northeast", mirror_y=True)
+        derive("northeast", "southeast", mirror_y=True)
+
+        # Edges: opposite sides mirror each other before crossing axes.
+        derive("south", "north", mirror_y=True)
+        derive("north", "south", mirror_y=True)
+        derive("east", "west", mirror_x=True)
+        derive("west", "east", mirror_x=True)
+
+        # Only rotate if an entire edge axis was absent.
+        if parts["west"] is None and parts["east"] is None:
+            derive("west", "north", rotate=True)
+            derive("east", "west", mirror_x=True)
+
+        elif parts["north"] is None and parts["south"] is None:
+            derive("north", "west", rotate=True, mirror_x=True, mirror_y=True)
+            derive("south", "north", mirror_y=True)
+
+        return parts, generated
+
+    @classmethod
+    def _partName(cls, name:str) -> str:
+        name = name.lower()
+        name = cls._PART_ALIASES.get(name, name)
+
+        if name not in cls._PART_NAMES:
+            raise ValueError(f"Unknown NineSlice part: '{name}'")
+
+        return name
 
     def setBGColors(self, *colors:str):
         if colors:

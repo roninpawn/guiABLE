@@ -359,7 +359,7 @@ class FakeCanvas(BareText):
         self.bindtags(tuple(tags))
 
         self.configure(bg=self.cget("bg"))
-        self._img = self.image_create("end", image=UImage())
+        self._img = self.image_create("end", image=UImage(), align="top")
 
     def configure(self, **kw):
         if "bg" in kw:
@@ -681,8 +681,6 @@ class Nestable(Borderable):
 class Imageable(Stateable):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
-        if not isinstance(self._skin, NineSliceSkin):
-            self._skin.setBGColors('#6B6B6B')     # Eliminate interactive colors for simple image.
 
     def changeImage(self, img_number, force_draw=False):
         if force_draw or self._img_state != img_number: self.setState(img_number)

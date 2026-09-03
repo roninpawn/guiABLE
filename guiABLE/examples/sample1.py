@@ -100,9 +100,13 @@ def test_gui():
         label.place(x=10, y=30*i)
         #label.pack(padx=10, pady=10, fill="both")
 
-    brdr_skin = NineSliceSkin(
-        Skin("../skins/default/border-gray-nw-corner-round-4px.png"),
-        Skin("../skins/default/border-gray-n-edge-4px.png"),
+    corner_nw = Skin("../skins/default/border-gray-nw-corner-round-4px.png")
+    corner_ne = FilterSkin(corner_nw, mirror_x=True)
+    corner_sw = FilterSkin(corner_nw, mirror_y=True)
+    corner_se = FilterSkin(corner_nw, mirror_x=True, mirror_y=True)
+
+    brdr_skin = NineSliceSkin(northwest=corner_nw, northeast=corner_ne, southwest=corner_sw,
+        south=Skin("../skins/default/border-gray-n-edge-4px.png"),
     )
     text_test = InputLine(scroll_win.plate, 200, skin=brdr_skin, font_pack=label_font, max_chars=12).place(90, 5)
     text_test.setMask("*", True)
@@ -134,8 +138,20 @@ def test_gui():
     view_a = Button(scroll_win.plate, fixed_border, text="View A", width=160, height=40).place(330, 5)
     view_b = Button(scroll_win.plate, fixed_border, text="View B", width=200, height=60).place(330, 50)
 
+    #brdr_skin.setPart("sw", Skin("../skins/default/cog.png"), True)
+    brdr_skin.setPart("se", None)
+
     test_drag2 = Drag(scroll_win.frame, skin=drag_skin)
     test_drag2.place(x=190, y=385)
+
+    source1 = Skin("../skins/default/border-gray-nw-corner-round-4px.png")
+    source2 = Skin("../skins/default/up_glyph-48.png")
+
+    filtered = FilterSkin(source2, mirror_x=True)
+    image = Image(app, filtered).place(20, 20)
+
+    source2.set("../skins/default/cog.png")    # Existing source changed: Image updates.
+    filtered.link(source1)                     # Source replaced: same FilterSkin and Image update.
 
     # Prove lower/lift functionality    : Buggy right now.
     #click_btn.lift(test_toggle1)
