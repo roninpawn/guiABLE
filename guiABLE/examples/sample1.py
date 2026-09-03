@@ -55,8 +55,8 @@ def test_gui():
     trough_skin = Skin("../skins/default/square-48.png")
     cap_skin = Skin("../skins/default/up_glyph-48.png")
 
-    bar_skin = BS.fromTwo(cap_skin, trough_skin, True)
-    mid_skin = Skin(bar_skin.image(0, 192))
+    bar_skin = BS(cap_skin, trough_skin, axis="y")
+    mid_skin = bar_skin.view(height=192)
     c = InstantButton(app, skin=mid_skin, width=48, height=192)
     c.place(x=550, y=200)
 

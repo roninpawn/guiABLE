@@ -676,19 +676,18 @@ class AssembledSkin(ColorSkin):
     
     ex: BarSkin(cap1, trough, vertical=True)    # When no cap2 is given, cap1 is mirrored to fill the need.
 """
-class ThreeSliceSkin(DirtySkin, ColorSkin):
-    def __init__(self, start_skin:Skin|FilterSkin|None=None, middle_skin:Skin|FilterSkin|None=None,
-                 end_skin:Skin|FilterSkin|None=None, axis:str|bool="x", width:int=0, height:int=0,
+class ThreeSliceSkin(AssembledSkin):
+    def __init__(self, start_skin:CoreSkin=None, middle_skin:CoreSkin=None, end_skin:CoreSkin=None,
+                 axis:str|bool="x", width:int=0, height:int=0,
                  *, vertical:bool=None, length:int=0, breadth:int=0):
-        DirtySkin.__init__(self)
-        ColorSkin.__init__(self)
 
-        # Temporary compatibility while internal BarSkin callers migrate.
-        if vertical is not None: axis = vertical
-        if isinstance(axis, bool): axis = "y" if axis else "x"
+        # Temporary compatibility with the former BarSkin interface.
+        if vertical is not None: axis = "y" if vertical else "x"
+        elif isinstance(axis, bool): axis = "y" if axis else "x"
 
         axis = axis.lower()
         if axis not in ("x", "y"): raise ValueError("axis must be 'x' or 'y'")
+
         self._vertical = axis == "y"
 
         self.start = self.cap1 = start_skin or Skin()
@@ -701,116 +700,94 @@ class ThreeSliceSkin(DirtySkin, ColorSkin):
         else:
             self.end = self.cap2 = Skin()
 
-        self.middle.bindWidget(self)
-        self.start.bindWidget(self)
-        self.end.bindWidget(self)
+        # Legacy length/breadth declarations defer to explicit width/height.
+        if length > 0:
+            if self._vertical and height <= 0: height = length
+            elif not self._vertical and width <= 0: width = length
 
-        requested_length = height if self._vertical else width
-        requested_breadth = width if self._vertical else height
+        if breadth > 0:
+            if self._vertical and width <= 0: width = breadth
+            elif not self._vertical and height <= 0: height = breadth
 
-        if requested_length > 0: length = requested_length
-        if requested_breadth > 0: breadth = requested_breadth
+        super().__init__(self.start, self.middle, self.end, width=width, height=height)
 
-        if breadth < 1:
-            breadth = max(self.start.resolution()[not self._vertical],
-                          self.middle.resolution()[not self._vertical],
-                          self.end.resolution()[not self._vertical], 1)
-
-        self.breadth = breadth
-        self.length = self.breadth * 3 if length < 1 else length
-
-        self._expand(min(self.start.numStates(), self.middle.numStates(), self.end.numStates()))
-
-        if self.start.hasImages() and self.middle.hasImages(): self._use_bg_colors = False
+        if self.start.hasImages() and self.middle.hasImages():
+            self._use_bg_colors = False
 
     @property
     def axis(self) -> str: return "y" if self._vertical else "x"
-    @property
-    def width(self) -> int: return self.breadth if self._vertical else self.length
-    @property
-    def height(self) -> int: return self.length if self._vertical else self.breadth
 
-    # fromTwo takes a trough and only 1 cap, flipping that cap to create the other end of the bar.
+    @property
+    def breadth(self) -> int: return self.width if self._vertical else self.height
+
+    @property
+    def length(self) -> int: return self.height if self._vertical else self.width
+
     @classmethod
-    def fromTwo(cls, start_skin:Skin|FilterSkin, middle_skin:Skin|FilterSkin, axis:str|bool="x"):
+    def fromTwo(cls, start_skin:CoreSkin, middle_skin:CoreSkin, axis:str|bool="x"):
         return cls(start_skin, middle_skin, axis=axis)
 
-    def usesBgColors(self, use:bool=None) -> bool:
-        if use is not None:
-            if use: self._expand(max(len(self._images), len(self._bg_colors)))
-            self.dirty = True
+    def _stateCount(self) -> int:
+        colors = len(self._bg_colors) if self._use_bg_colors else 0
+        return max(1, colors, *(part.numStates() for part in self._parts))
 
-        return super().usesBgColors(use)
+    def _minimumSize(self) -> tuple[int,int]:
+        sw, sh = self.start.resolution()
+        mw, mh = self.middle.resolution()
+        ew, eh = self.end.resolution()
 
-    def resize(self, width:int=None, height:int=None, notify:bool=True):
-        length = height if self._vertical else width
-        breadth = width if self._vertical else height
-        changed = False
+        if self._vertical:
+            return max(sw, mw, ew, 1), max(sh + eh, 1)
 
-        if length is not None and length > 2 and length != self.length:
-            self.length = int(length)
-            changed = True
+        return max(sw + ew, 1), max(sh, mh, eh, 1)
 
-        if breadth is not None and breadth > 0 and breadth != self.breadth:
-            self.breadth = int(breadth)
-            changed = True
+    def _naturalSize(self) -> tuple[int,int]:
+        min_w, min_h = self._minimumSize()
+        breadth = min_w if self._vertical else min_h
 
-        if changed:
-            self.dirty = True
-            if notify: self.updateRecipients()
+        if self._vertical:
+            return breadth, max(min_h, breadth * 3)
 
-    def image(self, index:int=0, length:int=None) -> UImage:
-        # Temporary compatibility for ScrollTrough/ScrollHandle.
-        if length is not None:
-            if self._vertical: self.resize(height=length, notify=False)
-            else: self.resize(width=length, notify=False)
+        return max(min_w, breadth * 3), breadth
 
-        return super().image(index)
+    def _draw(self, index:int, width:int, height:int) -> UImage:
+        start = self.start.image(index)
+        middle = self.middle.image(index)
+        end = self.end.image(index)
 
-    # _cleanIndex redraws/recalculates dirty images/resolutions and returns an in-range index value.
-    def _cleanIndex(self, index:int) -> int:
-        if self._img_dirty:
-            if index >= len(self._img_dirty): index = index % len(self._img_dirty)
-            w, h = (self.breadth, self.length) if self._vertical else (self.length, self.breadth)
-            if self._img_dirty[index] or ((w, h) != self._images[index].resolution):
-                self._draw(index, w, h)
-                self._img_dirty[index] = False
-        return index % len(self._images)
+        sw, sh = start.resolution
+        ew, eh = end.resolution
 
-    def _draw(self, index:int = 0, w:int = 0, h:int = 0):
-        c1w, c1h = self.cap1.resolution(index)
-        c2w, c2h = self.cap2.resolution(index)
+        image = UImage(width=width, height=height)
 
-        if w >= c2w and h >= c2h:
-            new_img = UImage(width=w, height=h)
-            # If the bar itself uses bg_colors, flood fill the whole new image.
-            if self._use_bg_colors:
-                new_img.flood(self._bg_colors[index])
+        if color := self.bgColor(index):
+            image.flood(color)
 
-            # Calculate values
-            if self._vertical:
-                c2y = h-c2h                                 # Cap-2's y (height - height of cap)
-                bbox = (0, c1h, w, c2y)                     # Trough fill-area as (x,y,w,h)
-                cx, cy = int((w*0.5) - c1w*0.5), 0          # Cap-1 Center-x/y
-                cx2, cy2 = int((w * 0.5) - c2w*0.5), c2y    # Cap-2 Center-x/y
-            else:
-                c2x = w-c2w
-                bbox = (c1w, 0, c2x, h)
-                cx, cy = 0, int((h*0.5) - c1h*0.5)
-                cx2, cy2 = c2x, int((h * 0.5) - c1h*0.5)
+        if self._vertical:
+            end_y = height - eh
+            bbox = (0, sh, width, end_y)
 
-            # Composite the trough
-            self.trough.image(index).tileTo(new_img, bbox)
-            # Composite the first cap
-            self.cap1.image(index).cropTo(new_img, dest_x=cx, dest_y=cy)
-            # Composite the second cap
-            self.cap2.image(index).cropTo(new_img, dest_x=cx2, dest_y=cy2)
+            start_x = (width - sw) // 2
+            end_x = (width - ew) // 2
 
-            self._saveImage(new_img, index)
+            middle.tileTo(image, bbox)
+            start.cropTo(image, dest_x=start_x)
+            end.cropTo(image, dest_x=end_x, dest_y=end_y)
 
-    def _expand(self, size:int):       # Expands path and image lists to new length.
-        for n in range(size):
-            if len(self._images) < size: self._images.append(True)       # True appears as though hasImages()
+        else:
+            end_x = width - ew
+            bbox = (sw, 0, end_x, height)
+
+            start_y = (height - sh) // 2
+            end_y = (height - eh) // 2
+
+            middle.tileTo(image, bbox)
+            start.cropTo(image, dest_y=start_y)
+            end.cropTo(image, dest_x=end_x, dest_y=end_y)
+
+        return image
+
+
 BarSkin = ThreeSliceSkin
 
 

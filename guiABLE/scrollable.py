@@ -828,10 +828,6 @@ class ScrollTrough(Troughable, TroughButton):
     def handleDragged(self): self.parent.handleDragged()
     def handleReleased(self): self.parent.handleReleased()
 
-    def setState(self, state_index:int=0, floor:UImage=None, draw_area:tuple=None):
-        self._skin.image(state_index, self._geometry[2 + self._vertical])
-        return super().setState(state_index, floor, draw_area)
-
     def clicked(self, event):
         self._clicking = event.num
         self.setState(2)
@@ -865,10 +861,6 @@ class ScrollHandle(LoneDrag):
         if self._half is None:
             self._half = self._geometry[2] // 2, self._geometry[3] // 2
         return self._half
-
-    def setState(self, state_index:int=0, floor:UImage=None, draw_area:tuple=None):
-        self._skin.image(state_index, self._geometry[2 + self.vertical])
-        return super().setState(state_index, floor, draw_area)
 
     def mouseDrag(self, event=None):
         super().mouseDrag(event)
