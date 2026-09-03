@@ -41,8 +41,8 @@ class Scrollable:
 
     def _spawnScrollbars(self):
         width, height = self.size
-        v_breadth = self._scroll_skin.vertical.breadth
-        h_breadth = self._scroll_skin.horizontal.breadth
+        v_breadth = self._scroll_skin.vertical.width
+        h_breadth = self._scroll_skin.horizontal.height
 
         self._v_bar = VerticalScrollbar(self, self._scroll_skin.vertical, None, self._scroll_skin.button,
                                         v_breadth, width=v_breadth, height=height)
@@ -470,7 +470,7 @@ class ScrollBar(LinearAnimator, Background):
 
     def __init__(self, parent:Scrollable, bar_skin: ThreeSliceSkin | None = None,
                  handle_skin: ThreeSliceSkin | None = None, button_pack: ButtonPack | None = None, breadth:int = 0, **kwargs):
-        self._bar_skin = bar_skin or ThreeSliceSkin()
+        self._bar_skin = bar_skin
         self._buttons = button_pack
 
         super().__init__(parent, **kwargs)
@@ -485,8 +485,9 @@ class ScrollBar(LinearAnimator, Background):
 
         # Make and place Trough and Handle
         self._trough = ScrollTrough(self, self._bar_skin, width=tw, height=th)
-        self._handle = ScrollHandle(self._trough, handle_skin or ThreeSliceSkin(vertical=bool(self._orientation[0]),
-                                                                                breadth=breadth), bool(self._orientation[0]), width=breadth, height=breadth)
+        vertical = bool(self._orientation[0])
+        self._handle = ScrollHandle(self._trough, handle_skin or ThreeSliceSkin(vertical=vertical), vertical,
+                                                                    width=breadth, height=breadth)
         self._trough.place(x=tx, y=ty)
         self._handle.place(x=0, y=0)
 
@@ -803,7 +804,7 @@ class HorizontalScrollbar(ScrollBar):
 class ScrollTrough(Troughable, TroughButton):
     def __init__(self, parent:ScrollBar, skin:ThreeSliceSkin = None, **kwargs):
         self._vertical = parent.vertical
-        self._default_skin = ThreeSliceSkin()
+        self._default_skin = ThreeSliceSkin(vertical=self._vertical)
         super().__init__(parent, skin=skin, vertical=self._vertical, **kwargs)
 
     def enable(self):
