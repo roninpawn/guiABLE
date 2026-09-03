@@ -51,7 +51,7 @@ def test_gui():
     click_btn = InstantButton(app, function=lambda: print("Clicked instantly!"), width=80, height=40)
     click_btn.place(x=500, y=180)
 
-    from guiABLE.skinnable import BarSkin as BS
+    from guiABLE.skinnable import ThreeSliceSkin as BS
     trough_skin = Skin("../skins/default/square-48.png")
     cap_skin = Skin("../skins/default/up_glyph-48.png")
 
@@ -100,21 +100,16 @@ def test_gui():
         label.place(x=10, y=30*i)
         #label.pack(padx=10, pady=10, fill="both")
 
-    brdr_skin2 = BorderSkin(
+    brdr_skin = NineSliceSkin(
         Skin("../skins/default/border-gray-nw-corner-round-4px.png"),
-        Skin("../skins/default/border-gray-n-edge-4px.png")
+        Skin("../skins/default/border-gray-n-edge-4px.png"),
     )
-
-    text_test = InputLine(scroll_win.plate, 200, skin=brdr_skin2, font_pack=label_font, max_chars=12).place(90, 5)
+    text_test = InputLine(scroll_win.plate, 200, skin=brdr_skin, font_pack=label_font, max_chars=12).place(90, 5)
     text_test.setMask("*", True)
     text_test.setSubmitFunction(lambda:text_test.editable(False))
     text_test.setPlaceholder("Enter Password", FontPack(weight="italic", color="#BBBBBB"))
     sel_btn = Button(scroll_win.plate, None, text_test.selectAll, width=28, height=28).place(292, 5)
 
-    brdr_skin = BorderSkin(
-        Skin("../skins/default/border-gray-nw-corner-round-4px.png"),
-        Skin("../skins/default/border-gray-n-edge-4px.png")
-    )
     url = TextLabel(scroll_win.plate, "https://roninpawn.com\nVisit today!\nTry our new centerable text!",
                     brdr_skin, label_font, "#161a1a", align="center").place(90, 69)
     url.setFontAttributes(weight="bold", color="lime")
@@ -124,12 +119,7 @@ def test_gui():
             line = self.get("insert linestart", "insert lineend")
             return "=" in line
 
-    brdr_skin3 = BorderSkin(
-        Skin("../skins/default/border-gray-nw-corner-round-4px.png"),
-        Skin("../skins/default/border-gray-n-edge-4px.png")
-    )
-
-    blob = TextBlob(scroll_win.plate, 260, 200, scroll_skin, skin=brdr_skin3, bg_color="#161a1a", tab_focus=False, wrap="word")
+    blob = TextBlob(scroll_win.plate, 260, 200, scroll_skin, skin=brdr_skin, bg_color="#161a1a", tab_focus=False, wrap="word")
     blob.setText("This is an 'editable' (text) blob... And it wraps at the edge. This is an 'editable' (text) blob... And it wraps at the edge. This is an 'editable' (text) blob... And it wraps at the edge. This is an 'editable' (text) blob... And it wraps at the edge. This is an 'editable' (text) blob... And it wraps at the edge. This is an 'editable' (text) blob... And it wraps at the edge. This is an 'editable' (text) blob... And it wraps at the edge. This is an 'editable' (text) blob... And it wraps at the edge. This is an 'editable' (text) blob... And it wraps at the edge. This is an 'editable' (text) blob... And it wraps at the edge. This is an 'editable' (text) blob... And it wraps at the edge. ")
     blob.place(90, 164)
 
@@ -139,6 +129,10 @@ def test_gui():
         blob.setWrap("word" if on else "none")
     test_toggle5.function = (changeWrap, test_toggle5.isTrue)
     test_toggle5.place(x=300, y=350)
+
+    fixed_border = brdr_skin.view(160, 40)
+    view_a = Button(scroll_win.plate, fixed_border, text="View A", width=160, height=40).place(330, 5)
+    view_b = Button(scroll_win.plate, fixed_border, text="View B", width=200, height=60).place(330, 50)
 
     test_drag2 = Drag(scroll_win.frame, skin=drag_skin)
     test_drag2.place(x=190, y=385)

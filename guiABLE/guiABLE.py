@@ -6,7 +6,7 @@ from .widgets import (Background, Group, Image, Hover, InstantButton, Button, La
                       RepeatButton, LoneDrag, Drag, TroughButton, Slider, AnimatedSlider, DynamicSlider, LinearAnimator)
 from .textable import TextLabel, InputLine, TextBlob
 from .scrollable import ScrollWindow, ScrollBar, ScrollTrough, ScrollHandle
-from .skinnable import Skin, BarSkin, BorderSkin, FilterSkin, ScrollSkin
+from .skinnable import Skin, ThreeSliceSkin, NineSliceSkin, FilterSkin, ScrollSkin
 from .uimage import UImage
 from .fontable import FontPack
 from .utilities import loadImage

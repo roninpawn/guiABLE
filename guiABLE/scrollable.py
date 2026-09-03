@@ -1,7 +1,7 @@
 import tkinter as tk
 
 from .utilities import getLocalMouse, rectsOverlap
-from .skinnable import ScrollSkin, BarSkin, Skin, ButtonPack, Measurable, Placeable
+from .skinnable import ScrollSkin, ThreeSliceSkin, Skin, ButtonPack, Measurable, Placeable
 from .widgetables import Siblingable, Troughable, LinearAnimator, CoordinateSpace
 from .widgets import RepeatButton, TroughButton, LoneDrag, Background
 from .uimage import UImage
@@ -468,9 +468,9 @@ class ScrollBar(LinearAnimator, Background):
     ENABLED = 1
     AUTO = 2
 
-    def __init__(self, parent:Scrollable, bar_skin: BarSkin | None = None,
-                 handle_skin:BarSkin|None = None, button_pack:ButtonPack|None = None, breadth:int = 0, **kwargs):
-        self._bar_skin = bar_skin or BarSkin()
+    def __init__(self, parent:Scrollable, bar_skin: ThreeSliceSkin | None = None,
+                 handle_skin: ThreeSliceSkin | None = None, button_pack: ButtonPack | None = None, breadth:int = 0, **kwargs):
+        self._bar_skin = bar_skin or ThreeSliceSkin()
         self._buttons = button_pack
 
         super().__init__(parent, **kwargs)
@@ -485,8 +485,8 @@ class ScrollBar(LinearAnimator, Background):
 
         # Make and place Trough and Handle
         self._trough = ScrollTrough(self, self._bar_skin, width=tw, height=th)
-        self._handle = ScrollHandle(self._trough, handle_skin or BarSkin(vertical=bool(self._orientation[0]),
-                                   breadth=breadth), bool(self._orientation[0]), width=breadth, height=breadth)
+        self._handle = ScrollHandle(self._trough, handle_skin or ThreeSliceSkin(vertical=bool(self._orientation[0]),
+                                                                                breadth=breadth), bool(self._orientation[0]), width=breadth, height=breadth)
         self._trough.place(x=tx, y=ty)
         self._handle.place(x=0, y=0)
 
@@ -785,7 +785,7 @@ class ScrollBar(LinearAnimator, Background):
 
 
 class VerticalScrollbar(ScrollBar):
-    def __init__(self, parent, bar_skin:BarSkin|None = None, handle_skin:BarSkin|None = None,
+    def __init__(self, parent, bar_skin: ThreeSliceSkin | None = None, handle_skin: ThreeSliceSkin | None = None,
                  button_pack:ButtonPack|None = None, breadth:int = 0, **kwargs):
         self._directions = 0, 2
         self._orientation = 1, 0
@@ -793,7 +793,7 @@ class VerticalScrollbar(ScrollBar):
 
 
 class HorizontalScrollbar(ScrollBar):
-    def __init__(self, parent, bar_skin:BarSkin|None = None, handle_skin:BarSkin|None = None,
+    def __init__(self, parent, bar_skin: ThreeSliceSkin | None = None, handle_skin: ThreeSliceSkin | None = None,
                  button_pack:ButtonPack|None = None, breadth:int = 0, **kwargs):
         self._directions = 3, 1
         self._orientation = 0, 1
@@ -801,9 +801,9 @@ class HorizontalScrollbar(ScrollBar):
 
 
 class ScrollTrough(Troughable, TroughButton):
-    def __init__(self, parent:ScrollBar, skin:BarSkin = None, **kwargs):
+    def __init__(self, parent:ScrollBar, skin:ThreeSliceSkin = None, **kwargs):
         self._vertical = parent.vertical
-        self._default_skin = BarSkin()
+        self._default_skin = ThreeSliceSkin()
         super().__init__(parent, skin=skin, vertical=self._vertical, **kwargs)
 
     def enable(self):
@@ -852,9 +852,9 @@ class ScrollTrough(Troughable, TroughButton):
 
 
 class ScrollHandle(LoneDrag):
-    def __init__(self, parent:ScrollTrough, bar_skin:BarSkin = None, vertical:bool = True, **kwargs):
+    def __init__(self, parent:ScrollTrough, bar_skin:ThreeSliceSkin = None, vertical:bool = True, **kwargs):
         self.vertical = vertical
-        super().__init__(parent, skin=bar_skin or BarSkin(vertical=vertical), **kwargs)
+        super().__init__(parent, skin=bar_skin or ThreeSliceSkin(vertical=vertical), **kwargs)
         self._half = None
 
     @property

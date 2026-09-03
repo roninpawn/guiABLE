@@ -3,7 +3,7 @@ import tkinter as tk
 from time import time
 from typing import Callable
 
-from guiABLE.skinnable import Skinnable, Measurable, Skin, BorderSkin, Childable
+from guiABLE.skinnable import Skinnable, Measurable, Skin, NineSliceSkin, Childable
 from guiABLE.fontable import Fontable, FontPack
 from guiABLE.utilities import (rectsOverlap, rectUnion, pointIsInRect, getOverlap, decimateRect, rectIntersect,
                                rectsUnion, LimitedDict)
@@ -173,7 +173,7 @@ class Renderable(Skinnable):
     # The ZImage() is a persistent render of what the widget looks like on its own. Only updated if something changed.
     def zImage(self) -> UImage:
         if self._z_state != self._img_state or self.dirty:
-            self._z_img = self._skin.image(self._img_state).crop()
+            self._z_img = self._skin.imageFor(self, self._img_state).crop()
             self._z_state = self._img_state
             self.dirty = False
         return self._z_img
@@ -279,7 +279,7 @@ class Renderable(Skinnable):
                 bg_x, bg_y = self._parent.childBackgroundPoint(x, y, w, h) \
                     if hasattr(self._parent, "childBackgroundPoint") else (x, y)
 
-                self._parent.skin.image().cropTo(base, bg_x, bg_y, w, h)
+                self._parent.skin.imageFor(self._parent).cropTo(base, bg_x, bg_y, w, h)
 
         # Composite siblings bottom-to-top, rendering self and necessary siblings above.
         atop = self not in siblings
@@ -590,11 +590,7 @@ class Borderable(Anchorable):
         return top, right, bottom, left
 
     def _syncBorderSkin(self):
-        if isinstance(self.skin, BorderSkin):
-            if (self.skin.width, self.skin.height) != self.size:
-                self.skin.resize(*self.size, notify=False)
-                self.dirty = True
-
+        if isinstance(self.skin, NineSliceSkin):
             if not self._border_explicit:
                 self.setBorder(self.skin.insets(), implied=True)
 
@@ -685,7 +681,7 @@ class Nestable(Borderable):
 class Imageable(Stateable):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
-        if not isinstance(self._skin, BorderSkin):
+        if not isinstance(self._skin, NineSliceSkin):
             self._skin.setBGColors('#6B6B6B')     # Eliminate interactive colors for simple image.
 
     def changeImage(self, img_number, force_draw=False):

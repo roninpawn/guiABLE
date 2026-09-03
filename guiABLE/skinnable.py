@@ -46,18 +46,21 @@ class CoreSkin(Receivable):
                 return self._filter.image(index)
             return self._images[index % len(self._images)]
         return self._empty_image
+    def imageFor(self, recipient, index:int=0) -> UImage: return self.image(index)
 
     def resolution(self, image_index: int = None) -> tuple[int, int]:
         if any(self._images):
             if image_index is None: return self._skin_res
             else: return self._images[image_index % len(self._images)].resolution
         return (0, 0)
+    def resolutionFor(self, recipient, image_index:int=None) -> tuple[int,int]: return self.resolution(image_index)
 
     def isOpaque(self, image_index: int=0) -> bool:
         if any(self._images):
             image_index %= len(self._images)
             return self._images[image_index].isOpaque()
         return True
+    def isOpaqueFor(self, recipient, image_index:int=0) -> bool: return self.imageFor(recipient, image_index).isOpaque()
 
     @property
     def bg_colors(self) -> list[str]: return self._bg_colors
@@ -416,6 +419,223 @@ class FilterSkin(DirtySkin, CoreSkin):
         return bool(r), bool(x), bool(y)
 
 
+class AssembledSkin(ColorSkin):
+    """ Source-driven Skin that caches assembled rasters by recipient geometry. """
+    def __init__(self, *parts:CoreSkin, width:int=0, height:int=0):
+        super().__init__()
+
+        self._parts = tuple(parts)
+        self._declared_size = [max(0, int(width)), max(0, int(height))]
+        self._size_declared = [width > 0, height > 0]
+
+        self._realizations = {}           # (w,h) -> [state images]
+        self._realization_dirty = {}      # (w,h) -> [state dirty flags]
+        self._recipient_sizes = {}        # recipient -> (w,h)
+        self._size_users = {}             # (w,h) -> {recipients}
+
+        self.dirty = False
+        self._bindParts()
+
+    @property
+    def width(self): return self._resolvedSize()[0]
+    @property
+    def height(self): return self._resolvedSize()[1]
+
+    def view(self, width:int=None, height:int=None, enforce_geometry:bool=False) -> 'SkinView':
+        return SkinView(self, *self._viewSize(width, height, enforce_geometry))
+
+    def _invalidate(self):
+        self.updateRecipients()
+
+    def image(self, index:int=0) -> UImage:
+        return self._realizedImage(self._resolvedSize(), index)
+    def imageFor(self, recipient, index:int=0) -> UImage:
+        size = self._resolvedSize(recipient)
+        self._associate(recipient, size)
+        return self._realizedImage(size, index)
+
+    def resolution(self, image_index:int=None) -> tuple[int,int]: return self._resolvedSize()
+    def resolutionFor(self, recipient, image_index:int=None) -> tuple[int,int]: return self._resolvedSize(recipient)
+
+    def isOpaque(self, image_index:int=0) -> bool: return self.image(image_index).isOpaque()
+    def isOpaqueFor(self, recipient, image_index:int=0) -> bool:
+        return self.imageFor(recipient, image_index).isOpaque()
+
+    def hasImages(self): return True
+    def numStates(self): return max(1, self._stateCount())
+
+    def resize(self, width:int=None, height:int=None, notify:bool=True):
+        changed = False
+
+        for axis, value in enumerate((width, height)):
+            if value is not None and value > 0:
+                value = int(value)
+
+                if value != self._declared_size[axis] or not self._size_declared[axis]:
+                    self._declared_size[axis] = value
+                    self._size_declared[axis] = True
+                    changed = True
+
+        if changed:
+            self._markRealizationsDirty()
+            if notify: self.updateRecipients()
+
+    def unbindWidget(self, widget):
+        super().unbindWidget(widget)
+        self._release(widget)
+
+    def redraw(self):
+        self.dirty = False
+        self.updateRecipients()
+
+    def updateRecipients(self):
+        self._markRealizationsDirty()
+        super().updateRecipients()
+
+    def _viewSize(self, width:int=None, height:int=None, enforce_geometry:bool=False) -> tuple[int,int]:
+        size, requested, = [0, 0], (width, height)
+
+        for axis in range(2):
+            if enforce_geometry and self._size_declared[axis]:
+                value = self._declared_size[axis]
+            elif requested[axis] is not None:
+                value = int(requested[axis])
+            elif self._size_declared[axis]:
+                value = self._declared_size[axis]
+            else:
+                value = self._naturalSize()[axis]
+
+            size[axis] = max(self._minimumSize()[axis], value)
+
+        return tuple(size)
+
+    def _resolvedSize(self, recipient=None) -> tuple[int,int]:
+        natural = self._naturalSize()
+        size = list(recipient.size if recipient is not None else natural)
+
+        for axis in range(2):
+            if self._size_declared[axis]: size[axis] = self._declared_size[axis]
+
+        minimum = self._minimumSize()
+        return max(minimum[0], size[0]), max(minimum[1], size[1])
+
+    def _realizedImage(self, size:tuple[int,int], index:int) -> UImage:
+        states = self.numStates()
+        images = self._realizations.setdefault(size, [])
+        dirty = self._realization_dirty.setdefault(size, [])
+
+        while len(images) < states: images.append(None)
+        while len(dirty) < states: dirty.append(True)
+        if len(images) > states: del images[states:]
+        if len(dirty) > states: del dirty[states:]
+
+        index %= states
+
+        if dirty[index] or images[index] is None:
+            images[index] = self._draw(index, *size)
+            dirty[index] = False
+
+        return images[index] or self._empty_image
+
+    def _associate(self, recipient, size:tuple[int,int]):
+        old_size = self._recipient_sizes.get(recipient)
+        if old_size == size: return
+
+        if old_size is not None:
+            users = self._size_users.get(old_size)
+
+            if users is not None:
+                users.discard(recipient)
+                if not users: self._dropRealization(old_size)
+
+        self._recipient_sizes[recipient] = size
+        self._size_users.setdefault(size, set()).add(recipient)
+
+    def _release(self, recipient):
+        size = self._recipient_sizes.pop(recipient, None)
+        if size is None: return
+
+        users = self._size_users.get(size)
+        if users is not None:
+            users.discard(recipient)
+            if not users: self._dropRealization(size)
+
+    def _dropRealization(self, size):
+        if all(self._size_declared) and size == tuple(self._declared_size): return
+
+        self._size_users.pop(size, None)
+        self._realizations.pop(size, None)
+        self._realization_dirty.pop(size, None)
+
+    def _markRealizationsDirty(self):
+        for dirty in self._realization_dirty.values():
+            dirty[:] = [True] * len(dirty)
+
+    def _bindParts(self):
+        bound = set()
+
+        for part in self._parts:
+            source = part.linked_skin if isinstance(part, FilterSkin) else part
+
+            if source not in bound:
+                source.bindWidget(self)
+                bound.add(source)
+
+    def _stateCount(self) -> int: return 1
+    def _minimumSize(self) -> tuple[int,int]: return 1, 1
+    def _naturalSize(self) -> tuple[int,int]: return self._minimumSize()
+    def _draw(self, index:int, width:int, height:int) -> UImage: return self._empty_image
+
+
+class SkinView(CoreSkin):
+    """ Fixed-resolution live view of an AssembledSkin realization. """
+    def __init__(self, source:AssembledSkin, width:int, height:int):
+        super().__init__()
+
+        self._linked_skin = source
+        self._size = width, height
+
+    @property
+    def linked_skin(self): return self._linked_skin
+    @property
+    def size(self): return self._size
+    @property
+    def bg_colors(self): return self._linked_skin.bg_colors
+
+    def bgColor(self, index:int=0): return self._linked_skin.bgColor(index)
+    def numStates(self): return self._linked_skin.numStates()
+    def hasImages(self): return True
+
+    def usesBgColors(self, use:bool=None):
+        if use is not None: raise ValueError("SkinView background behavior belongs to its source AssembledSkin")
+        return self._linked_skin.usesBgColors()
+
+    def image(self, index:int=0) -> UImage: return self._linked_skin._realizedImage(self._size, index)
+    def imageFor(self, recipient, index:int=0) -> UImage: return self.image(index)
+
+    def resolution(self, image_index:int=None) -> tuple[int,int]: return self._size
+    def resolutionFor(self, recipient, image_index:int=None) -> tuple[int,int]: return self._size
+
+    def isOpaque(self, image_index:int=0) -> bool: return self.image(image_index).isOpaque()
+    def isOpaqueFor(self, recipient, image_index:int=0) -> bool: return self.isOpaque(image_index)
+
+    def bindWidget(self, widget):
+        if not self._recipients:
+            self._linked_skin.bindWidget(self)
+            self._linked_skin._associate(self, self._size)
+
+        super().bindWidget(widget)
+
+    def unbindWidget(self, widget):
+        super().unbindWidget(widget)
+
+        if not self._recipients:
+            self._linked_skin.unbindWidget(self)
+
+    def redraw(self):
+        self.updateRecipients()
+
+
 """
     BarSkin accepts 2-3 skins which function as the end-caps and trough of a variable-length image. On request, BarSkin
     composes, stores, and returns the image of a bar, of the last length specified. Length is extended by repeating the
@@ -426,43 +646,64 @@ class FilterSkin(DirtySkin, CoreSkin):
     
     ex: BarSkin(cap1, trough, vertical=True)    # When no cap2 is given, cap1 is mirrored to fill the need.
 """
-class BarSkin(DirtySkin, ColorSkin):
-    def __init__(self, cap_skin: Skin|FilterSkin|None = None, trough_skin: Skin|FilterSkin|None = None,
-                 cap2_skin: Skin|FilterSkin|None = None, vertical:bool = False, length:int = 0, breadth:int = 0):
+class ThreeSliceSkin(DirtySkin, ColorSkin):
+    def __init__(self, start_skin:Skin|FilterSkin|None=None, middle_skin:Skin|FilterSkin|None=None,
+                 end_skin:Skin|FilterSkin|None=None, axis:str|bool="x", width:int=0, height:int=0,
+                 *, vertical:bool=None, length:int=0, breadth:int=0):
         DirtySkin.__init__(self)
         ColorSkin.__init__(self)
 
-        # Generate or store the skins passed.
-        self.trough = trough_skin or Skin()
-        if cap_skin is not None:
-            self.cap1 = cap_skin
-            self.cap2 = cap2_skin or FilterSkin(self.cap1, mirror_x=not vertical, mirror_y=vertical)
+        # Temporary compatibility while internal BarSkin callers migrate.
+        if vertical is not None: axis = vertical
+        if isinstance(axis, bool): axis = "y" if axis else "x"
+
+        axis = axis.lower()
+        if axis not in ("x", "y"): raise ValueError("axis must be 'x' or 'y'")
+        self._vertical = axis == "y"
+
+        self.start = self.cap1 = start_skin or Skin()
+        self.middle = self.trough = middle_skin or Skin()
+
+        if start_skin is not None:
+            self.end = self.cap2 = end_skin or FilterSkin(
+                self.start, mirror_x=not self._vertical, mirror_y=self._vertical
+            )
         else:
-            self.cap1, self.cap2 = Skin(), Skin()
+            self.end = self.cap2 = Skin()
 
-        # Register as a recipient of each skin for dirtiness tracking.
-        self.trough.bindWidget(self)
-        self.cap1.bindWidget(self)
-        self.cap2.bindWidget(self)
+        self.middle.bindWidget(self)
+        self.start.bindWidget(self)
+        self.end.bindWidget(self)
 
-        # Store vertical, length and breadth -- populating breadth automatically if it is undeclared.
-        self._vertical = vertical
+        requested_length = height if self._vertical else width
+        requested_breadth = width if self._vertical else height
+
+        if requested_length > 0: length = requested_length
+        if requested_breadth > 0: breadth = requested_breadth
+
         if breadth < 1:
-            self.breadth = max(self.cap1.resolution()[not vertical], self.trough.resolution()[not vertical],
-                               self.cap2.resolution()[not vertical], 1)
-        else: self.breadth = breadth
+            breadth = max(self.start.resolution()[not self._vertical],
+                          self.middle.resolution()[not self._vertical],
+                          self.end.resolution()[not self._vertical], 1)
+
+        self.breadth = breadth
         self.length = self.breadth * 3 if length < 1 else length
 
-        # Expand to fit the maximum drawable states.
-        self._expand( min(self.cap1.numStates(), self.trough.numStates(), self.cap2.numStates()) )
+        self._expand(min(self.start.numStates(), self.middle.numStates(), self.end.numStates()))
 
-        # If BarSkin has enough image-containing skins to render a bar at instantiation, bg_colors default to off.
-        if self.cap1.hasImages() and self.trough.hasImages(): self._use_bg_colors = False
+        if self.start.hasImages() and self.middle.hasImages(): self._use_bg_colors = False
+
+    @property
+    def axis(self) -> str: return "y" if self._vertical else "x"
+    @property
+    def width(self) -> int: return self.breadth if self._vertical else self.length
+    @property
+    def height(self) -> int: return self.length if self._vertical else self.breadth
 
     # fromTwo takes a trough and only 1 cap, flipping that cap to create the other end of the bar.
     @classmethod
-    def fromTwo(cls, cap_skin:Skin|FilterSkin, trough_skin:Skin|FilterSkin, vertical:bool = False, breadth:int = 0):
-        return cls(cap_skin, trough_skin, vertical=vertical, breadth=breadth)
+    def fromTwo(cls, start_skin:Skin|FilterSkin, middle_skin:Skin|FilterSkin, axis:str|bool="x"):
+        return cls(start_skin, middle_skin, axis=axis)
 
     def usesBgColors(self, use:bool=None) -> bool:
         if use is not None:
@@ -471,8 +712,29 @@ class BarSkin(DirtySkin, ColorSkin):
 
         return super().usesBgColors(use)
 
+    def resize(self, width:int=None, height:int=None, notify:bool=True):
+        length = height if self._vertical else width
+        breadth = width if self._vertical else height
+        changed = False
+
+        if length is not None and length > 2 and length != self.length:
+            self.length = int(length)
+            changed = True
+
+        if breadth is not None and breadth > 0 and breadth != self.breadth:
+            self.breadth = int(breadth)
+            changed = True
+
+        if changed:
+            self.dirty = True
+            if notify: self.updateRecipients()
+
     def image(self, index:int=0, length:int=None) -> UImage:
-        if length and length != self.length and length > 2: self.length = length
+        # Temporary compatibility for ScrollTrough/ScrollHandle.
+        if length is not None:
+            if self._vertical: self.resize(height=length, notify=False)
+            else: self.resize(width=length, notify=False)
+
         return super().image(index)
 
     # _cleanIndex redraws/recalculates dirty images/resolutions and returns an in-range index value.
@@ -519,15 +781,13 @@ class BarSkin(DirtySkin, ColorSkin):
     def _expand(self, size:int):       # Expands path and image lists to new length.
         for n in range(size):
             if len(self._images) < size: self._images.append(True)       # True appears as though hasImages()
-
+BarSkin = ThreeSliceSkin
 
 """ Nine-slice border assembled from four corners, four repeatable edges, and an optional center color. """
-class BorderSkin(DirtySkin, ColorSkin):
+class NineSliceSkin(AssembledSkin):
     def __init__(self, northwest:CoreSkin, north:CoreSkin, northeast:CoreSkin=None, east:CoreSkin=None,
                  southeast:CoreSkin=None, south:CoreSkin=None, southwest:CoreSkin=None, west:CoreSkin=None,
                  width:int=0, height:int=0):
-        DirtySkin.__init__(self)
-        ColorSkin.__init__(self)
 
         self.northwest, self.north = northwest, north
         self.northeast = northeast or FilterSkin(northwest, mirror_x=True)
@@ -537,32 +797,14 @@ class BorderSkin(DirtySkin, ColorSkin):
         self.southwest = southwest or FilterSkin(northwest, mirror_y=True)
         self.west = west or FilterSkin(north, rotate=True)
 
-        self._parts = (self.northwest, self.north, self.northeast, self.east,
-                       self.southeast, self.south, self.southwest, self.west)
-        self._bindParts()
+        parts = (self.northwest, self.north, self.northeast, self.east,
+                 self.southeast, self.south, self.southwest, self.west)
+
+        AssembledSkin.__init__(self, *parts, width=width, height=height)
 
         # Background colors describe only the center region. Border artwork remains untouched.
         self._bg_colors = [""]
         self._use_bg_colors = True
-
-        natural_w, natural_h = self._naturalSize()
-        min_w, min_h = self._minimumSize()
-        self.width = max(min_w, int(width)) if width > 0 else natural_w
-        self.height = max(min_h, int(height)) if height > 0 else natural_h
-
-    def image(self, index:int=0, width:int=None, height:int=None) -> UImage:
-        if width is not None or height is not None: self.resize(width, height, notify=False)
-        return super().image(index)
-
-    def resize(self, width:int=None, height:int=None, notify:bool=True):
-        min_w, min_h = self._minimumSize()
-        width = self.width if width is None else max(min_w, int(width))
-        height = self.height if height is None else max(min_h, int(height))
-        if (width, height) == (self.width, self.height): return
-
-        self.width, self.height = width, height
-        self.dirty = True
-        if notify: self.updateRecipients()
 
     def setBGColors(self, *colors:str):
         if colors:
@@ -588,44 +830,7 @@ class BorderSkin(DirtySkin, ColorSkin):
 
         return self._use_bg_colors
 
-    def redraw(self): self.updateRecipients()
-
-    def _invalidate(self):
-        self.dirty = True
-        self.updateRecipients()
-
-    def _bindParts(self):
-        bound = set()
-
-        for part in self._parts:
-            source = part.linked_skin if isinstance(part, FilterSkin) else part
-
-            if source not in bound:
-                source.bindWidget(self)
-                bound.add(source)
-
-    def _cleanSkin(self):
-        states = max(1, len(self._bg_colors) if self._use_bg_colors else 1,
-                     *(part.linked_skin.numStates() if isinstance(part, FilterSkin) else part.numStates()
-                       for part in self._parts))
-
-        if len(self._images) > states: del self._images[states:]
-        if len(self._img_dirty) > states: del self._img_dirty[states:]
-
-        self._expand(states)
-        DirtySkin._cleanSkin(self)
-
-    def _cleanIndex(self, index:int) -> int:
-        index %= len(self._img_dirty)
-
-        if self._img_dirty[index] or self._images[index].resolution != (self.width, self.height):
-            self._draw(index)
-            self._img_dirty[index] = False
-
-        return index
-
-    def _draw(self, index:int):
-        w, h = self.width, self.height
+    def _draw(self, index:int, w:int, h:int) -> UImage:
         left, right, top, bottom = self._bands(index)
         new_img = UImage(width=w, height=h)
 
@@ -645,7 +850,7 @@ class BorderSkin(DirtySkin, ColorSkin):
         se.cropTo(new_img, dest_x=w - se.width(), dest_y=h - se.height())
         sw.cropTo(new_img, dest_y=h - sw.height())
 
-        self._saveImage(new_img, index)
+        return new_img
 
     def _bands(self, index:int=0) -> tuple[int,int,int,int]:
         nw, n, ne, e, se, s, sw, west = [part.resolution(index) for part in self._parts]
@@ -672,8 +877,10 @@ class BorderSkin(DirtySkin, ColorSkin):
 
         return min_w + max(north_w, south_w, 1), min_h + max(east_h, west_h, 1)
 
-    def _expand(self, size:int):
-        while len(self._images) < size: self._images.append(True)
+    def _stateCount(self) -> int:
+        return max(1, len(self._bg_colors) if self._use_bg_colors else 1,
+                   *(part.linked_skin.numStates() if isinstance(part, FilterSkin) else part.numStates()
+                     for part in self._parts))
 
 
 """ SkinPack is a container class for holding multiple skins, that exists only to be extended by its children. """
@@ -751,7 +958,7 @@ class ButtonPack(SkinPack):
     generates both the vertical and horizontal BarSkin by rotating whichever one was given. 
 """
 class ScrollSkin(SkinPack):
-    def __init__(self, vertical_bar:BarSkin, horizontal_bar:BarSkin, button_pack:ButtonPack = None):
+    def __init__(self, vertical_bar:ThreeSliceSkin, horizontal_bar:ThreeSliceSkin, button_pack:ButtonPack = None):
         super().__init__(vertical_bar or None, horizontal_bar or None, button_pack)
 
     @classmethod
@@ -761,13 +968,13 @@ class ScrollSkin(SkinPack):
         return cls(*cls._barsFromSkins(cap_skin, trough_skin, cap_skin2, vertical), buttons)
 
     @property
-    def vertical(self) -> BarSkin: return BarSkin() if self._skins[0] is None else self._skins[0]
+    def vertical(self) -> ThreeSliceSkin: return ThreeSliceSkin() if self._skins[0] is None else self._skins[0]
     @property
-    def horizontal(self) -> BarSkin: return BarSkin() if self._skins[1] is None else self._skins[1]
+    def horizontal(self) -> ThreeSliceSkin: return ThreeSliceSkin() if self._skins[1] is None else self._skins[1]
     @property
     def button(self) -> ButtonPack: return self._skins[2]
 
-    def setBars(self, vertical:BarSkin = None, horizontal:BarSkin = None):
+    def setBars(self, vertical:ThreeSliceSkin = None, horizontal:ThreeSliceSkin = None):
         if vertical: self._skins[0] = vertical
         if horizontal: self._skins[1] = horizontal
 
@@ -778,12 +985,12 @@ class ScrollSkin(SkinPack):
 
     @classmethod
     def _barsFromSkins(cls, cap_skin:Skin, trough_skin:Skin, cap_skin2:Skin|None = None,
-                       vertical:bool = True) -> tuple[BarSkin, BarSkin]:
-        bar1 = BarSkin(cap_skin, trough_skin, cap_skin2, vertical)
+                       vertical:bool = True) -> tuple[ThreeSliceSkin, ThreeSliceSkin]:
+        bar1 = ThreeSliceSkin(cap_skin, trough_skin, cap_skin2, vertical)
         new_cap = FilterSkin(bar1.cap1, rotate=True, mirror_x = not vertical, mirror_y=not vertical)
         new_trough = FilterSkin(bar1.trough, rotate=True, mirror_x = not vertical, mirror_y=not vertical)
         new_cap2 = FilterSkin(bar1.cap2, rotate=True, mirror_x = not vertical, mirror_y=not vertical)
-        bar2 = BarSkin(new_cap, new_trough, new_cap2, not vertical)
+        bar2 = ThreeSliceSkin(new_cap, new_trough, new_cap2, not vertical)
         bar2.setBGColors(*bar1.bg_colors)
         return (bar1, bar2) if vertical else (bar2, bar1)
 
@@ -965,7 +1172,7 @@ class Placeable(Measurable):
 
 """ Skinnable is a mixin that provides core Skin() handling functionality to guiABLE widgets. """
 class Skinnable(Placeable):
-    def __init__(self, *args, skin:Skin|BarSkin|FilterSkin|str|UImage|tuple|list = None, **kwargs):
+    def __init__(self, *args, skin: Skin | ThreeSliceSkin | FilterSkin | str | UImage | tuple | list = None, **kwargs):
         default_skin = getattr(self, "_default_skin", None)
 
         if skin:
@@ -1015,8 +1222,12 @@ class Skinnable(Placeable):
         self._skin = NoSkin(self.width, self.height)
         self._skin.bindWidget(self)
 
+    def destroy(self):
+        if self._skin: self._skin.unbindWidget(self)
+        super().destroy()
+
     def isOpaque(self):
-        return self.skin.resolution(self.state) == self.size and self.skin.isOpaque(self.state)
+        return self.skin.resolutionFor(self, self.state) == self.size and self.skin.isOpaqueFor(self, self.state)
 
     # Persistent UImage provides an INSTANT redraw canvas in compositing.
     def scratchImage(self): return self._scratch
