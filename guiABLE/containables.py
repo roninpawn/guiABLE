@@ -31,7 +31,7 @@ class Expandable():
     def _resize(self):
         if not any(self._size_declared):        # Only alter dimensions if width/height were not explicitly declared.
             union = (0,0,0,0)
-            union = rectsUnion(union, *[child.geometry for child in self.getChildren()])
+            union = rectsUnion(union, *[self.childGeometry(child) for child in self.getChildren()])
 
             if union[2:] != self.size:
                 w = self.width if self._size_declared[0] else union[2]
@@ -273,6 +273,22 @@ class Collection(Expandable, Measurable, Nothing):
     def childMaster(self):
         return self._parent.childMaster() if hasattr(self._parent, "childMaster") else self._parent
 
+    # Collection children belong logically to the Collection and physically to its real Tk host.
+    def registerChild(self, child):
+        super().registerChild(child)
+        host = self.childMaster()
+        if hasattr(host, "registerChild"): host.registerChild(child)
+
+    def dropChild(self, child):
+        host = self.childMaster()
+        if hasattr(host, "dropChild"): host.dropChild(child)
+        super().dropChild(child)
+
+    def childChanged(self, child):
+        super().childChanged(child)
+        host = self.childMaster()
+        if hasattr(host, "childChanged"): host.childChanged(child)
+
     def mapChildToMaster(self, x:int, y:int) -> tuple[int,int]:
         x, y = x + self.x, y + self.y
         return self._parent.mapChildToMaster(x, y) if hasattr(self._parent, "mapChildToMaster") else (x, y)
@@ -316,7 +332,8 @@ class Groupable(Expandable):
     # If no skin has been passed, we create a "non-skin" that fills the visible area of the Group.
     def _afterGeometryChanges(self):
         if not self._skin_passed:
-            visible = decimateRect((0, 0, *self.size), [child.geometry for child in self._children if child.isOpaque()])
+            visible = decimateRect((0, 0, *self.size),
+                                   [self.childGeometry(child) for child in self._children if child.isOpaque()])
             if visible:
                 if len(visible) == 1:
                     self._skin_offset = tuple(visible[0][:2])

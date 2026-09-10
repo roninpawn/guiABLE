@@ -23,7 +23,7 @@ class Siblingable:
     # Overlapping siblings track each other for the sake of compositing (faking transparency) during redraw.
     def trackSibling(self, new_sibling):
         if new_sibling not in self._siblings:
-            family = list(self.parent.getChildren())
+            family = list(self._siblingHost().getChildren())
             for i in range(len(family)-1, -1, -1):
                 if family[i] not in self._siblings and family[i] != new_sibling: family.pop(i)
             self._siblings = family
@@ -34,27 +34,41 @@ class Siblingable:
     # Override methods that change z-index, to track and report changes to all interested parties.
     def lift(self, above=None):
         tk.Misc.lift(self, above)
-        # TODO: All these after_idle()s are possibly the problem with lift/lowering.
-        self.after_idle(self.parent._raiseChildIndex, self, above)
-        self.after_idle(self._registerSiblings, self.parent.getChildren())
+        host = self._siblingHost()
+        self.after_idle(host._raiseChildIndex, self, above)
+        self.after_idle(self._registerSiblings, host.getChildren())
     def lower(self, below=None):
         tk.Misc.lower(self, below)
-        self.after_idle(self.parent._lowerChildIndex, self, below)
-        self.after_idle(self._registerSiblings, self.parent.getChildren())
+        host = self._siblingHost()
+        self.after_idle(host._lowerChildIndex, self, below)
+        self.after_idle(self._registerSiblings, host.getChildren())
 
     def destroy(self):
         for sibling in self._siblings:
             sibling.dropSibling(self)
         super().destroy()
 
+    def _siblingHost(self): return self.master if hasattr(self.master, "getChildren") else self._parent
+
+    # Express a physical sibling in this widget's logical-parent coordinate space.
+    def _siblingGeometry(self, sibling):
+        host = self._siblingHost()
+        geometry = host.childGeometry(sibling) if hasattr(host, "childGeometry") else sibling.geometry
+
+        if self._parent is not host and hasattr(self._parent, "mapMasterToChild"):
+            x, y = self._parent.mapMasterToChild(*geometry[:2])
+            return x, y, *geometry[2:]
+
+        return geometry
+
     # Find overlapping siblings and store them / register with them, for future tracking.
     def _registerSiblings(self, siblings_list=None, prune=True):
-        family = list(siblings_list or self._parent.getChildren())
+        family = list(siblings_list or self._siblingHost().getChildren())
 
         current = [
             sibling for sibling in family
             if isinstance(sibling, Measurable)
-            and rectsOverlap(self._geometry, sibling.geometry)
+            and rectsOverlap(self._siblingGeometry(self), self._siblingGeometry(sibling))
         ]
 
         # During a geometry transition, retain former siblings for one final draw.
@@ -95,7 +109,7 @@ class Siblingable:
 
         for i in range(len(siblings)-1, -1, -1):
             sib = siblings[i]
-            overlap = getOverlap(union, sib.geometry)
+            overlap = getOverlap(union, self._siblingGeometry(sib))
 
             if overlap is None: continue
 
@@ -140,6 +154,8 @@ class Renderable(Skinnable):
         self.dirty = True
         self._z_state, self._z_img = None, None
         self._img_state = 0
+
+        self._native_base = None
         self._bases = LimitedDict(maxsize=20)
 
     @property
@@ -159,6 +175,7 @@ class Renderable(Skinnable):
         # Child order is top-first, so begin at the bottom. One lower child's
         # composite pass may already render overlapping siblings above it.
         for child in reversed(self._children):
+            if child.parent is not self: continue    # Collection descendants render independently.
             if child in rendered or not isinstance(child, Renderable): continue
             if child.isOpaque() or not rectsOverlap(draw_area, child.geometry): continue
 
@@ -262,11 +279,7 @@ class Renderable(Skinnable):
             return rendered
 
         """ Composite local sibling family to one base. """
-        res = (w, h)
-        if res not in self._bases:
-            self._bases[res] = UImage(width=w, height=h)
-
-        base = self._bases[res]
+        base = self._acquireBase(w, h)
 
         # Establish the floor only if some of it remains visible.
         if not (len(siblings) == 1 and self.isOpaque()) \
@@ -311,6 +324,45 @@ class Renderable(Skinnable):
             self.bench, self.benches = 0, 0
 
         return rendered
+
+    def _acquireBase(self, width:int, height:int) -> UImage:
+        native_res = self.size
+
+        if self._native_base is None or self._native_base.resolution != native_res:
+            if self._native_base is not None:
+                self._bases[self._native_base.resolution] = self._native_base
+
+            self._native_base = self._bases.pop(native_res, None)
+            if self._native_base is None:
+                self._native_base = UImage(width=native_res[0], height=native_res[1])
+
+            self._native_base = UImage(width=native_res[0], height=native_res[1])
+
+        if (width, height) == native_res: return self._native_base
+
+        candidates = [(res, image) for res, image in self._bases.items()
+                      if res[0] >= width and res[1] >= height]
+
+        # The native base can also satisfy nearby smaller jobs without ever being evicted.
+        if native_res[0] >= width and native_res[1] >= height:
+            candidates.append((native_res, self._native_base))
+
+        if candidates:
+            best_res, best = min(candidates, key=lambda entry:entry[0][0] * entry[0][1])
+
+            if width * height >= best_res[0] * best_res[1] * .75:
+                if best is not self._native_base: self._bases[best_res]    # Touch LRU entry.
+                return best
+
+        bucket = 5
+        width = ((width + bucket - 1) // bucket) * bucket
+        height = ((height + bucket - 1) // bucket) * bucket
+        res = (width, height)
+
+        if res not in self._bases:
+            self._bases[res] = UImage(width=width, height=height)
+
+        return self._bases[res]
 
 
 """ Canvas defines how to render images to the surface of the tk.Canvas to support parent & sibling transparency. """
@@ -702,8 +754,9 @@ class Hoverable(Stateable):
     def mouseIn(self, event):
         # If widget has a child and the mouse enters child & parent at the same time, only change child's visual state.
         for child in self._children:
-            if not getattr(child, "event_passthrough", False) and pointIsInRect(event.x, event.y, child.geometry):
-                return
+            if (not getattr(child, "event_passthrough", False) and
+                    pointIsInRect(event.x, event.y, self.childGeometry(child))): return
+
         self.setState(1)
         self.moused_over = True
 
@@ -1125,7 +1178,7 @@ class Troughable:
 
     def registerChild(self, child):
         super().registerChild(child)
-        self._handle = child
+        if child.parent is self: self._handle = child
 
     def enable(self):
         super().enable()

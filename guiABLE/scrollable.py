@@ -389,7 +389,7 @@ class ScrollPlate(CoordinateSpace, Placeable, tk.Frame):
     def registerChild(self, child):
         super().registerChild(child)
         self._measureContent()
-        if rectsOverlap(child.geometry, self.childRenderArea()): self._visible_children.add(child)
+        if rectsOverlap(self.childGeometry(child), self.childRenderArea()): self._visible_children.add(child)
 
     def dropChild(self, child):
         super().dropChild(child)
@@ -397,7 +397,7 @@ class ScrollPlate(CoordinateSpace, Placeable, tk.Frame):
         self._measureContent()
 
     def childChanged(self, child):
-        if rectsOverlap(child.geometry, self.childRenderArea()): self._visible_children.add(child)
+        if rectsOverlap(self.childGeometry(child), self.childRenderArea()): self._visible_children.add(child)
         else: self._visible_children.discard(child)
         self._measureContent()
 
@@ -414,7 +414,8 @@ class ScrollPlate(CoordinateSpace, Placeable, tk.Frame):
     def spaceResized(self): self._syncVisible()
 
     def _syncVisible(self, redraw:bool=False):
-        visible = {child for child in self.getChildren() if rectsOverlap(child.geometry, self.childRenderArea())}
+        visible = {child for child in self.getChildren()
+                   if rectsOverlap(self.childGeometry(child), self.childRenderArea()) }
 
         entering = visible - self._visible_children
         for child in visible if redraw else entering:
@@ -425,8 +426,9 @@ class ScrollPlate(CoordinateSpace, Placeable, tk.Frame):
     def _measureContent(self):
         width = height = 0
         for child in self.getChildren():
-            width = max(width, child.x + child.width)
-            height = max(height, child.y + child.height)
+            x, y, child_w, child_h = self.childGeometry(child)
+            width = max(width, x + child_w)
+            height = max(height, y + child_h)
 
         content_size = width, height
         if content_size != self._content_size:

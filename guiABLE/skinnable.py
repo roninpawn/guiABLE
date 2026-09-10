@@ -1092,6 +1092,11 @@ class Childable():
         return (0, 0, *self.size) if hasattr(self, "size") else None
     def childBackgroundPoint(self, x:int, y:int, width:int=0, height:int=0) -> tuple[int,int]:
         return self.mapChildToMaster(x, y)
+    def childGeometry(self, child):
+        if child.parent is self: return child.geometry
+
+        x, y = child.parent.mapChildToMaster(child.x, child.y)
+        return x, y, child.width, child.height
 
     # Parents that host child widgets track their children and provide a list of those children's z-order.
     def getChildren(self): return self._children
