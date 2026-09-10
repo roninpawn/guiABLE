@@ -1108,7 +1108,7 @@ class Childable():
 
     # Methods for maintaining child z_order on lift/lower configurations.
     def _raiseChildIndex(self, child, above):
-        self.dropChild(child)
+        if child in self._children: self._children.remove(child)
         if above and above in self._children:
             index = self._children.index(above) + 1
             self._children.insert(index, child)
@@ -1116,7 +1116,7 @@ class Childable():
             self._children.append(child)
 
     def _lowerChildIndex(self, child, below):
-        self.dropChild(child)
+        if child in self._children: self._children.remove(child)
         if below and below in self._children:
             index = self._children.index(below)
             self._children.insert(index, child)

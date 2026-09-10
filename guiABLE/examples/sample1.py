@@ -31,7 +31,7 @@ def test_gui():
     opaque_test.place(x=280, y=45)
 
     # Create a Button with text
-    test_btn = Button(app, btn_skin, lambda: print("Label clicked!"), "Button!", label_font, width=100, height=0)
+    test_btn = Button(app, btn_skin, lambda: print("Label clicked!"), "Button!", label_font)
     test_btn.place(x=360, y=0)
 
     glyphs = UImage(file='../skins/default/window-glyphs-40.png')
@@ -141,7 +141,13 @@ def test_gui():
     #brdr_skin.setPart("sw", Skin("../skins/default/cog.png"), True)
     brdr_skin.setPart("se", None)
 
-    test_drag2 = Drag(scroll_win.frame, skin=drag_skin)
+    def drag_func():
+        print(
+            "drag opaque:", test_drag.isOpaque(),
+            "siblings:", [(type(s).__name__, s.isOpaque(), s.geometry) for s in test_drag._siblings]
+        )
+
+    test_drag2 = Drag(scroll_win.frame, drag_skin)
     test_drag2.place(x=190, y=385)
 
     source1 = Skin("../skins/default/border-gray-nw-corner-round-4px.png")
@@ -152,6 +158,19 @@ def test_gui():
 
     source2.set("../skins/default/cog.png")    # Existing source changed: Image updates.
     filtered.link(source1)                     # Source replaced: same FilterSkin and Image update.
+
+    list = List(scroll_win.plate, True, 10, width=200, multiple=True).place(150, 420)
+    btn0 = Button(list, text="Button 0")
+    btn1 = Button(list, text="Button 1", function=lambda:list.add(btn0, index=0))
+    btn2 = Button(list, text="Button 2", function=lambda:print(list.index(btn1)))
+    btn3 = Button(list, text="Button 3", function=lambda:btn2.setText("Updated Button 2"))
+    btn4 = Button(list, text="Button 4", function=lambda:list.remove(btn3))
+    btn5 = Button(list, text="Button 5", function=lambda:list.moveIndex(0, 2))
+    list.add(btn1, btn2, btn3, btn4, btn5)
+    list.place(150, 420)
+
+    list.select(btn2)
+    list.select(btn4)
 
     # Prove lower/lift functionality    : Buggy right now.
     #click_btn.lift(test_toggle1)

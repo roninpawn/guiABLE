@@ -339,8 +339,8 @@ class BareText(tk.Text):
         super().__init__(parent, *args, bd=0, borderwidth=0, padx=0, pady=0, highlightthickness=0, **kwargs)
 
     def place(self, **kwargs):
-        if "width" not in kwargs and self.width > 0: kwargs["width"] = self.width
-        if "height" not in kwargs and self.height > 0: kwargs["height"] = self.height
+        if "width" not in kwargs: kwargs["width"] = self.width
+        if "height" not in kwargs: kwargs["height"] = self.height
 
         return super().place(**kwargs)
 
@@ -724,15 +724,39 @@ class Hoverable(Stateable):
         self.setState(3)
 
 
-""" Clickable adds left-click awareness and executes a passed function on mouse-down. (Instant-click button) """
-class Clickable(Hoverable):
-    def __init__(self, parent, function:tuple|Callable=lambda: None, **kwargs):
+""" Actionable adds basic function storage and handling to the widget chain. """
+class Actionable(Hoverable):
+    def __init__(self, parent, function:tuple|Callable=lambda:None, **kwargs):
         super().__init__(parent, **kwargs)
         self.function = function
 
+    def fire(self):
+        if self.function is None: return
+        if callable(self.function): self.function(); return
+
+        args = [arg() if callable(arg) else arg for arg in self.function[1:]]
+        self.function[0](*args) if args else self.function[0]()
+
+
+""" Releasable executes a passed function on mouse-up (release) of the left mouse button. """
+class Releasable(Actionable):
+    def enable(self):
+        super().enable()
+        self.bind("<ButtonRelease-1>", self.released)
+
+    def disable(self):
+        super().disable()
+        self.unbind("<ButtonRelease-1>")
+
+    def released(self, event):
+        if self.moused_over: self.fire()
+
+
+""" Clickable executes a passed function on mouse-down. (Instant-click button) """
+class Clickable(Actionable):
     def clicked(self, event):
         self.setState(2)
-        self._call_function(self.function)
+        self.fire()
 
     def enable(self):
         super().enable()
@@ -741,15 +765,6 @@ class Clickable(Hoverable):
     def disable(self):
         super().disable()
         self.unbind("<Button-1>")
-
-    def _call_function(self, func):
-        if func is not None:
-            if callable(func): func()
-            elif len(func):
-                args = []
-                for arg in func[1:]:
-                    args.append(arg()) if callable(arg) else args.append(arg)
-                func[0](*args) if len(func) > 1 else func[0]()
 
 
 """ Pushable is a Clickable that executes its function when the left mouse button is released. (Normal button) """
@@ -778,7 +793,7 @@ class Pushable(Clickable):
         self.grab_release()
         self.mouseIn(event) if self.moused_over else self.mouseOut(event)
         if self.moused_over:
-            self._call_function(self.function)
+            self.fire()
 
     def mouseIn(self, event):
         if self._clicking:
@@ -896,6 +911,7 @@ class Labeled(Fontable, Anchorable):
     def __init__(self, *args, text:str=None, font_pack:FontPack=None, label_kwargs:dict=None, **kwargs):
         self._label = None
         self._label_options = dict(label_kwargs or {})
+        self._label_auto_size = [kwargs.get("width") is None, kwargs.get("height") is None]
 
         # Font configuration belongs to Labeled. label_kwargs retains only child-specific options.
         for key in tuple(self._label_options):
@@ -911,15 +927,34 @@ class Labeled(Fontable, Anchorable):
 
     def setText(self, text:str):
         if self._label is None: self._createLabel(text)
-        else: self._label.setText(text)
-
-        self._anchorLabel()
+        else:
+            self._label.setText(text)
+            self._fitLabel()
+            self._anchorLabel()
 
     def _createLabel(self, text:str):
         self._label = Labelable(self, text=text, font_pack=self._font_pack, **self._label_options)
         self._syncFontTo(self._label)
         self._label.passMouseTo(self)
+        self._fitLabel()
         self._anchorLabel()
+
+    def _fitLabel(self):
+        if self._label is None: return
+
+        skin_w, skin_h = self.skin.resolution()
+        label_w, label_h = self._label.size
+
+        width = max(skin_w, label_w) if self._label_auto_size[0] and not self._size_declared[0] else self.width
+        height = max(skin_h, label_h) if self._label_auto_size[1] and not self._size_declared[1] else self.height
+
+        if (width, height) == self.size: return
+
+        if self._placed:
+            self.place_configure(width=width, height=height, implied=True)
+        else:
+            self._geometry = (*self.location, width, height)
+            self._scratch = UImage(width=width, height=height)
 
     def _anchorLabel(self):
         if self._label is None: return
@@ -947,7 +982,7 @@ class Toggleable(Pushable):
 
         if self.moused_over:
             self.setTrue(not self._toggle_state)
-            self._call_function(self.function)
+            self.fire()
 
         self.mouseIn(event) if self.moused_over else self.mouseOut(event)
 
@@ -978,7 +1013,7 @@ class Holdable(Pushable):
 
     def clicked(self, event):
         super().clicked(event)
-        self._call_function(self.function)
+        self.fire()
 
 
 """ Repeatable is a Holdable that triggers its function instantly, and then again after every n milliseconds. It
@@ -998,7 +1033,7 @@ class Repeatable(Holdable):
 
     def _keepClicking(self):
         if self._clicking:
-            self._call_function(self.function)
+            self.fire()
             self._after = self.after(self.delay, self._keepClicking)
 
 
@@ -1043,7 +1078,7 @@ class LoneDraggable(Holdable):
         self._geometry = (x, y, w, h)
         if self._last_geometry != self._geometry:
             self.place_configure(x=x, y=y, implied=True)
-            self._call_function(self.function)
+            self.fire()
 
 
 """ Draggable adds sibling awareness to LoneDraggable, allowing it to composite transparencies with other widgets. """

@@ -84,7 +84,7 @@ class SliderHandle(LoneDrag):
 
     def mouseUp(self, event):
         super().mouseUp(event)
-        self._call_function(self._release_function)
+        self.fire(self._release_function)
 
 
 class Slider(Troughable, Imageable, Siblingable, TextCanvas):
