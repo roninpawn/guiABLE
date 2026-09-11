@@ -791,33 +791,24 @@ class Actionable(Hoverable):
         self.function[0](*args) if args else self.function[0]()
 
 
-""" Releasable executes a passed function on mouse-up (release) of the left mouse button. """
-class Releasable(Actionable):
-    def enable(self):
-        super().enable()
-        self.bind("<ButtonRelease-1>", self.released)
-
-    def disable(self):
-        super().disable()
-        self.unbind("<ButtonRelease-1>")
-
-    def released(self, event):
-        if self.moused_over: self.fire()
-
-
 """ Clickable executes a passed function on mouse-down. (Instant-click button) """
 class Clickable(Actionable):
     def clicked(self, event):
         self.setState(2)
         self.fire()
 
+    def released(self, event):
+        self.mouseIn(event) if self.moused_over else self.mouseOut(event)
+
     def enable(self):
         super().enable()
         self.bind("<Button-1>", self.clicked)
+        self.bind("<ButtonRelease-1>", self.released)
 
     def disable(self):
         super().disable()
         self.unbind("<Button-1>")
+        self.unbind("<ButtonRelease-1>")
 
 
 """ Pushable is a Clickable that executes its function when the left mouse button is released. (Normal button) """
