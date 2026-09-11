@@ -63,11 +63,12 @@ def test_gui():
     occlude = TroughButton(app, width=200, height=300)
     #occlude.place(x=400, y=100)
 
-    trough_skin = Skin("../skins/default/scroll_trough-48.png")
+    trough_mid = Skin("../skins/default/scroll_trough-48.png")
     cap_skin = Skin("../skins/default/up_glyph-48.png", orientation="n")
-    scroll_skin = ScrollSkin.fromSkins(cap_skin, trough_skin, None, True, cap_skin, "n")
-    scroll_win = ScrollWindow(app, 450, 280, scroll_skin, "#3B4F4F")
-    scroll_win.place(x=20, y=100)
+    trough_skin = ThreeSliceSkin(cap_skin, trough_mid, vertical=True)
+    scroll_skin = ScrollBarSkin(trough_skin, buttons=ButtonPack(cap_skin), vertical=True)
+    scroll_win = ScrollWindow(app, 450, 280, scroll_skin, bg_color="#3B4F4F")
+    scroll_win.place(20, 100)
     #scroll_win.setScrollbarVisibility(1)
     #scroll_win.setScrollbarState(1)
 
@@ -123,7 +124,7 @@ def test_gui():
             line = self.get("insert linestart", "insert lineend")
             return "=" in line
 
-    blob = TextBlob(scroll_win.plate, 260, 200, scroll_skin, skin=brdr_skin, bg_color="#161a1a", tab_focus=False, wrap="word")
+    blob = TextBlob(scroll_win.plate, 260, 200, vertical_skin=scroll_skin, skin=brdr_skin, bg_color="#161a1a", tab_focus=False, wrap="word")
     blob.setText("This is an 'editable' (text) blob... And it wraps at the edge. This is an 'editable' (text) blob... And it wraps at the edge. This is an 'editable' (text) blob... And it wraps at the edge. This is an 'editable' (text) blob... And it wraps at the edge. This is an 'editable' (text) blob... And it wraps at the edge. This is an 'editable' (text) blob... And it wraps at the edge. This is an 'editable' (text) blob... And it wraps at the edge. This is an 'editable' (text) blob... And it wraps at the edge. This is an 'editable' (text) blob... And it wraps at the edge. This is an 'editable' (text) blob... And it wraps at the edge. This is an 'editable' (text) blob... And it wraps at the edge. ")
     blob.place(90, 164)
 
@@ -159,18 +160,15 @@ def test_gui():
     source2.set("../skins/default/cog.png")    # Existing source changed: Image updates.
     filtered.link(source1)                     # Source replaced: same FilterSkin and Image update.
 
-    list = List(scroll_win.plate, True, 0, width=200, multiple=True).place(550, 420)
-    btn0 = Button(list, text="Button 0        ")
-    btn1 = Button(list, text="Button 1        ", function=lambda:list.add(btn0, index=0))
-    btn2 = Button(list, text="Button 2        ", function=lambda:print(list.index(btn1)))
-    btn3 = Button(list, text="Button 3        ", function=lambda:btn2.setText("Updated Button 2"))
-    btn4 = Button(list, text="Button 4        ", function=lambda:list.remove(btn3))
-    btn5 = Button(list, text="Button 5        ", function=lambda:list.moveIndex(0, 2))
-    list.add(btn1, btn2, btn3, btn4, btn5)
-    list.place(150, 420)
-
-    list.select(btn2)
-    list.select(btn4)
+    scroll_list = ScrollableList(scroll_win.plate, 180, 160, True, 10)
+    btn0 = Button(scroll_list.list, text="Button 0        ")
+    btn1 = Button(scroll_list.list, text="Button 1        ", function=lambda:scroll_list.add(btn0, index=0))
+    btn2 = Button(scroll_list.list, text="Button 2        ", function=lambda:print(scroll_list.index(btn1)))
+    btn3 = Button(scroll_list.list, text="Button 3        ", function=lambda:btn2.setText("Updated Button 2"))
+    btn4 = Button(scroll_list.list, text="Button 4        ", function=lambda:scroll_list.remove(btn3))
+    btn5 = Button(scroll_list.list, text="Button 5        ", function=lambda:scroll_list.moveIndex(0, 2))
+    scroll_list.add(btn1, btn2, btn3, btn4, btn5)
+    scroll_list.place(150, 420)
 
     # Prove lower/lift functionality    : Buggy right now.
     #click_btn.lift(test_toggle1)

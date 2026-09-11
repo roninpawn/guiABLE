@@ -1,10 +1,11 @@
 import tkinter as tk
 
 from .utilities import getLocalMouse, rectsOverlap
-from .skinnable import ScrollSkin, ThreeSliceSkin, Skin, ButtonPack, Measurable, Placeable
+from .skinnable import ScrollBarSkin, ThreeSliceSkin, Skin, ButtonPack, Placeable
 from .widgetables import Siblingable, Troughable, LinearAnimator, CoordinateSpace
 from .widgets import RepeatButton, TroughButton, LoneDrag, Background
 from .uimage import UImage
+from .containables import List
 
 
 class Scrollable:
@@ -12,8 +13,14 @@ class Scrollable:
     ENABLED = 1
     AUTO = 2
 
-    def __init__(self, *args, scroll_skin:ScrollSkin, horizontal_scroll:int=AUTO, vertical_scroll:int=AUTO, **kwargs):
-        self.scroll_skin = self._scroll_skin = scroll_skin
+    WHEEL_HORIZONTAL = 0
+    WHEEL_VERTICAL = 1
+    WHEEL_AUTO = 2
+
+    def __init__(self, *args, vertical_skin:ScrollBarSkin=None, horizontal_skin:ScrollBarSkin=None,
+                    horizontal_scroll:int=AUTO, vertical_scroll:int=AUTO, **kwargs):
+
+        self._scroll_skins = self._resolveScrollSkins(vertical_skin, horizontal_skin)
         self._scroll_visibility = [horizontal_scroll, vertical_scroll]
 
         self.smooth_rate, self.page_scale, self.line_size = 15, [0.95, 0.9], [18, 18]
@@ -21,7 +28,7 @@ class Scrollable:
 
         self._bars = ()
         self._page_size = [None, None]
-        self._scrollwheel_axis, self._scrollwheel_percent, self._scrollwheel_duration = 1, 0.4, 130
+        self._scrollwheel_axis, self._scrollwheel_percent, self._scrollwheel_duration = self.WHEEL_AUTO, 0.4, 130
         self._layout_lock = False
         self._resolved_visibility = [False, False]
 
@@ -39,28 +46,41 @@ class Scrollable:
             raise ValueError("scroll mode must be DISABLED, ENABLED, or AUTO")
         return mode
 
+    @staticmethod
+    def _resolveScrollSkins(vertical:ScrollBarSkin=None,
+                            horizontal:ScrollBarSkin=None) -> tuple[ScrollBarSkin,ScrollBarSkin]:
+
+        if vertical is not None and not vertical.vertical: vertical = vertical.rotate()
+        if horizontal is not None and horizontal.vertical: horizontal = horizontal.rotate()
+
+        if vertical is None and horizontal is None:
+            vertical = ScrollBarSkin(vertical=True)
+
+        if vertical is None: vertical = horizontal.rotate()
+        if horizontal is None: horizontal = vertical.rotate()
+
+        return horizontal, vertical
+
     def _spawnScrollbars(self):
-        width, height = self.size
-        v_breadth = self._scroll_skin.vertical.width
-        h_breadth = self._scroll_skin.horizontal.height
+        x, y, width, height = self._scrollArea()
+        h_skin, v_skin = self._scroll_skins
 
-        self._v_bar = VerticalScrollbar(self, self._scroll_skin.vertical, None, self._scroll_skin.button,
-                                        v_breadth, width=v_breadth, height=height)
-        self._v_bar.place(x=width, y=0)
+        self._v_bar = VerticalScrollbar(self, v_skin, width=v_skin.breadth, height=height)
+        self._v_bar.place(x=x + width, y=y)
 
-        self._h_bar = HorizontalScrollbar(self, self._scroll_skin.horizontal, None, self._scroll_skin.button,
-                                          h_breadth, width=width, height=h_breadth)
-        self._h_bar.place(x=0, y=height)
-        self._bars = (self._h_bar, self._v_bar)
+        self._h_bar = HorizontalScrollbar(self, h_skin, width=width, height=h_skin.breadth)
+        self._h_bar.place(x=x, y=y + height)
+
+        self._bars = self._h_bar, self._v_bar
 
         self._h_bar._visibility = self._normalizeScrollMode(self._scroll_visibility[0])
         self._v_bar._visibility = self._normalizeScrollMode(self._scroll_visibility[1])
 
-        self.bind_all("<MouseWheel>", self.scrollByWheel, "+")
+        self.bind_all("<MouseWheel>", self._mouseWheel, "+")
 
         self.setPageScroll(150, 300)
         self.setLineScroll(130, 300)
-        self.setWheelScroll(130, .4, True)
+        self.setWheelScroll(130, .4, self.WHEEL_AUTO)
 
     def getScrollbarVisibility(self) -> tuple[int,int]: return self._h_bar.getVisibility(), self._v_bar.getVisibility()
     def getScrollbarState(self) -> tuple[int,int]: return self._h_bar.getStateMode(), self._v_bar.getStateMode()
@@ -99,19 +119,26 @@ class Scrollable:
     def setLineScroll(self, delay:int=None, init_delay:int=None):
         for bar in self._bars: bar.setLineScrollDelay(delay, init_delay)
 
-    def setWheelScroll(self, smooth_duration:int, scroll_amount:float=1.0, vertical:bool=None):
+    def setWheelScroll(self, smooth_duration:int, scroll_amount:float=1.0, axis:int=None):
         self._scrollwheel_duration, self._scrollwheel_percent = smooth_duration, scroll_amount
-        if vertical is not None: self._scrollwheel_axis = vertical
+
+        if axis is not None:
+            if axis not in (self.WHEEL_HORIZONTAL, self.WHEEL_VERTICAL, self.WHEEL_AUTO):
+                raise ValueError("wheel axis must be WHEEL_HORIZONTAL, WHEEL_VERTICAL, or WHEEL_AUTO")
+            self._scrollwheel_axis = axis
 
     def pageSize(self, axis:int) -> int:
         if self._page_size[axis] is None:
             self._page_size[axis] = int(self._scrollViewportSize(axis) * self.page_scale[axis])
         return self._page_size[axis]
 
-    def scrollByWheel(self, event):
-        if getLocalMouse(self)[2]:
-            delta = int(event.delta * self._scrollwheel_percent)
-            self._bars[self._scrollwheel_axis].mouseWheeled(delta, self._scrollwheel_duration)
+    def scrollByWheel(self, event, axis:int=None) -> bool:
+        axis = self._resolveWheelAxis() if axis is None else axis
+        if axis is None: return False
+
+        delta = int(event.delta * self._scrollwheel_percent)
+        self._bars[axis].mouseWheeled(delta, self._scrollwheel_duration)
+        return True
 
     def _scrollPercent(self, axis:int) -> float:
         first, last = self._scrollView(axis)
@@ -127,6 +154,42 @@ class Scrollable:
     def _scrollPixelDelta(self, axis:int, pixels:float) -> float:
         travel = self._scrollTravelPixels(axis)
         return -pixels / travel if travel else 0.0
+
+    def _resolveWheelAxis(self) -> int|None:
+        if self._scrollwheel_axis == self.WHEEL_AUTO:
+            if self._canWheel(1): return 1
+            if self._canWheel(0): return 0
+            return None
+
+        return self._scrollwheel_axis if self._canWheel(self._scrollwheel_axis) else None
+
+    def _canWheel(self, axis:int) -> bool:
+        first, last = self._scrollView(axis)
+        return first > 0.0 or last < 1.0
+
+    @staticmethod
+    def _wheelTarget(event):
+        widget = event.widget
+
+        while widget is not None:
+            if isinstance(widget, ScrollBar):
+                return widget.parent, int(widget.vertical)
+
+            if isinstance(widget, ScrollPlate):
+                owner = widget._owner
+                axis = owner._resolveWheelAxis()
+                if axis is not None: return owner, axis
+
+            widget = getattr(widget, "master", None)
+
+        return None, None
+
+    def _mouseWheel(self, event):
+        owner, axis = self._wheelTarget(event)
+        if owner is not self: return
+
+        self.scrollByWheel(event, axis)
+        return "break"
 
     def _viewChanged(self, axis:int, first:float=None, last:float=None):
         bar = self._bars[axis]
@@ -212,11 +275,14 @@ class Scrollable:
             self._layout_lock = False
 
 
-class ScrollWindow(Scrollable, Measurable, Siblingable, tk.Frame):
-    def __init__(self, parent, width:int, height:int, scroll_skin:ScrollSkin,
+class ScrollWindow(Scrollable, Placeable, Siblingable, tk.Frame):
+    def __init__(self, parent, width:int, height:int,
+                 vertical_skin:ScrollBarSkin=None, horizontal_skin:ScrollBarSkin=None,
                  bg_color:str="#6B6B6B", **kwargs):
+
         kwargs["bg"] = bg_color
-        super().__init__(parent, width=width, height=height, scroll_skin=scroll_skin, **kwargs)
+        super().__init__(parent, width=width, height=height,
+                         vertical_skin=vertical_skin, horizontal_skin=horizontal_skin, **kwargs)
 
         # ScrollFrame is the clipping viewport. ScrollPlate is the translated local coordinate space within it.
         self._frame = ScrollFrame(self, bg_color, width=width, height=height)
@@ -331,6 +397,45 @@ class ScrollWindow(Scrollable, Measurable, Siblingable, tk.Frame):
         last_size = self.size
         super()._refresh(event)
         if hasattr(self, "_bars") and self.size != last_size: self._syncLayout()
+
+
+class ScrollableList(ScrollWindow):
+    def __init__(self, parent, width:int, height:int,
+                 vertical:bool=True, spacing:int=0, multiple:bool=False,
+                 vertical_skin:ScrollBarSkin=None, horizontal_skin:ScrollBarSkin=None,
+                 horizontal_scroll:int=Scrollable.DISABLED, vertical_scroll:int=Scrollable.DISABLED, **kwargs):
+
+        super().__init__(   parent, width, height,
+                            vertical_skin=vertical_skin, horizontal_skin=horizontal_skin,
+                            horizontal_scroll=horizontal_scroll, vertical_scroll=vertical_scroll, **kwargs )
+
+        self._list = List(self._plate, vertical=vertical, spacing=spacing, multiple=multiple).place(0, 0)
+
+    @property
+    def list(self): return self._list
+
+    @property
+    def vertical(self): return self._list.vertical
+
+    def getItems(self): return self._list.getItems()
+    def getSelected(self): return self._list.getSelected()
+    def isSelected(self, item): return self._list.isSelected(item)
+    def index(self, item): return self._list.index(item)
+    def itemPosition(self, item): return self._list.itemPosition(item)
+
+    def add(self, *items, index:int=None): return self._list.add(*items, index=index)
+    def remove(self, item): return self._list.remove(item)
+    def move(self, item, index:int): return self._list.move(item, index)
+    def moveIndex(self, index:int, destination:int): return self._list.moveIndex(index, destination)
+
+    def select(self, item): return self._list.select(item)
+    def selectOnly(self, item): return self._list.selectOnly(item)
+    def deselect(self, item): return self._list.deselect(item)
+    def toggle(self, item): return self._list.toggle(item)
+    def clearSelection(self): return self._list.clearSelection()
+
+    def multiSelect(self, enabled:bool=None): return self._list.multiSelect(enabled)
+    def spacing(self, spacing:int=None): return self._list.spacing(spacing)
 
 
 class ScrollFrame(CoordinateSpace, Background):
@@ -470,15 +575,19 @@ class ScrollBar(LinearAnimator, Background):
     ENABLED = 1
     AUTO = 2
 
-    def __init__(self, parent:Scrollable, bar_skin: ThreeSliceSkin | None = None,
-                 handle_skin: ThreeSliceSkin | None = None, button_pack: ButtonPack | None = None, breadth:int = 0, **kwargs):
-        self._bar_skin = bar_skin
-        self._buttons = button_pack
+    def __init__(self, parent:Scrollable, scroll_skin:ScrollBarSkin=None, **kwargs):
+        vertical = bool(self._orientation[0])
+        scroll_skin = scroll_skin or ScrollBarSkin(vertical=vertical)
+        if scroll_skin.vertical != vertical: scroll_skin = scroll_skin.rotate()
+
+        self._scroll_skin = scroll_skin
+        self._bar_skin = scroll_skin.trough
+        self._buttons = scroll_skin.buttons
 
         super().__init__(parent, **kwargs)
 
         width, height = kwargs["width"], kwargs["height"]
-        if breadth < 1: breadth = min(width, height)        # 0/negative = Auto breadth.
+        breadth = scroll_skin.breadth
         self._bar_skin.usesBgColors(True)       # ScrollBar widgets are "floored" by default. No transparency below.
 
         # Spawn buttons and calculate positional adjustments for the trough, if a ButtonPack has been declared.
@@ -487,11 +596,10 @@ class ScrollBar(LinearAnimator, Background):
 
         # Make and place Trough and Handle
         self._trough = ScrollTrough(self, self._bar_skin, width=tw, height=th)
-        vertical = bool(self._orientation[0])
-        self._handle = ScrollHandle(self._trough, handle_skin or ThreeSliceSkin(vertical=vertical), vertical,
-                                                                    width=breadth, height=breadth)
-        self._trough.place(x=tx, y=ty)
-        self._handle.place(x=0, y=0)
+        self._handle = ScrollHandle(self._trough, scroll_skin.handle, vertical,
+                                        width=breadth, height=breadth)
+        self._trough.place(tx, ty)
+        self._handle.place(0, 0)
 
         # Scroll options
         self.smooth_page, self.smooth_line, self.smooth_wheel, self.smooth_drag = True, True, False, False
@@ -752,55 +860,45 @@ class ScrollBar(LinearAnimator, Background):
     def _spawnButtons(self, width:int, height:int) -> tuple[int,int,int,int]:
         self._buttons.usesBgColors(True)
 
-        # Set skins to the correct direction [0,1,2,3 == n,e,s,w]
         d1, d2 = self._directions
         bskin1, bskin2 = self._buttons.skins[d1], self._buttons.skins[d2]
 
-        # Front-load local indexable tuples.
-        dims = (width, height)
-        b1wh = bskin1.resolution()      # b1 and b2 contain [width, height]
+        dims = [width, height]
+        b1wh = bskin1.resolution()
         b2wh = bskin2.resolution()
 
-        # Get Button2's x and y
-        idx, opp = self._orientation
-        b2pos = [0, 0]                  # empty placeholder (preserves 0 for one side of x/y coordinates)
-        b2pos[idx] = dims[idx] - b2wh[idx]
+        axis = self._orientation[0]
 
-        b2x, b2y = b2pos
+        trough_pos = [0, 0]
+        trough_pos[axis] = b1wh[axis]
 
-        # Get the trough's rectangle
-        tpos = [0, 0]                   # empty placeholder (preserves 0 for one side of x/y coordinates)
-        tpos[idx] = b1wh[idx]           # offset start by button 1 size
+        trough_size = list(dims)
+        trough_size[axis] = max(1, dims[axis] - b1wh[axis] - b2wh[axis])
 
-        tsize = list(dims)              # copy of dims that won't change the original
-        tsize[idx] = dims[idx] - (b2wh[idx] * 2)
+        button2_pos = [0, 0]
+        button2_pos[axis] = dims[axis] - b2wh[axis]
 
-        tx, ty = tpos
-        tw, th = tsize
-
-        # Make and place buttons
         self.button1 = ScrollButton(self, 1, skin=bskin1, width=b1wh[0], height=b1wh[1])
         self.button2 = ScrollButton(self, -1, skin=bskin2, width=b2wh[0], height=b2wh[1])
-        self.button1.place(x=0, y=0)
-        self.button2.place(x=b2x, y=b2y)
 
-        return tx, ty, tw, th
+        self.button1.place(0, 0)
+        self.button2.place(*button2_pos)
+
+        return *trough_pos, *trough_size
 
 
 class VerticalScrollbar(ScrollBar):
-    def __init__(self, parent, bar_skin: ThreeSliceSkin | None = None, handle_skin: ThreeSliceSkin | None = None,
-                 button_pack:ButtonPack|None = None, breadth:int = 0, **kwargs):
+    def __init__(self, parent, scroll_skin:ScrollBarSkin=None, **kwargs):
         self._directions = 0, 2
         self._orientation = 1, 0
-        super().__init__(parent, bar_skin, handle_skin, button_pack, breadth, **kwargs)
+        super().__init__(parent, scroll_skin, **kwargs)
 
 
 class HorizontalScrollbar(ScrollBar):
-    def __init__(self, parent, bar_skin: ThreeSliceSkin | None = None, handle_skin: ThreeSliceSkin | None = None,
-                 button_pack:ButtonPack|None = None, breadth:int = 0, **kwargs):
+    def __init__(self, parent, scroll_skin:ScrollBarSkin=None, **kwargs):
         self._directions = 3, 1
         self._orientation = 0, 1
-        super().__init__(parent, bar_skin, handle_skin, button_pack, breadth, **kwargs)
+        super().__init__(parent, scroll_skin, **kwargs)
 
 
 class ScrollTrough(Troughable, TroughButton):

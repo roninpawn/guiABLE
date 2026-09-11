@@ -2,7 +2,7 @@ import tkinter as tk
 import tkinter.font as tkfont
 
 from guiABLE.fontable import Fontable, FontPack
-from guiABLE.skinnable import Skin, ScrollSkin
+from guiABLE.skinnable import Skin, ScrollBarSkin
 from guiABLE.scrollable import Scrollable
 from guiABLE.uimage import UImage
 from guiABLE.utilities import warnPrint
@@ -1226,18 +1226,18 @@ class TextBlobable(NestedInputable, Textable):
 
 """ Multi-line image-backed text input with native Text scrolling and guiABLE ScrollBars. """
 class TextBlob(Scrollable, InputHostable, Imageable, Siblingable, TextCanvas):
-    def __init__(self, parent, width:int, height:int, scroll_skin:ScrollSkin, text:str="",
+    def __init__(self, parent, width:int, height:int, text:str="",
                  skin=None, font_pack:FontPack=None, bg_color:str=None,
                  editable:bool=True, max_chars:int=None, max_lines:int=None,
-                 tab_focus:bool=True, wrap:str="word", align:str="left", **kwargs):
+                 tab_focus:bool=True, wrap:str="word", align:str="left",
+                 vertical_skin:ScrollBarSkin=None, horizontal_skin:ScrollBarSkin=None, **kwargs):
 
         self._text_layout_after = None
         self._text_scroll_ready = False
 
-        super().__init__(
-            parent, width=width, height=height, skin=skin, scroll_skin=scroll_skin,
-            font_pack=font_pack, bg_color=bg_color, **kwargs
-        )
+        super().__init__( parent, width=width, height=height, skin=skin,
+                            vertical_skin=vertical_skin, horizontal_skin=horizontal_skin,
+                            font_pack=font_pack, bg_color=bg_color, **kwargs )
 
         text_widget = TextBlobable(
             self, 1, 1, text=text, font_pack=self._font_pack, bg_color=self._textBackground(),
@@ -1324,5 +1324,4 @@ class TextBlob(Scrollable, InputHostable, Imageable, Siblingable, TextCanvas):
         self._text.count("1.0", "end", "update", "ypixels")
 
     def _textMouseWheel(self, event):
-        self.scrollByWheel(event)
-        return "break"
+        if self.scrollByWheel(event): return "break"

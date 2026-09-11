@@ -25,14 +25,15 @@ class Receivable:
 
 """ CoreSkin establishes the core contents and operations of a Skin. It is a base class. Not for standalone use."""
 class CoreSkin(Receivable):
+    DEFAULT_COLORS = ('#6B6B6B', '#828282', '#C7C7C7', '#454545')
     def __init__(self):
         super().__init__()
         self._images = []
         self._empty_image = UImage()
-        self._default_colors = ['#6B6B6B', '#828282', '#C7C7C7', '#454545']
-        self._bg_colors = self._default_colors
+        self._default_colors = list(self.DEFAULT_COLORS)
+        self._bg_colors = list(self._default_colors)
         self._use_bg_colors = True
-        self._filter = None     # Internal FilterSkin for compositing to background colors.
+        self._filter = None
         self._skin_res = (0, 0)
 
     # Core access methods
@@ -705,8 +706,37 @@ class ThreeSliceSkin(AssembledSkin):
         self._bg_colors = list(self._default_colors)
         self._use_bg_colors = not (self.start.hasImages() and self.middle.hasImages())
 
+    @classmethod
+    def fromColors(cls, *colors:str, vertical:bool=True, width:int=0, height:int=0):
+        skin = cls(vertical=vertical, width=width, height=height)
+        skin.setBGColors(*colors)
+        return skin
+
     @property
     def vertical(self) -> bool: return self._vertical
+
+    def rotate(self, clockwise:bool=False):
+        width = self._declared_size[1] if self._size_declared[1] else 0
+        height = self._declared_size[0] if self._size_declared[0] else 0
+
+        # A color-only ThreeSlice has no graphical parts requiring transformation.
+        if not any(part.hasImages() for part in (self.start, self.middle, self.end)):
+            rotated = ThreeSliceSkin(vertical=not self._vertical, width=width, height=height)
+
+        else:
+            transform = {"rotate":True, "mirror_x":clockwise, "mirror_y":clockwise}
+
+            def rotatePart(part):
+                return FilterSkin(part, **transform) if part.hasImages() else Skin()
+
+            rotated = ThreeSliceSkin(
+                rotatePart(self.start), rotatePart(self.middle), rotatePart(self.end),
+                vertical=not self._vertical, width=width, height=height
+            )
+
+        rotated.setBGColors(*self.bg_colors)
+        rotated.usesBgColors(self.usesBgColors())
+        return rotated
 
     def _minimumSize(self) -> tuple[int,int]:
         sw, sh = self.start.resolution()
@@ -967,52 +997,62 @@ class SkinPack:
 
 class ButtonPack(SkinPack):
     _cardinals = {"n":0, "e":1, "s":2, "w":3}
-    def __init__(self, button_north:CoreSkin, button_east:CoreSkin, button_south:CoreSkin, button_west:CoreSkin):
-        super().__init__(button_north or None, button_east or None, button_south or None, button_west or None)
+
+    def __init__(self, north:CoreSkin=None, east:CoreSkin=None, south:CoreSkin=None, west:CoreSkin=None):
+        skins = self._resolveSkins([north, east, south, west])
+        super().__init__(*skins)
         self._use_bg_colors = False
 
     @property
-    def north(self): return Skin() if self._skins[0] is None else self._skins[0]
+    def north(self): return self._skins[0]
+
     @property
-    def east(self): return Skin() if self._skins[1] is None else self._skins[1]
+    def east(self): return self._skins[1]
+
     @property
-    def south(self): return Skin() if self._skins[2] is None else self._skins[2]
+    def south(self): return self._skins[2]
+
     @property
-    def west(self): return Skin() if self._skins[3] is None else self._skins[3]
+    def west(self): return self._skins[3]
 
     @property
     def skins(self): return self._skins
 
-    def usesBgColors(self, use:bool = None):
-        if use:
+    def usesBgColors(self, use:bool=None):
+        if use is not None:
+            use = bool(use)
             [skin.usesBgColors(use) for skin in self._skins]
             self._use_bg_colors = use
+
         return self._use_bg_colors
 
-    @classmethod
-    def fromOne(cls, button_skin:CoreSkin, orientation:str = "n"):
-        if orientation := orientation.lower()[0]:
-            if orientation in cls._cardinals and button_skin is not None:
-                o = cls._cardinals[orientation]     # Original orientation. [n,e,s,w as 0,1,2,3]
-                r = (o + 1) % 4                     # Rotated neighbor
-                s = (o + 2) % 4                     # Opposite of original
-                t = (r + 2) % 4                     # Opposite of rotated
+    @staticmethod
+    def _resolveSkins(skins:list) -> list:
+        if not any(skins): return [Skin(), Skin(), Skin(), Skin()]
 
-                skins = [None, None, None, None]
+        n, e, s, w = 0, 1, 2, 3
 
-                # The pattern below preserves inner/outer relationships, where south and east are the outer directions.
-                skins[o] = button_skin
-                if o in (0, 2):     # North/South → vertical axis
-                    skins[s] = FilterSkin(skins[o], mirror_y=True)                                  # O → S
-                    skins[r] = FilterSkin(skins[o], rotate=True, mirror_x=True)                     # O → R
-                    skins[t] = FilterSkin(skins[r], mirror_x=True)                                  # R → T
-                else:               # East/West → horizontal axis
-                    skins[s] = FilterSkin(skins[o], mirror_x=True)                                  # O → S
-                    skins[r] = FilterSkin(skins[o], rotate=True)                                    # O → R
-                    skins[t] = FilterSkin(skins[r], mirror_y=True)                                  # R → T
+        def derive(target:int, source:int, **kwargs):
+            if skins[target] is None and skins[source] is not None:
+                skins[target] = FilterSkin(skins[source], **kwargs)
 
-                return cls(*skins)
-        return cls(Skin(), Skin(), Skin(), Skin())
+        # Opposites mirror first. Explicit skins always win.
+        derive(s, n, mirror_y=True)
+        derive(n, s, mirror_y=True)
+        derive(e, w, mirror_x=True)
+        derive(w, e, mirror_x=True)
+
+        # If an entire axis was absent, cross from the supplied axis.
+        # North associates with West; South associates with East.
+        if skins[w] is None and skins[e] is None:
+            derive(w, n, rotate=True)
+            derive(e, s, rotate=True)
+
+        elif skins[n] is None and skins[s] is None:
+            derive(n, w, rotate=True, mirror_x=True, mirror_y=True)
+            derive(s, e, rotate=True, mirror_x=True, mirror_y=True)
+
+        return skins
 
 
 """
@@ -1064,6 +1104,61 @@ class ScrollSkin(SkinPack):
         bar2.setBGColors(*bar1.bg_colors)
 
         return (bar1, bar2) if vertical else (bar2, bar1)
+
+
+class ScrollBarSkin:
+    DEFAULT_BREADTH = 24
+    def __init__(self, trough:ThreeSliceSkin=None, handle:ThreeSliceSkin=None, buttons:ButtonPack=None,
+                 vertical:bool=True, breadth:int=0):
+
+        self._vertical = bool(vertical)
+        self._buttons = buttons
+
+        colors = CoreSkin.DEFAULT_COLORS
+        trough_colors = list(colors)
+        trough_colors[0] = "#555555"
+
+        self._trough = trough or ThreeSliceSkin.fromColors(*trough_colors, vertical=self._vertical)
+        self._handle = handle or ThreeSliceSkin.fromColors(*colors, vertical=self._vertical)
+
+        self._breadth = max(1, int(breadth)) if breadth else self._naturalBreadth()
+
+    @property
+    def trough(self) -> ThreeSliceSkin: return self._trough
+    @property
+    def handle(self) -> ThreeSliceSkin: return self._handle
+    @property
+    def buttons(self) -> ButtonPack|None: return self._buttons
+
+    @property
+    def vertical(self) -> bool: return self._vertical
+    @property
+    def breadth(self) -> int: return self._breadth
+
+    def rotate(self, clockwise:bool=None):
+        if clockwise is None:
+            clockwise = not self._vertical
+
+        return ScrollBarSkin(
+            self._trough.rotate(clockwise),
+            self._handle.rotate(clockwise),
+            self._buttons,
+            vertical=not self._vertical,
+            breadth=self._breadth
+        )
+
+    def _naturalBreadth(self) -> int:
+        axis = int(not self._vertical)
+
+        breadth = max(  self._trough.resolution()[axis],
+                        self._handle.resolution()[axis] )
+
+        if self._buttons:
+            for button in self._buttons.skins:
+                if button is not None:
+                    breadth = max(breadth, button.resolution()[axis])
+
+        return max(self.DEFAULT_BREADTH, breadth)
 
 
 """ Adds methods for registering, reporting, and altering children of a widget. """
