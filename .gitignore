@@ -1,0 +1,16 @@
+# Python bytecode / caches
+__pycache__/
+*.py[cod]
+
+# Python package/build metadata
+*.egg-info/
+
+# IDE / local VCS metadata
+.idea/
+.jj/
+
+# Development assets
+guiABLE/skins/
+
+# Any Folder named Untracked
+Untracked/

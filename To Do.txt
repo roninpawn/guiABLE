@@ -1,0 +1,1100 @@
+> BUG: Instant Button is not releasing its active state.
+
+> Should UImage utilize the same file path resolution as Skins and loadImages?
+    - It's just a way for things to break and leave a dev scratching their head, really.
+
+> BUG: Why does the Drag render slightly slower when benath the cog image that's supposed to be opaque?
+
+> Renderer Upgrade
+    X Collection transparency
+    X  Collection members must participate in the physical sibling family despite their logical parent.
+    - Downward contribution
+      When compositing a real nested sibling beneath the caller, recursively inspect only descendants intersecting
+      the requested composite area and blit their existing zImages. They are job-local contributors, not siblings.
+    - Upward damage propagation
+      Intrinsic visual changes send an old∪new/current damage rectangle upward through nested containers.
+      Each boundary clips/translates it and only intersecting siblings ABOVE that boundary receive restricted redraws.
+      Dependent redraws never emit new damage.
+    - DO NOT CACHE COMPOSITED CONTAINER SURFACES OR MAINTAIN PERSISTENT DIRTY RECTANGLE SETS UNLESS PROFILING LATER
+      PROVES THAT JOB-LOCAL DESCENDANT TRAVERSAL IS A BOTTLENECK.
+
+> Modifiable default font_pack applies to all labels and text elements?
+    - Handle fallback fonts?
+
+> Live changes to Skin should cause widgets that instanced using the Skin's width/height to update to the new size.
+
+- NineSliceSkin could provide optional center-box image/tiling.
+
+> Need a Drop-Down Menu style widget
+    X Stackable
+        X Derives from Collection.
+        X Generic ordered single-axis layout. Horizontal and vertical supported.
+        X Accepts arbitrary row/column content structures.
+        X Knows placement/order/spacing, not presentation.
+    X List
+        X Flat Stackable with row/col management.
+        : Can auto-size to longest row if width undeclared.
+        : Normalizes ROW width, never blindly stretches row contents.
+        : .add() provides convenience creation but accepts custom rows.
+    - DropDown
+        : Opening/closing/placement behavior around a List.
+
+> <Tab> destinations.
+    - Add all relevant widget types.
+    - Need a visual representation.
+        : 5th visual state? (idle, hovered, active, SELECTED, disabled - or - ..., disabled, SELECTED)
+        : Or just use hovered state for tab-focused?
+            >> Probably won't feel right.
+        : OutlineSkin (aka an 8-box) uses FilterSkin concept to apply an expanding, customizable outline to everything
+          for the sake of keyboard focus.
+    - Text boxes should lose cursor-active when mouse clicks anywhere.
+    - Retain tab-focus separately from mouse-focus?
+
+> Deprecate ScrollWIndow.frame or whatever it is that we left as a holdover for compatibility.
+    - Any way that using ScrollWindow as a parent can resolve to the plate?
+> Add a middle-click drag mode to scrolling?
+
+> Move BorderAble, Paddable, etc, and some combinatorial packages to their own file. Widgethables.py for widgetables!
+
+> Find and include nested children in compositing jobs. So being atop a Scrollarea renders the contents it contains.
+    X Importantly, children WITHIN nested areas should NOT consider siblings outside of them -- below or above.
+        X So do not 'bind' lower widget when atop widget finds it beneath. Just render its surface to yourself.
+
+> Cleanup protected member access and investigate getattr() uses for potential sloppy handling.
+    - Cleanup methods to implicitly guarantee we're checking the right thing, where it makes more sense.
+
+---
+
+> Need an Open-File Dialogue
+    - Tree() widget.
+        : Could be a locked number of entries that get re-populated with the associated data on scroll.
+            >> Could even fake a dynamic-scroll effect, so the existing fields shift, but are always n+1.
+        : Can't a file dialogue just be an ordinary List that reveals/inserts child entries when clicked; and provides
+          additive left-side whitespace to the text at each level? I think Tree is more of a collection of established
+          concepts - Scrollwindow + List - than a new thing. It just uses them in a specific way.
+
+> Tileable
+    - Fills its parent entirely, tiling its image on the x and y as needed.
+    - For the sake of scrolling it should only compose what is actually visible.
+        : May be a scroll-specific variant.
+
+> Mousewheel bind_all for scrolling ought to be more localized.
+    - Needs to work in the frame, moused over each scroll bar scrolls the correct axis for that scrollbar.
+
+X A Window should have (non-winfo) methods to query its size and location.
+    : Restructure Window() to be a Windowable that contains a Background(). And override .place() so that placing to a
+      Window() or ChildWindow() places to its background.
+    : Store window geometry the same as any Measurable.
+
+> ChildWindow
+    - Implied Background just like a Window()
+        : Needs captured in .place()
+    - Drag bindings for Childable window so the child can be moved independently, while still staying attached.
+    - "Blocking" state that prevents clickthrough to the parent until child is closed.
+    - .close() method that hides the window by visible(False).
+
+> Collection():
+    - What happens when you put a Drag in a Collection?
+    - Collection() serves as the basis of RadioGroup
+        : Provides interface for spawning 'n' RadioButtons "within" it.
+        : Possibly attaching per-button labels.
+    X Scrollable() becomes a Collection? : Nah.
+    - All oversized widgets (occupying more space than their Skin) could be Collections, to eliminate 'overdraw.'
+        : They just have to act correctly on hover events.
+
+> RadioButton() & RadioGroup()
+    - RadioGroup is a Nestable that implicitly creates relational states of all RadioButtons "within" it.
+
+> Make public-facing colors #Hex instead of RGB.
+
+
+===== TO DO =====
+
+> All of windowing.py needs a pass.
+    - Windowable is doing a lot of tricks to accomplish what it does. Review and justify or deprecate.
+    X Backgroundable (and everything, everwhere) needs to conform to Skinnable/Widget standards.
+    X Window(width, height, title, x, y)
+        X Comes with a Background() (IS a Background(), containing it's parent -- a Windowable())
+        : Can set Icon (.iconphoto() / .iconbitmap())
+        X Can set Tab image. (or generate from surface of a "totally transparent, full size widget?")
+        X Provides minimize()/restore() methods.
+
+- Skin "manager" for hot-switching entire 'themes.'
+    : Skin class uses a class variable to determine the 'default' skin by selecting a directory.
+        >> Changing default skin triggers all objects of Skin() type to refresh, and all their recipients to redraw.
+    : Each widget has a default filename it accesses to populate its own Skin if 'None' is passed.
+        >> Default directory + default filename = path.
+
+> scrollable.py Rewrite
+    X Roll all of ScrollFrame into Scrollable? No tk.Frame?
+        X Rejected by the now-established Scrollable → ScrollFrame → ScrollPlate architecture.
+    X Stop trough/scroll buttons from continuous animation requests, when requests are past the handle's boundaries.
+
+    - Structure must enable simple setup.
+        >> kwargs[bool] = hide_unused=1, hide_v_bar=0, hide_w_bar=0, smooth_scroll=1, page_scroll=1, cap_hover=0
+    - Options
+        X Cap buttons : ScrollSkin handles
+            >> Hover with trough - When trough is moused-over, buttons display mouse-over state too. (fake invisibility)
+
+    X Scrollable should have Vertical / Horizontal / Both versions?
+        X One Scrollable already owns both independently configurable axes.
+
+    X BarSkin(Skin) - Keep it generic. Renders bar of any length, by caps + mid section. (no rotation)
+        X Provides option to flood fill trough everywhere, then draw caps overtop.
+        : If trough passed is slivers (e.g. single px) extend to a minimum storage size. (for better fill-speed)
+
+> BUG: Lift/lower cause multiple issues.
+    - Coffee stains return on those widgets
+    - Atop and below are not regarded correctly by Draggable.
+    - So the issue is that the Draggable isn't getting a correctly z-sorted list of its siblings.
+> BUG: A naked widget (no images, no bg_colors) displays a single pixel in the top left.
+> BUG: Cursor setting 'fleur' does not distinguish between a parent and its children.
+
+> Skin stuff
+    - Make .dirty trigger a function instead of setting a bool that we need to check later?
+    - Maintaining image, resolution, path, length, ... equality is getting messy. What if 2d array or @dataclass or
+      NamedTuple?
+
+> Sanity Testing
+    - Test initialization stuff. After parent -> child propagation, do we still need all them .after_idle()s?
+    - Test enabling and disabling bg_colors after creation
+    - Test changing out a base-skin's image after creation.
+    - Test the performance of large background images being rendered instead of bg_colors.
+    - Test all features of scrolling.
+        : Adding and removing content, live.
+        : Hiding and showing the scrollbars.
+        : Instant vs Page scrolling
+        : Smooth vs unsmoothed
+
+> Skin Orientation should be handled by a class/enum/NamedTuple system that exposes intended use to the IDE.
+
+> Protect FilterSkin class
+    - Internalize the sum_state changes to rotation|mirror, leaving the user's settings visible publicly.
+    - Track dirty state when rotate|mirror values have changed.
+    - Deep state tracking everywhere? Never redraw if what's held is what's requested... regardless of settings changes.
+
+X Enable true (fake) Widget transparency.
+    X Increase speed of Draggable (reduce overhead)
+        X Store geometry locally instead of polling winfo.
+            X Test if this is significantly faster. : Yup
+            -- Consider caching root-space x/y if getLocalMouse() profiling shows winfo_rootx/y matters.
+
+> Write FastTile smarter. Blit in chunks, not slices. Find remaining area and copy that area to the bbox area.
+
+> Everything needs default sizes.
+    X Inherit from Skinnable image sizes if not declared.
+> Everything needs default images
+    - All defaults are dark mode, first. (no black, no white, always a shade of gray).
+    - Deprecate color changes? By inheritance and super() they can overlap deeply, setting bg color 3+ times each.
+        : Standardize instead? No overlaps. One color per action.
+        X Need a no-image-found fallback state.
+        : Bake core default PhotoImages into the code as Base64 strings?
+> Need to provide all standard widgets: Radioboxes, text bars, text blobs, etc.
+
+> Support additive compositing that generates a sprite sheet with all variants + the composite layer.
+    : 16 checkbox variants (w/ hasFocus) becomes 1) static, 2, hovered, 3) active, 4) disabled, 5) hasFocus 6) checked.
+      The first 4 states can be composited with checked to create the 4x 'True' variants. Then all 8x can be composited
+      with hasFocus to create all 16x possible states.
+    : So its a method of a type of Skin class, for creating additional images AND STATES, by compositing. Got it.
+
+> Text Field that expands to match the text it contains.
+    - Can be restricted to the size of its parent.
+    - Better: Can be restricted to the remaining area of its row. (Resizable-window support)
+
+> Create the 'Selectable' -- An element which adds an extra skin slot for when its selected.
+    - OR that uses the 'Active' slot in a way that persists until something else is clicked on.
+
+> Scalable Windows/Widgets.
+    - Support CORRECT padding/margin that finds the right side of its parent when expanding.
+    - Provide a skin-resize method for images.
+    - Enable the ability to provide multiple complete skins packs for multiple resolutions.
+        : Use nearest size, always preferring downscale from larger, to create new scaled skins, when needed.
+    - Match font-scaling for text.
+    - Re-Place all elements at x * scale, y * scale.
+
+> Support faked background transparency via screenschot method?
+    - Would implement an OS-specific method. Fuck Linux, if you're going to do it, burn the bridge.
+
+> Resizable Windows
+    - First, needs a library-provided window spawning method for the resizable type.
+        : Restrict maximum window size by OS desktop dimensions. (all monitors combined) (fuck Linux)
+        : Restrict smallest window to smallest wrapper's literal + minimum relatives.
+        : What happens to elements if the smallest allowed is bigger than max? (overflow? +add window-scrollbar?)
+    - Row-wrapper. (Vertical wrapper is just a large, outer row-wrapper?)
+        : Track the available width remaining after all elements take their space.
+        : Expand relative elements to fill remaining space. Split space evenly if multiples.
+        : Support relative units in geometry assignment. (30%)
+        : Handle mixed-case literal, relative geometries. (300px, 30%, undefined)
+        : Relative values should be re-relativized to cover non-100% cases. (30,15 = 66,33 | 30,90 = 25,75)
+        : Handle no relative room, after literal placement. Prioritize literal geometry.
+        : Support min/max geometry values.
+
+===== DONE =====
+X BUG: (Ctrl+)Shift+Arrow selection begins at the last clicked cursor position, not the current cursor location.
+X BUG: Scroll trough not changing state on hover or click. : Added useBgColors override to BarSkin
+X BUG: InputLine not accepting paste.
+X BUG: If the Drag moves completely under an opaque sibling as it exits from under an atop, it can leave a stain.
+  X The initiating widget was being purged from its own siblings list, which gave the renderer no reference for
+    z-sorting what was "atop" vs beneath. So the dirty sibling was resigned to beneath, which meant it didn't get
+    redrawn.
+X BUG: A Drag, within a sroll window, moved half out of frame does not redraw correctly.
+X BUG: In FakeCanvas._conform_size()
+    X If no update_idletasks(), .place_configure can consume the x,y positioning of an in-line .place()
+    X But with update_idletasks(), a timing issue arises that prevents scroll bars from appearing, and causes improper
+      redraws() in some widgets, resulting in wrongly-opaque backgrounds.
+X BUG: TextCanvas() gets implicitly placed by the place_configure() override for width and height.
+X BUG: Dragging PyAmp by the handle causes crazy spasming?! (when drag is bound to a non-background)
+    X Widgets should not redraw if the cause of redraw is mouseIn/mouseOut due to the Window being dragged.
+    X True cause was some kind of inconsistency in Windowable()'s mouseDrag().
+X BUG: Dragging beneath opaque->transparent sandwich (barSkin example) renders background through opaque layer.
+    X Fixed render pipeline. Now opaque widgets with transparent widgets above them are rendered.
+X BUG: Fully transparent Drag does not represent Scroll area correctly at the edges.
+    X Fixed render pipeline. Side effect is this works now. (somehow)
+X BUG: It is possible to initiate multiple 'Repeat' actions with Repeatable
+X BUG: Scroll handle can be violently shaken into appearing at the top and bottom at the same time, because of the
+       2-frame delay. Need a flawless no-smooth method + smooth method for handle dragging. : update_idletasks()
+X BUG: Draggable does not find boundaries of ScrollFrame after hide/show scrollbar.
+    X What if Drag actively checks parent's boundaries if bounds is None?
+X BUG: Since Backgroundable started conforming its skin to a FilterSkin, stream of errors at boot. App still runs.
+    X Some issue with fastComposite that shook out when I deprecated and replaced all with fastBlit()
+X BUG: Animation rate is inconsistent unless mouse is moving. 17-34ms vs stable 17ms.
+    X OS throttling (probably) means magic numbers are required. 15ms is a far more stable redraw cycle.
+X BUG: Inconsistent scroll rate notable in slow button scrolling. Smooths when having to render a draggable. Faster
+       and choppier when not. Unrelated to the magic numbers of animation instructions.
+    X This is mainly just a performance issue. : After place_configure override, I had a needless redraw() firing.
+    X Batch whole draw job? : Made no difference.
+X BUG: Can select-drag within a Backgroundable frame if the image is larger than the visible area of the Canvasable.
+    X Made Backgroundable's crop their image to fit actual geometry. (through additions to FilterSkin)
+X BUG: Scrollhandle is not drawing its init state correctly again. Must be hovered to become visible. : after_idle issue
+X BUG: _conformPixels does not always produce the requested pixel delta.
+X BUG: ScrollTrough gets stuck in active state, on down-clicks, randomly? Seems connected to clicking up, then down.
+X BUG: If I click the trough before clicking a button, the 'active' state shows the top cap displaced by a half-width.
+X BUG: If I click a button before hovering over the handle, the handle goes invisible on its first move.
+X BUG: BarSkins updated after creation (maybe just no-image skins) do not expand properly.
+X BUG: ScrollHandle is landing one tick shy of its true location on page scroll. : Refreshed plate_geometry after move
+X BUG: Horizontal scrollbar's handle fill on the vertical using the same rules as the vertical bar.
+X BUG: The correct dimensions are not actually represented by the current handle resize method. A whole page is missing.
+X BUG: Handle's must be limited in how big they can get, before clamping entirely shut, so that there's enough trough
+       visible to click on, for the sake of page scrolling.
+X BUG: It's possible to eff up the position of the children. Semi-random. Stable as hell when it is. Falls apart
+       horribly when it isn't. May have to do with geometry updates, <Configure> binding, and _refresh cycles.
+X BUG: Held page scroll frequnetly skips a page. : Was double-firing due to super() call.
+X BUG: The trough BarSkins are not drawn correctly when thre are buttons. Bad origin and wrong length, I think.
+X BUG: ScrollSkin (BarSkin?) does not fail safe when can't load images. Should fallback to bg_colors mode.
+X BUG: ScrollButtons do not rotate with the horizontal bar. There's just nowhere that its being done.
+    X How about an optional .orientation parameter at the Skin() level. 0,1,2,3 for N,W,S,E? Then use the
+      button_skin.orientation to create the needed FilterSkin. Might eliminate need for all these 'vertical'
+      declarations at instantiation. : Went a different road. Used 'orientation' idea though.
+X BUG: BarSkin does not preserve background colors set by Skin
+X BUG: Transparency doesn't work with BarSkins
+X BUG: ScrollHandles go white/transparent; No hover/active update; And stain with the texture beneath, when dragged.
+X BUG: White bar shows up in middle of ScrollPlate?
+X BUG: In test1.py, broken skin loaded by paths passes empty skin (goes transparent) on mouseover/active. : Reset _images = []
+X BUG: Scrollbar background_colors are not properly loaded/handled.
+X BUG: lift() and lower() break (spooky; widgets disappear) when there is no above/below declaration.
+X BUG: First Pushable errors/doesn't load skin and errors when added to the composite cycle, until hovered.
+    X Nesting self.after_idles worked... Can't say I'm happy that's the solution.
+X BUG: Lost .0002s for Draggable implementing Siblingable() : Was recreating _scratch needlessly.
+X BUG: Draggable pops to 0,0 for an instant on first drag, sometimes.
+X BUG: Labelable text is lost beneath redraw() until hovered. : Added drawText() to render() for Labelable
+X BUG: Opaque atop with opaque beneath does not redraw the opaque beneath.
+X BUG: Skin.FromColors doesn't work. Nor does SetColors.
+    X The concept of everything being a Skin has probably invalidated those methods.
+    X Skin.FromColors and Skin.Transparent should require width and height.
+X BUG: When mouse is over the text of a labeled button, the hover state is not shown.
+
+X Scrollwheel atop a scrollbar should transit the bar. Horizontal too!
+X Scrollwheel on a plate with only horizontal overflow should scroll horizontally.
+    X 3 modes: Auto, Vertical, Horizontal; just like scrollbar appearance.
+
+X BorderSkin / NineSliceSkin
+    X 8box with minimally 1 corner and one edge that get rotated to compose square image with a border.
+    X Transparent interior is supported.
+    X Decide if there's enough shared machinery between BorderSkin, BarSkin, etc, to warrant a base class.
+        X AssembledSkin.
+    X Generalize the BorderSkin/BarSkin concept of an expanding skin so that they do what they do in any widget.
+        X Recipient-aware imageFor()/resolutionFor() + AssembledSkin realizations.
+    X Ensure changes to widget geometry get reflected by BorderSkin.
+        X Recipient geometry selects/rebuilds the correct realization automatically.
+    X Must BorderSkin states all have the same geometry? (yes)
+        X Realizations are keyed by geometry; all states at one realization share that size.
+    X Address Imageable's bgColors handling.
+        X The explicit Imageable.setBGColors() mutation was removed.
+    X How about a constructor concept for making a borderskin, based on a borderskin.
+        X SkinView solved the actual underlying requirement better:
+          live fixed-resolution views without duplicating generated raster state.
+    X Group() should accept a BorderSkin and behave the same as the other Nestables.
+        X AssembledSkin is now a normal CoreSkin surface; no widget-specific NineSlice rendering path is required.
+    X Color and border composition are kept live via FilterSkin.
+        X And FilterSkin itself gained proper live linking/relinking.
+    X TextLine, InputLine, and TextBlob acquire their bg_colors by self.bg_color or skin color.
+        X TextNestable now resolves explicit bg_color first, then skin.bgColor(state).
+
+X Nestable's now support non-declared widths/heights that expand based on their inner child.
+    X InputLine only needs width.
+    X TextLabel needs neither.
+    X Both implicitly account for padding and border space, including when border is defined by a BorderSkin.
+
+X LinkURL() class
+    X Rejected as premature convenience abstraction.
+    X Existing Label/TextLabel + clickable widgets already make URL controls trivial to compose.
+    - Revisit as Link() only if enough hyperlink-specific behavior accumulates to justify a real widget.
+
+X Don't select the empty non-character space at the FRONT of a selection, either.
+    X Not fixable through selection indices. Tk deliberately paints from x=0 when the first character is selected
+      so multi-line selections have aligned left edges. Hard-coded in tkTextDisp.c since 1997.
+X TextBlob
+    X Same Image->Inner model as TextLabel
+    X Toggleable wrapping.
+    X No stock scrollbars, EVER!
+    X Accepts guiABLE scrollbars, allowing custom graphics.
+        X Use implementation pressure here to refine and modularize the concepts behind ScrollWindow's scrolling, if
+          needed.
+    X Test it all LIVE.
+X Ctrl+i and Ctrl+t do weird shit in the TextBlob.
+    X Ctrl+i does a tab, but not quite a tab?
+    X Ctrl+t carries the character trailing the cursor forward?
+    X Both escape the undo/redo history.
+    X Shut them both down. What the hell is this shit?
+X Added Textable.padding() and InputHostable defaults.
+X InputLine and TextBlob need renamed to make way for the versions where an Image contains them.
+X InputLine
+    X Same Image->Inner model as TextLabel
+    X Should copy/cut disable in a masked field, instead of copying the mask characters?
+X TextSelectable
+    X Select groups of consecutive non-alnum characters as a single word. (by click and by keys)
+X If Labelable becomes a grow-to-size TextLabel that disables editing, selection handles, and copy/paste, we eliminate
+  the dirty rectangle issue from its last hiding place.
+    X NOPE. We need the render-through ability that writing to canvas provides. Plus, drop shadow.
+X Textable
+    X Double click at line end should select as though the double click was done over the last character in the line.
+    X Triple click at line end selects the line in the bad Tk way... Whole line. Bind and select line with end tag at
+      the last character.
+    X Just replace NText wholesale, considering how much overriding we still need to do.
+X Select all via CTRL+A does not work in Textable descendents.
+X Inputable: After paste, selection area should be dropped.
+X Need a Text-entry widget (single line, multi-line, and selectable text)
+    X Multi-line definitely derives from tk.Text and FakeCanvas().
+        X Do non-monotype fonts and anti-aliasing work in tk.Text? :Yes.
+    X Single-line could draw text as an image layer. Or be derived from Entry(). : Nope. Configured tk.Text()
+        X Need a SELECTABLE version of Label, aka an uneditable, formatting-stripped tk.Entry().
+
+X --- PURGING OLD TO DO NOTES ---
+X Needs a proper text-based button (Labelable), that expands to contain the text if no size provided.
+    X Test replacing tk.Label use with ttk.Label. What is the ttk difference? : Obsolete
+    X Should label option be deeply present? : Yes
+    X Should it attach, like a module, so that a LabeledButton() is the product of a Pushable() + a TextLabel(), and
+      you can easily make a Draggable() + a TextLabel() too?
+
+X Scrollable is publicly exposed by that name. Should be ScrollWindow or ScrollPane/ScrollArea... No public -ables.
+X Give scrollframe a _refresh method that recalculates the scroll_plate's geometry from scroll_xy's. : Superseded.
+
+X Figure out how to pass all the skins necessary for a scrollable area conveniently. : ScrollSkin
+
+X Can do more with opaqueness testing.
+    X Only blit the background image within the union of TRANSPARENT widgets. If none, don't blit.
+        X Would require _last_geometry awareness. As this is what enables exit-drawing.
+    X Cull all 'beneath' siblings if 'atop' siblings (only to be drawn) are all opaque.
+        X If a transparent image beneath has no overlaps with transparent images above, cull it from the list.
+
+X Fix render cycle.
+    X Opaque elements should disregard everything below them, always.
+    X Composite all overlappers, but only render to self and atop? Beneath images don't need a redraw.
+    X Clean up and consolidate.
+
+X UImage should handle path resolution?
+    X No. Resource/path policy already lives above UImage in resolvePath()/loadImage().
+      UImage remains the image primitive.
+
+X Figure out why BarSkin behaves badly.
+    X First thing, let's make up some proper scrollbar graphics, so we can observe the difference between each
+      element, looking and acting in a familiar way.
+    X My best bet here is to create a BarSkin testbed designed specifically to challenge every function of a
+      BarSkin, including live expanding. (after first load). Once I prove that everything works in a controlled
+      environment, I can return to the mess of scroll handling and see if the issues have been solved, or are a
+      product of the scroll handling mess.
+
+X --- END PURGING OLD TO DO NOTES ---
+
+X What if all text was always drawn at the top of its floor -- where only a Backgroundable is a floor?
+    X Keeps text from disappearing under semi-transparent widgets. : Nah.
+X What if Labeled produced a COLLECTION instead of a nested child? Nah.
+
+X Fix needless startup churn with repeated relational sibling assignments.
+X Fix PY_AMP to use the new Label concept.
+    X Give Image a Labeled inheritance.
+
+X --- COMPLETE LABEL REWRITE ---
+    X What if text with drop shadow is supported by ALL widgets as simply an extra two layers that draw if active.
+X Label text must be easily updatable.
+    X Maybe here is where you provide optional padding/offsets? .text("My new test", x=3, y=7) : Nah, in FontPack
+    X Is label dynamically re-sized to fit the text, then?
+        X Detect using difference of req_geometry and geometry. : Actually bbox() testing.
+X Label() should correctly expand widget to contain text, even when text anchor has 's' or 'e' in it.
+    X No Skin to define width and s/e for anchor gives a zero-width.
+    X Need expand-to-fit default, overrideable by explicit setting of width/height at instance OR place/place_configure.
+        X But Skin() can auto-populate size. : Nah. Utterly transparent, gemoetry-collapsing widget.
+        X If no Skin() and no explicit width/height declaration, auto expand.
+        X Two booleans for whether a skin was passed and whether 'size' geometry was explcitly provided.
+        X One boolean for whether size geometry was set by EITHER explicit declaration OR Skin presence.
+
+X Labelable should, by default, collapse its area to only what's needed to fit the text.
+X Label() should NOT be a Pushable.
+X BUG: Labels redraw when moused over.
+    - Many things do this, even when they use the same image for active and mouse over. Just sayin'.
+
+X Ensure complete parity between FakeCanvas and Canvas -- all widgetables should behave the same regardles of base.
+    X Exception: Arbitrary text placement requires the features of a true Canvas
+
+X Widget dimensions should inherit from Skin dimensions if they exist at instantiation.
+    X Scrollable still accepts width, height as args -- not kwargs? : Differnt premise after scrollable rewrite.
+
+X Scroll culling is written assuming vertical scrolling. Generalize to support H+V.
+X Split smooth scroll toggles.
+X Smooth-animate handle dragging.
+    X Ease it out and deprecate half-rate rendering
+    X Push the drag animation through the same processes as instant-scrolling?
+X If scrolling is smart enough to know that the child and the parent are still relative to each other, and no 3rd party
+interaction has dirtied that relationship, then no compositing need be done on scroll, even for transparent surfaces.
+The existing blit remains valid. Only the x, y within the frame changes. This could be a rendering pipeling premise.
+Store all relationships relatively, down to the base parent. If current tree = last tree, skip compositing. Event
+signalling already accomplishes this, philosophically, in normal situations. With scrolling, an input event cascades
+into widget movements, requiring thoughtful management.
+    X The situation I've been building for is the heaviest and most unlikely. A static background, atop which, elements
+    scroll and move. This requires recomposite of every transparaent element, every time. But this should not be the
+    default configuration for a ScrollWindow. The default should be a solid background color that does not require
+    transparent elements redraw themselves, or a background image that travels with plate movement which also does not
+    require a redraw of each transparent element, every time.
+    X If scrolling over a static image is supported at all, it should be the last exposed method, as it will always be
+    a costly render job for each frame. And should, generally, be avoided. So much so, that it may not be worth
+    supporting at all.
+
+X Troughable()
+    X Registers last child as handle
+    X Provides normalized percentage
+    X TextCanvas base for best animation surface.
+    X Slider() becomes this.
+    X Supports (optional) scrollWheel binding. : NOT HERE
+        : Changes percentage and moves handle to that location.
+        : Supports (optional) animated smooth-scrolling, firing an event at each interp step.
+
+X Break the code up into smaller and more targetted file collections.
+
+X BUG: Checkbox states are improperly represented on first load.
+
+X Need a full solution for Grouping widgets logically.
+    X Challenges:
+        X Widgets that are members of a Group should report their geometry, local to the Group, not their parent.
+        X Widgets should .place() and place_configure() relative to the group, not the parent.
+        X tk.Frame does this, but does not offer an animation-friendly surface. : It DOESN'T, actually.
+            XX If an animation-friendly surface is needed, use a Backgroundable instead.
+X Still need a purely logical container
+    X A tk.Frame that never actually places, but duplicates its children and places them to its parent, directly?
+        X Too wasteful.
+    X Collection():
+        XX Places and manages its 'children,' but is a non-object itself.
+        XX Provides an interface for setting AND retrieving its children's geometry, in a local coordinate space.
+        XX Collection members are "registered," but instanced using their intended parent.
+        XX Provides method for moving all children as a group.
+        XX Maybe set widgets' parent to Collection so they notify the Collection of changes, rather than 'master'.
+        XX It would be great if the Collection object itself could be a reference to its parent. : Nope.
+
+X Full featured draw cycle:
+    X render(image, x, y) : (image, xy_offset=(0,0)) instead
+    X Render to existing canvas layer if x,y of render are the same.
+    X Delete layer and create new if x,y are different.
+
+X Expandable():
+    X If dimensions are not given...
+        X It expands to contain any member added.
+        XX It shrinks if a widget...
+            XX Changes size/is moved.
+                XX Parent must be notified of child's geometry changes to enable this.
+            XX is Unregistered with dropChild().
+            XX Is removed. (fucking "Destroyed")
+
+X Speed up TextCanvas/FakeCanvas by not disable/enabling and creating new images at every refresh.
+
+X Groupable() -> Group()
+    X Fully transparent Canvas widget that other widgets can be assigned to.
+    X If width/height is not declared, it expands to contain all of its members.
+
+X Skin() should determine whether it is being passed a path or an Image without needing .fromImages().
+X Widgets should detect Skin passed as path, image, list[paths], list[images] and instance Skin() implicitly.
+X If everything gets .place()'d, why not do it in-line? : In-line place and place_configure supported.
+X Need a "Slider" widget
+X Store a .window value at instantiation indiciating which window you are child of.
+    X isInstance() may need a 'forward declaration' type to avoid circular import. Does that work?
+        X No. But checking for the existance of a .window attribute finds the lowest parent too.
+X Hovers should not change state when clicked. Mouse-in, mouse-out only. What's with that? : Not happening.
+X Use 'font-packs' and modify them in-line using kwaargs, for handling text.
+    X Label text should start with default left & top 'padding.'
+    X If font anchor is 'east' aligned, text_pos should be relative to that.
+X A 'None' skin should produce total transparency.
+    X Eh. No it shouldn't. We don't want confusion over invisible, unskinned buttons.
+    X Text/Label widgets should produce total transparency if no skin is provided, though.
+X SpriteSheet seperation becomes a UImage method that returns a list of the images obtained, simplifying Skin() and
+  providing a pathway for creating custom-ordered skins from the same root images.
+
+X Test if ingesting image by PIL fixes semi-transparency issue. : Dunno, but PIL is not viable anyway.
+
+X Need a standard Image widget with a changeImage() method.
+X SingleSkin should NOT presume non-transparency? ...should not... exist?
+X Write a method to perform cubic (or bi-linear) scaling from UImage's internal memory image.
+    X Does not handle partial-transparency well. Leaves key-color bleed at edges and corners.
+X Use PhotoImage Zoom and Subsample to preserve transparency
+    X Quality degrades too much, especially on non-halved resolutions.
+
+X Wrap the PhotoImage class -- UImage() (UI Image)
+    X Pack all image-handler utility functions into it.
+    X Write a method to populate an internal pixel-for-pixel copy of the image in memory space.
+        X Ingest .data(format='PPM'), split header from pixels, and slice pixels to color-tuples.
+
+X Fix rendering engine for minimal, necessary draws, only:
+    X Do not use getGeometry anywhere. This will ensure parity of last_geometry + new_geometry.
+    X Cull atop-opaque, unless they overlap with a more-atop transparent.
+    X If single, opaque widget, restrict union to widet's dimensions and skip drawing the background.
+X Cull the entire draw job to the VISIBLE area that does not exist beneath an opaque surface.
+    X If whole rows or columns are obscured, reduce the union itself to match.
+    X Recognize other floor-widgets as opaque siblings. (Scroll area should occlude Drag from being drawn)
+    X Test if transparent image, fully beneath opaque image, is actually being culled.
+
+> Can do more with opaqueness testing.
+    X If an entire axis is reduced by opaqueness culling, reduce the union itself to only consider the remaining area.
+        X For Scrollables, this is desirable enough to warrant the additional complexity.
+        X Need a rectsIntersect() method to compute where two rects overlap.
+        X Need to feed that intersect into setState() so it can be applied to the last/current geometry union.
+    X If opaque widgets atop block the view of a widget below, skip it.
+    X If the background is not visible behind opaque widgets, skip blitting it.
+    X Cull siblings by visibility, considering opaquness and overlap. (Is a sibling fully hidden by opaque widgets?)
+    X Use the union of TRANSPARENT widgets to establish the from= and to= of the background blit. (Only what's needed.)
+        : Not needed if we reduce to self-unioned area.
+
+X For some reason, Scrollable() is the last/first registrar with its parent.
+    X Does mainloop()/Tkinter implicity load tk.Frame()s first or something?
+    X It was the first because <Map> doesn't happen until mainloop(), and scrollable was registerting manually.
+
+X Try reducing union'd area to just the calling widget.
+    X Only the overlapping area needs drawn to any widget that's above.
+    X How to pass the self-union for draggables / things that move?
+        X To paint when exiting, the union crop must be defined to encompass both the last and the new position.
+          It used to be inferred by the existence of the old child in the sibling list. Now it must be explicit.
+            X Just use self._geometry and self._last_geometry for the union, and compose the list of overlapping
+              widgets right there, during composite. Reduces Drag() complexity, too.
+
+X Establish isOpaque(index) as a per-image method. (To be used in future with image-opqaueness testing.)
+X Invent opaque-image detection and use it to avoid unneccessary compositing.
+    X Opaqueness testing needs to know
+        X Is the individual image opaque?
+        X Does the image cover the entire visible area of the widget?
+    X Widget-level isOpaque method returns whether the skin's image fills the widget and is opaque for this state!
+
+X Do image-transparency-detection testing. How long does it take? Various methods?
+    X Test if image is transparent on load into Skinnable()
+    - Test speed of contiguous testing, versus a patterned method? : Eh.
+
+X Render text as an image? Draw it, instead of layer it?
+    X Drawn as canvas layer that doesn't need refreshed! Significantly faster.
+
+X Enable middle mouse click for instant scroll.
+    X Should instant scroll be a parameter? (to enable middle versus left mouse click)
+
+X Discovered magic number bullshit in the PhotoImage class that makes it faster to copy HALF a huge image, than to
+  copy a small area of it. OMG. : Nope. Flaw in the testbed.
+    X Tried to implement it at the 'base' of compositeUnion for a day and a half to no avail. ChatGPT not helpful.
+    X Actually true finding: Copying fewer, longer rows is 30% faster than copying many, shorter rows.
+        X 80k pixels as 400x200 copies in 0.19653s versus 200x400 in 0.27445s.
+
+> Invent the Skinnable-Canvasable
+    X Don't use as anything... maybe. See what 'Oops all images' has done to make Holdable viable again. : Still sucks.
+    X Use as the Trough in a Scrollbar.
+        X Must support mouse-over, left-click, click-held, and middle-click bindings.
+        X Do my widgets become mixins? MRO is brittle and shitty... So maybe not? : In fact, YES.
+    X Could be a zero-frame replacement for Backgroundable.
+        : For sake of Drag/Cursor configurations seek pointInRect() for all children and revert cursor/do not begin
+           dragging if over.
+        : Or just deprecate/ignore Windowable's drag mechanic for now. Background drag handle is a specialty.
+        X Or just ignore the way fluer works for now.
+        : Or offer a framed version and a frameless version.
+
+X Cleanup ScrollBar and address Handle dragging
+    X Too many scrollBy... methods. : Just enough scrollBy methods, actually.
+    X Are deltas the best way over destinations?
+        X Probably, because at the end of the line, all child widgets are according to the delta.
+    X How to handle percentage-based movement? : Convert to destinations, then to deltas.
+    X Should handle callback (move to match plate) be a parameter?
+    X Locked to half frame-rate on scrollHandle drag.
+
+
+X Try utilizing "<Map>" event to intercept when widgets are added. Maybe drop place() overrides.
+X Replace rasterized animation instructions with deltaTime.
+
+X Final Boss: Resize horizontal bar to fill width if no vertical bar present.
+    X Must expand if h_bar is SHOWN when no v_bar.
+    X Must shrink if v_bar is SHOWN when h_bar is present.
+    X Must expand if v_bar is HIDDEN when h_bar is present.
+    X Can I generalize it to provide a configurable 'Dominant' bar. (Makes directionally based Scrollables a breeze.)
+    X Need Scrollbar resize method that moves buttons (if present) and redraws trough's BarSkin.
+
+X If we make some assumptions about a ScrollHandle, we could consolidate.
+    X If a scrollhandle always fills its parent's dimensions on one axis we can halve the math that's done.
+    X We could have a one-axis draggable that only moves/tracks on the x or the y!
+
+X Make bars disappear (frame resizes) if set to auto, and they are not needed to contain the content.
+    X recalcHandle math needs worked out for new system.
+        X wh = (frame_wh / plate_wh) * trough_wh - No larger than trough_wh, no smaller than trough_hw. (opposite size)
+    X I am tracking down the error that causes the horizontal bar to think the x-content is larger than the frame.
+        X Suspect out of date frame.width... Some-fucking-how!?
+    X Also respect show/hide overrides
+    X Scrollable should place scrollbars offscreen to start, and have them appear if needed.
+    X All handling should occur in the Scrollable. The ScrollBar doesn't know enough and is odd altering its
+      parent's geometry.
+        X recalc_handle tells parent to hide or show itself. Parent adjusts geometry of frame and BOTH scrollbars.
+    X Scrollbar should have a resize method that manages handle recalculation and redraws.
+
+X Plate Geometry should be protected. (not just a public variable anymore)
+    X When plate size changes, scrollbars should be adjusted.
+        X Frame notifies Scrollable through plateResized()
+        X plateResized()
+            X Checks plate > frame and hides or shows bars.
+            X Sends frame/plate% and plate.xy/plate.wh% to scroll bars, to size and place handles.
+X Override place_configure and the like to maintain true geometry, live. Do it in the new Measurable() class.
+
+X Have Sample use one of the checkboxes to flip smooth scroll and instant scroll on/off.
+X Scroll settings live in Scrollbar, but propagate down through Scrollable.
+X Enable ScrollWheel scrolling.
+    X Fix Backgroundable/Canvasable by FilterSkinning to an image width/height that matches geometry. This will
+      prevent unwanted scrolling and select dragging implicitly, without crazy overrides. A Canvasable's BG will
+      never be drawn larger than the area of the Canvasable. That's the rule.
+    X Once we don't need to override <MouseWheel> anymore, mousewheel implementation should become banal.
+
+X Cache various scroll values, and update them on change.
+    X Scrollable's page_percent/line_percent
+    X ScrollBar's step_lists don't change unless the values that comprise them do.
+
+X If parent changes, all children must redraw.
+
+X Fix bug where Repeatable's state can remain locked in hover or active.
+    X Observable using the ScrollTrough, especially page scrolling down, a brief delay after page scrolling up.
+    X Replaced getLocalMouse with pointOverlapsRect.
+
+X Work out the math for conforming 𝚫px, ms duration, and ms framerate to a prepared set of animation 𝚫s.
+    X Desired result:
+        XX The animation returned must always result in the EXACT pixel delta requested.
+        XX The ms duration requested may be altered to conform to the framerate.
+        XX The animation may utilize two delta values to achieve the result.
+            XX These deltas must have a difference of no more than 1px.
+
+    X Sample cases - Framerate of 17ms:
+        XX Request 𝚫 = 14px, duration = 50ms
+        XX  XX duration = 51ms; steps = 3; Result [4,5,5] = 14px
+        XX Request 𝚫 = 205px, duration = 160ms
+        XX  XX duration = 153ms; steps = 9; Result [22,23,23,23,23,23,23,23,22] = 205px
+        XX Request 𝚫 = 93px, duration = 100ms
+            XX duration = 102ms; steps = 6; Result [15,16,15,16,15,16] = 93px
+
+    : Rules
+        XX Duration requested is conformed to a number of Steps by way of rounding: round(duration / framerate)
+        XX The actual delay becomes: Steps * framerate
+        XX The Root delta is found by floored division: 𝚫 // steps
+        XX The excess delta is found by Mod: 𝚫 % steps
+        XX If the Mod is half the number of steps, the steps alternate.
+        XX  XX ex: [1,2,1,2], [1,2,1,2,1,2], [1,2,1,2,1,2,1,2], etc.
+        XX In all other states, the excess delta is simply extended to the list.
+            XX [1], [1,1] [1,2], [2,2], [1,1,1], [1,1,2], [1,2,2], [2,2,2], [1,1,1,1], [1,1,1,2], [1,2,1,2],
+               [1,2,2,2], [2,2,2,2], [1,1,1,1,1], [1,1,1,1,2], [1,1,1,2,2], [1,1,2,2,2], [1,2,2,2,2], [2,2,2,2,2],
+               [1,1,1,1,1,1], [1,1,1,1,1,2], [1,1,1,1,2,2], [1,2,1,2,1,2], [1,1,2,2,2,2], [1,2,2,2,2,2], etc.
+
+X Restrict scrollByDrag to a single axis. In fact, restrict all of it to a single axis. Expand to 2d later.
+    X I made all of ScrollBar single axis, because it knows. Scrollable is still 2d for now.
+
+X Scrolling Rewrite:
+    X BUG: Drag scrolling on one handle, moves the other axis too.
+    X BUG: Continuous, held scrolling looks worse then a single scroll. Something's wrong there.
+    X BUG: Smooth scroll can produce steps that don't add up to the intended destination.
+    X Get smooth scroll back online.
+    X Copy/composite methods must conform negative numbers and handle out of range operations.
+        XX Consolidate fastCrop and fastComposite to one, and fix it there.
+    X Consolidate reg_size and plate_location to single x,y,w,h phantom geometry. : plate_geometry
+    X Calculate the delta of the imaginary plate in pixels, and then apply that delta to the visible widgets.
+    X Provide alternate access for handles to pass a normalized percentage.
+    X Calculate a widget's logical coordinates on the imaginary plate when it exits visibility and store those
+      coords on the widget by assigning a new variable to it. (Populate all at instantiation.)
+    X Check every widget to see if it is off screen and becoming visible again. If true, use logical coordinates to
+      reset the widget in its last known location +/- the remaining delta that brought it back onto screen.
+
+X Test Tk's speed rendering a 1080p image to a 1080p canvas. : The speed to draw an image to a canvas is not a factor.
+X Reduce Holdable to just that... Hold tracking. Derive Draggable from it, then create a Repeatable class to serve as
+  the new Holdable.
+
+X CardinalSkin() : Deprecated
+    X CarndinalSkin(image:tk.PhotoImage, image_orientation:str = "n", rotate:str = "all|cw|ccw")
+    X image_orientation declares the direction that the image received should be considered to be facing/pointing.
+    X Maintains "outer" (down/left) parity across rotations.
+
+X DirtySkin
+    X Generalize FilterSkin's dirty tracking for use in BarSkin
+    X Must handle index request out of range CORRECTLY.
+
+X BarSkin
+    X Needs to register as a recipient of each Skin
+    X Redraw as needed
+    X Track changes to breadth  : Tracked the changes to resolutions! (you damn fool)
+    X Track changes to length
+    X Track per-image dirtiness.
+X ScrollSkin()
+    X Takes a vertical and horizontal BarSkin for the scrollbars
+    X Takes a single skin and a declaration of its orientation for the button
+X ButtonPack
+    X Stores all 4 possible orientations of a button.
+    X Can generates all 4 orientations from a single skin.
+
+X Invent the Skinnable-Canvasable
+    X Is a Canvasable + Skinnable that serves as a root-parent. (absolute bottom to the render engine)
+        X No sibling management stuff, because its only ever a parent.
+
+X ScrollSkin.fromSkins needs a 'buttons' declaration.
+
+X Pre-compose skins that useBGColor with their images, making them .0003s renders instead of up to .002s renders.
+X Skins that have no image, when a Skinnable 'refreshes,' receive a blank image of the Skinnables size, to be used as
+  either a layer of transparency or to define the flood area for a background color
+
+X Skin Behavior
+    X If you try to load images, but they aren't found / aren't PhotoImages / don't have width & height, use bg colors.
+    X A skin with no images that doesn't useBGColors should appear invisible. (contain only an empty image)
+
+X Compose 'None' skins for constant performance, (in trade of memory) and to eliminate bad dirty rectangle.
+    X NoSkins have no methods to add images to them! That way they are safe from the complications of late-addition.
+    X Implement NoSkins wherever/whenever skin could've been passed, but wasn't.
+    - NoSkins should delete themselves if their last registered widget unregisters.
+    X NoSkin is replaced by clever implementation of internal FilterSkins.
+
+X SingleSkin
+    X Lightweight Skin() variant that holds just one image, for static backgrounds.
+
+X Use FilterSkin, so changes to the bg_colors/images of the linked skin are possible and nothing is ever lost.
+    X Internal FilterSkins are deleted when usesBGColors is disabled.
+X Skin(Images) > FilterSkin(Adds Background Colors) | Skin.image() -> Filterskin.image()
+    X If skin uses OR ENABLES background colors, images() initializes FilterSkin if not already init'd, then
+       returns the requested image-index produced by the FilterSkin. If disabled, returns its own holdings.
+    X FilterSkin tracks dirty state of each image individually and only redraws it when that image is requested.
+    X When linked image updates recipients with dirty... If dirty, set all images flags as dirty.
+    X UpdateRecipients should set FilterSkins dirty FIRST, to ensure propagation of changes when called by widgets.
+
+X scrollable.py Rewrite
+    X Structure must enable simple setup.
+        X Scrollable >
+            XX ScrollFrame() > ScrollPlate()
+            XX ScrollBar() > [Cap Buttons](Holdable) + ScrollTrough() > ScrollHandle(Draggable)
+    X Options
+        X Scroll breadth (width for vertical / height for horizontal) 0=auto =24px : BarSkin handles
+        X Show/hide needed bar
+        X Trough click options:
+            X By-Pages/Destination scroll - Scroll by pages or jump to clicked position?
+                X Destination scroll leaves user "dragging handle" while mouseDown. : No. But tracks to destination.
+                X Bind one to left click, other to middle click. PyCharm does that apparently.
+                   X <Button-2> and change troughClicked() to branch on a passed value.
+                X If by-Pages:
+                    X End at destination or at trough bounds? (Chase cursor by page while mousedown or 'PG XX' to end?)
+                        X Chase
+            X Instant/Smooth scroll - Interpolate from origin to destination over time, or snap there instantly.
+    X Scrollable()
+        X Relationship with Scrollbars
+            X Stores kwarg options like 'smooth_scroll' and provides that information to its children.
+            XX Provides line/character up/down/right/left method for Scrollbars to request. : Scrollbar handles paging.
+            XX Provides page_size for v|h scrolling and relative plate location within its frame.
+            XX Notifies both ScrollBars whenever the ScrollPlate is moved, or otherwise changes, triggering handle move.
+            XX Receives requests to move the ScrollPlate from Scrollbars
+            XX Provides page up/down/right/left method  for Scrollbars to request.
+        X Relationship with ScrollFrame/ScrollPlate
+            X Receives notice of changes to geometry (and passes information to the scrollbars)
+            XX Moves the ScrollPlate
+        X Orchestrates ScrollPane, ScrollTrough, ScrollHandle relations.
+            X If ScrollPane contents change ScrollHandle resizes and repositions to match scrollpane location.
+            X If mousewheel is rolled, moves all elements accordingly
+            X If mousewheel is clicked, begins speed scroll based on distance from original click.
+            XX If ScrollTrough is clicked, ScrollHandle repositions, based on the selected options.
+        X Spawns two scrollbars, as needed/requested.
+    X ScrollButtons(Holdable)
+        X Request single-line/character scroll through Scrollable, when clicked.
+    X ScrollPlate(Backgroundable)
+        X Passes the Scrollable's background through. (stationary)
+        X Can be moved by Scrollable
+        X Holds contents
+    X ScrollTrough(Frameable, Pushable/Holdable)
+        X Must use a Canvasable to render, or solve the dirty rectangle some way, otherwise.
+        X "Trackable": for 'destination' scrolling (must invent class) : Nah.
+        X Passes 'clicked' events through to ScrollBar
+        X Passes ScrollHandle drag through to ScrollBar
+        X Does not maintain a reference to its Scroll Handle. : Eh, actually it does. It's just easier that way.
+        X Holdable: for 'by-page' scrolling
+    X ScrollBar(Backgroundable)
+        X Can spawn EITHER a Holdable or a Trackable for its ScrollTrough : Nah.
+        X Horizontal variant and Vertical variant eliminates so much repetitive if-vertical pathing.
+        X Line scroll
+            XX Moves scrollpane contents in increments of ~n pixels.
+            XX Should line scroll happen on a true amount of pixels?
+        X Page scroll
+            XX 90% page scroll should be a changable option.
+            XX ScrollBar manages handle and interp math? Passes movePane to Scrollable
+        X Smooth Scroll
+            XX Is a setting that EXISTS in the Scrollable, but is POLLED & EXECUTED by the ScrollBar!
+            XX Set origin, destination, duration : Went with steps and fps instead.
+            XX Set animation rate by self.after()
+            XX Running animation can be overridden at any moment just by changing the per-tick movement.
+            XX If step WOULD BE > destination, make step == destination. : Went with pre-calculated steps.
+        X Page scroll
+            X Implement linear bezier function sp scrolling eases in, for more fluid appearance at lower fps : No.
+            X Click location should translate to percentage of trough clicked where 0.0/1.0 = half the ScrollHandle
+            X Page size should be a cached value that updates when the plate or frame refresh dimensions.
+            X Smooth scroll
+                X Find # of steps by duration/rate (cache this) | Then step size by steps/distance | Then just loop.
+                X Better yet, get the duration/step count from the trough's delay.
+            XX Determines whether "higher" or "lower" scroll, and requests that page scroll from Scrollable.
+            XX Moves ScrollHandle based on return from Scrollable.
+            XX Pushable can just call a function that asks whether the click location is outside of the scroll handle
+               bounds, and if so, whether it is above or below. Then move the ScrollPlate and ScrollHandle accordingly.
+               XX ScrollPlate moves in 90% increments of the view area, limiting its movement to the bottom of the pane,
+        X Implement instant scrolling and SMOOTHED instant scolling, where smooth-instant is animated.
+        X Knows 1 trough and 1 handle and maintains reference to them.
+        X Can spawn 2 single-scroll buttons
+        X Go back to containing a ScrollTrough, and the handle being a child of the trough. Less math and overrides.
+        X Do Button image-flip better. : Invented the FilterSkin class.
+    X ScrollFrame(Backgroundable)
+        X Container that acts as a viewing pane for ScrollPlate where the content lives.
+        X Spawns its own ScrollPlate on creation.
+        X Absolute bottom.
+        X Provides the static background that ScrollPlate passes through.
+    X BarSkin(Skin) - Keep it generic. Renders bar of any length, by caps + mid section. (no rotation)
+    X If BarSkin makes a 'duplicate' to invert, it loses the ability to update if the original Skin() changes.
+        X Do we need skin_children who can update on updateRecipients?
+        X How to pre-render mirrors/rotations while still maintaining references/linkages?
+        X FilterSkin()
+    X FilterSkin(original_skin, flip_x, flip_y, rotate)
+        X Links original_skin, generates images based on flip/rotate options, redraws if original_skin changes.
+        X If original_skin is a FilterSkin, link to THAT FilterSkin's original_skin. No FilterSkin>FilterSkin chains.
+        X FilterSkin Rotation Table : Simple dihedral group of the square... Phhht. Duh.
+    X Skin handling: Skin > BarSkin(3x Skins) > ScrollSkin(2x BarSkins OR cap, trough, vertical)
+    X ScrollSkin() - Access point, storage, and generation for up to 2x BarSkins, that get used in a scrollpane.
+        X ScrollSkin(vertical_bar:BarSkin, horizontal_bar:BarSkin)
+        X ScrollSkin.fromImages(trough_image, cap_image, trough_vertical, cap_orientation)
+        X .fromImages rotates/inverts 2 images to fully populate both vertical and horizontal BarSkins.
+    X BarSkin(Skin) - Keep it generic. Renders bar of any length, by caps + mid section. (no rotation)
+        X Draws cap -> trough -> cap by default.
+        X BarSkin(trough_skin:Skin, cap_skin:Skin, width:int = 20, horizontal_trough:bool = False)
+        X BarSkin.fromTwo()
+        X Store troughSkin and midSkin, extend and order contents so that inverted states contain the needed images.
+        X Composite finished bars to self._images[]; override self.image() to render/store what's needed, as needed.
+        X Use length[] and lastLength[] for rendering/cacheing fully composed bars. If changed, recompose image.
+    X ScrollHandle(Draggable)
+        X Size scroll handles to the trough, relative to the frame's scroll_range.
+        X Notifies trough when moved by drag event.
+        X Offers methods whereby it can be moved or resized by a caller.
+        X Child of a ScrollTrough
+        X Reports self.geometry to its parent on drag.
+        X It's position can be modified by the ScrollBar
+        X It's size can be altered by the ScrollBar
+    X Break Skin() into 2 classes -- Parent that provides core function, one that extends with image-intake methods.
+    X Troughable should derive from Clickable()
+
+    X BUG: Horizontal scroll is MUCH slower to render than vertical. FilterSkins? Always redrawing?
+        X Holy shit... It's just the PhotoImage class. It's SLOWER rendering striped transparency, left to right,
+          than up to down. It has a directional preference for alpha. Hahahahaa! Tkinter is shit.
+    X BUG: Toggleables aren't drawing in their correct state again at instantiation. Something to do with Glassable.
+        X Complete mouseUp override lacked the mouseIn/mouseOut check that would've been inherited.
+    X BUG: Upward scrolling shows untextured margin? at top, when using Glassable's image method. (with margin'd children?)
+    X Fast scroll leaves texture behind. : Needed to pass latest geometry (psuedo update_idletasks() issue)
+    X Fast upward scrool leaves content behind at 0'd y. : 0.0 returning falsy to 'if x_per' needed 'is not None'
+
+X Test if adding Heartbeat fixes bad dirty-rectangle calculations without needing weird Canvasable override. : Nope.
+X Test if ttk widgets fix bad-rectangle calaculations or increase overall performance. : No Canvas substitute.
+X Combine fastCrop and fastComposite to one function. (If possible)
+X Use the scrollbar trough's image handling to make variable-length buttons, too.
+
+X Is bbox in putToImage too many fields? [int, int, int, int] instead of [int, int]? : No. IDE is wrong.
+
+X Enable true (fake) Widget transparency.
+    X Sibling transparency rules...
+        X If I am opaque because all of my skin's images are non-transparent...
+            -- I pass my skin's image directly in all instances.
+        X If I am a parent to other widgets and I alter, I order all my children to redraw, from below to atop.
+    X Add sibling-detection and compositing.
+        X Implement full redraw propagation.
+            X Change events are: x,y,w,h / state change.
+            X If parent changes, all children must redraw.
+            X If an event triggered a redraw, the widget's zImage must be marked dirty.
+            X scratchImage must be kept properly sized across changes.
+
+
+X Implement full redraw propagation.
+    XX If widget changes with sibling below, widget must redraw itself, compositing all siblings beneath.
+    XX If widget changes with sibling atop, overhead sibling must redraw, compositing the sibling beneath.
+
+X Sibling Transparency Rules
+    >> If I am transparent and do not use bg_colors...
+        XX I do not update my bg_color. : not worth the hassle
+        XX I composite using my parent's background as a base.
+        XX When I recomposite, I ask any siblings below me to provide their zImage, for compositing.
+    >> If I am opaque because I contain no images...
+        XX I do not draw to my create_image() layer.
+        XX I provide a flat, colored image that matches my state and geometry when asked for my drawn state.
+        XX I store this zImage and what state I was in, when I generated it.
+        XX If asked again, and in the same state, and my geometry has not changed, I provide the same image.
+        -- I use z_dirty and z_state to assure I do not distribute an old image. : maybe later z_dirty
+    >> If I am opaque because my skin's images become that way when combined with bg_colors...
+        XX I composite to a transparent image. (I do NOT use my parent's background as a base.)
+        XX When asked for my zImage, I composite myself to a flat-colored base image.
+        XX I store this zImage and what state I was in, when I generated it.
+        XX If asked again, and in the same state, and my geometry has not changed, I provide the same image.
+        -- I use z_dirty and z_state to assure I do not distribute an old image. : maybe later z_dirty
+    XX I maintain a list of the siblings that I am touching.    (_overlap)
+        XX Only Draggables seek unknown siblings.
+    XX If I am raised or lowered (my z-order changes) I inform all siblings that I touch.   (recheckZ)
+    XX I track what state I was in when I last composited my z_img. (_z_state)
+    XX I maintain just 1 image and just 1 create_image() layer.
+    XX When I am placed, I inform any sibling widgets I overlap with that we are now touching each other.
+    XX If I am dirty, and recompomsite myself, I will tell any siblings atop me, to redraw me.
+
+X BUG: No-image widgets miss first redraw after updateRecipients()
+X BUG: Toggleables do not start in their correct draw state when set to True during instantiation.
+X BUG: Exit stains -> need to draw one more time AFTER leaving siblings hitbox area. AKA: Exiting-redraws.
+X BUG: Draggable gets overdrawn when multiple overlaps and beneath-focus in all-composite method.
+X BUG: If a widget is atop two others and one triggers a redraw, the redraw will not show the other beneath-widget.
+X BUG: composeImage() leaves permanent marks on siblings beneath. Need zImage dirty state/check probably.
+X BUG: Beneath solid BG color triggers composite method needlessly.
+X BUG: Bg_color + image composites do not pass the correct zImage, but pull from master's background image.
+X BUG: If TWO non-image elements are drawn through (from beneath) simultaneously, one of them persists when dragged
+       over another image element? Crazy stuff.
+X BUG: If background is not an image, bg_color is not passed.
+X BUG: Creates ghost-streaks during fast-drag.
+    X Holy shit... You need to be ticking the mainloop with something, or else updates are sporadic! Tkinter man...
+    X Occurring within tk.Text() canvas due to impact of iterative z-detection or image compositing.
+        X Determine where the greatest overhead is coming from.
+    X At its worst during redraw calls to higher-z siblings.
+        XX Optimize so high-z sibling doesn't need to do all the detection that low-z sibling is doing.
+X BUG: cropImage "safe" boundary modification does not prevent error. : Method was using un-corrected vars.
+X BUG: Draggable redraw fails when interacting with parent's boundaries.
+
+X Increase speed of Draggable (reduce overhead)
+    XX Track image size at Skin.
+    XX New benchmark:
+        X .035, .035, .053, .053, .055, .071, .071, .088, .095 - All-Compositing
+        X .038, .038, .050, .059, .055, .073, .073, .083, .099 - Mixed methods.
+    XX Make as few new PhotoImages as possible.
+        XX Keep a reusable empty PhotoImage with Skin? For cropping? : self.scratchImage()
+    X Benchmark speed of full composite jobs versus split-task cycle.
+            X No overlap, atop solid BG Color, 1 image beneath, image atop, 2 images beneath, 2 images atop
+            X .06. .07, .08, .13, .10, .19 - Split-task
+            X .07, .11, .11, .11, .16, .15 - Composite (single)
+            X .04, .05, .06, .10, .08, .12 - Composite up (single)
+            X .04, .05, .06, .09, .08, .11 - Composite up (in stages)
+    XX Handle single-sibling upward draws separately from multiple-sibling upward draws.
+        XX Use unioned compositing when multiple-siblings exist atop.
+        XX Based the unioned area on the overlaps... Not the full widgets. : Uh, no.
+    XX Dismiss some possible overlaps by union of previous widget geom and new widget geom?
+        XX ChatGPT idea... Sounds like you'd waste more time dismissing candidates than you'd save, except
+           under certain conditions. What are those conditions? Ratio of how many candidates to how many
+           dismissals? Surely not worth the effort to even investigate. : Yeah, dumb.
+    XX Test winfo fetches versus calls to table of tuples. : table[i] access is ~100x faster.
+    XX Compare self.geometry from string with int(), versus fetching winfo x, y, w, h : string -> int wins
+    XX Eliminate idle_tasks update by using known x, y, w, h values in Draggable testing? : Yes.
+    XX Track children and z_order at the parent.
+    XX Widget updates parent as/when needed.
+    XX Widget stores last known geometry to avoid slow winfo_ polling.
+    XX Access sibling geometry by parent reference + public .geometry method.
+    XX Use getOverlap() method to fetch the geometry, overlap state, and crop/insert values all at once? : No
+    XX Union all redraws of widgets into a single composite cycle. Then crop from union, to widget surfaces.
+       Tested. Simpler but slower / less efficient. But should be more consistent. Maybe there's a place for it.
+
+X Add sibling-detection and compositing.
+    X If sibling is only using bg_color, composite a square of bg_color onto background.
+                XX Cache the zImage
+    X If sibling is only using bg_color, composite a square of bg_color onto background.
+        XX Use special ._z_img for storing zImage separate from self._img.
+        XX Is this easy or hard? Does it take more processing power than cropping an image? Do we need to generate a
+           PhotoImage with that background color, to crop from?
+    X Need Z-Order to eliminate hover-ghosting, and needless draws of things above.
+    X Acquire list of all siblings and test for overlap.
+    X If sibling has image, crop from image and place accordingly. (tricky math)
+
+X Enable true (fake) Widget transparency.
+    X If overlap with higher-z, no draw, but trigger draw in higher-z widget.
+    X BUG: Under-draw leaves coffee behind stain after exiting other widget's geometry.
+        X Keep stack of touchers and call redraw once after no more contact, then pop.
+    X All of windowing.py needs a pass.
+        X Backgroundable (and everything, everwhere) needs to conform to Skinnable/Widget standards.
+            XX Deprecate updateHover() public method if possible. Needs restrained to widgets that have hoverability.
+            XX Recursion issue from Scrollable when using directSetImages to self._skin.setImages()
+            XX Single 'path' init.
+            XX Single fromPath() and fromImage() class methods
+            XX Single setPath() and setImage().
+        X Make every window contain a Backgroundable by default and figure out how to expose it intuitively. : No.
+        X Deprecate Canvasable as simply a piece (draw surface) of the Backgroundable : No.
+        X Basic cleanup of broken/dead stuff.
+        X In Windowable, handle mid_width and tbh_width stuff.
+            X Break the values out and math them to result in tbh centered to real window.
+    X Implementation needs thoughtful cleanup
+    X Widgets need to composite themselves fully, after their parent has finished loading...
+        X Problem is, the widget doesn't know its position until it has been placed! (probably)
+    X Per-widget Background management. (not Skinnable() because it governs the appearance of many widgets)
+        X Skinnable disables background-color switching if images are loaded, but allows override of that behavior.
+        X If parent has no image assigned (empty skinnable) use its bg color for widget's.
+        X If parent has image, crop the region that the widget occupies, and composite to that, as the background.
+        X Should Skinnable deprecate bg_color management? Leave it to the widgets, themselves? : NO.
+            XX Because the widget must know its parent AND its own relative position for cropping. And we mustn't alter
+               the Skinnable to match any ONE subscriber to that Skinnable..
+            XX Alternatively, the widget does the crop and passes it to the Skinnable. : NO
+                :: Widget.Skinnable.image(0, Widget.Parent.Skinnable.crop(x, y, w, h))
+                :: Skinnable.crop returns bg color if no image to crop.
+                :: But the Widget's parent's background must be stored with the widget.
+            XX Widget manages its active background image.
+                :: Skinnable still supports internal bg_color application and smart compositing.
+                :: Widget shouldn't waste its time baking a background if the Skinnable is going to cover it with its
+                   own bg_color changes, or if all Skinnable's images have no alpha component.
+                    -- Checking a PhotoImage's transparency requires per-pixel evaluation. Doesn't seem worth it.
+                       Just tracking whether a background color is being used by the Skinnable for opaqueness.
+                       So some needless compositing will be done. I can test transparency evaluation later.
+
+                XX If using alpha, Widget crops/samples parent's bg at the local coords and stores it for reuse.
+                :: composite() draw stack goes:
+                    XX parent's BG (or color)
+                    -- (eventually) lower-z siblings found by simple hitbox testing
+                       Must handle circumstance of a large widget that overlaps multiple small widgets
+                       Active elements are NOT supported.
+                    XX widget's own
+
+X Toggleable must be reconsidered.
+    : 4 states, 2 skins --  Live swap skins with toggle_state
+    X 7 states, 1 skin --   state + state_offset moves [default, hovered, active, disabled] behavior elsewhere.
+    X Not sure about state_offset method. Feels inelegant.
+        X Embedded functionality in the Toggleable method, directly. Elegant again!
+
+X Skinnable should manage BG colors.
+    X Assign a color to match all image states, as they are added.
+    X Rotate default assignment, based on existing color states. Repeat pattern / .extend using existing.
+    X Return fail-safe color if request out of range.
+    X Provide methods for overriding colors. Full replace, single color, extend pattern.
+    X What if no extend? Instead, if index >= len(self._bg_colors): index =
+        : len(4) [0-3] 5 wants 1 (2nd) (5 - 3) - 1 = 1
+        X 12 wants 0 (1st) 12 % 4 = 0
+
+X Base class that exposes tk.Canvas WITH a draw method that deletes all images before creating a new one.
+
+X Support sprite-sheeting of skin elements. (All versions of a button in a single image, use x/y offset.)
+    X Skinnable.fromSpriteSheet(PhotoImage/Path, width, rows=0, margins=(0,0))
+    X Skinnable.fromPaths(*paths)
+    X Skinnable.fromPhotoImages(*photoImages)
+    X Skinnable(*paths) -- default class instantiation method accepts simple paths and handles persistent storage
+      for the developer. Instantiation by PhotoImages will store references, and is thus more brittle, because
+      references can be lost to cleanup. Instantiation from sprite sheet, while best practice, is a more niche concept
+      than one-image-per-state.
+    X .fromSpriteSheet() extracts & stores its images from the path/image immediately and thereafter disregards source.
+
+X Skinnable() should handle all path business.
+    X Resolve absolute vs relative paths, and conform to the OS' standard.
+    X Warn if 'path not found' and provide conformed string value that failed, for review.
+
+X Should paths -> images -> spritesheets always be the flow? Should we internally ONLY deal in sprite sheets? Convert
+everything to spritesheets?
+    X Isn't paths -> images; Spritesheets -> images more sensible. Simple, expected, all paths meet at the middle. And
+    no computational effort at all on access. No repeatedly-parsing a 4k screenshot to extract the desired area.

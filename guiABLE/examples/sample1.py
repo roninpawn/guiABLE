@@ -34,7 +34,7 @@ def test_gui():
     test_btn = Button(app, btn_skin, lambda: print("Label clicked!"), "Button!", label_font)
     test_btn.place(x=360, y=0)
 
-    glyphs = UImage(file='../skins/default/window-glyphs-40.png')
+    glyphs, _ = loadImage("../skins/default/window-glyphs-40.png")
     exit_x = glyphs.crop(80, 0, 40, 40)
     # Create an EXIT button from a Label
     x_sprite = Skin(exit_x)
