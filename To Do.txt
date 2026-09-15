@@ -37,8 +37,8 @@
         : Normalizes ROW width, never blindly stretches row contents.
         : .add() provides convenience creation but accepts custom rows.
     - MenuItem
-        : Could it be a mixin, so that any object can become a MenuItem?
-        : Creating a MenuItem manually must assing the parent to Menu.list - Can we resolve that by Menu automatically?
+        X Could it be a mixin, so that any object can become a MenuItem?
+        X Creating a MenuItem manually must assign the parent to Menu.list - Can we resolve that by Menu automatically?
     - Menu
     - DropDown
         : Opening/closing/placement behavior around a List.

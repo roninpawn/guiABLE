@@ -443,6 +443,9 @@ class Menu(ScrollableList):
 
     def __init__(self, parent, width:int, height:int, vertical:bool=True, spacing:int=0, **kwargs):
         super().__init__(parent, width, height,vertical=vertical, spacing=spacing, multiple=False, **kwargs)
+        for surface in (self, self._frame, self._plate):
+            surface.bind("<Button-1>", self._menuPressed, "+")
+            surface.bind("<ButtonRelease-1>", self._releaseGrab, "+")
 
     @property
     def hotItem(self):
@@ -462,16 +465,26 @@ class Menu(ScrollableList):
         super().add(item, index=index)
         return item
 
-    def _itemEntered(self, item): self.selectOnly(item)
+    def _menuPressed(self, event):
+        self.clearSelection()
+        self.grab_set()
+
+    def _itemPressed(self, item):
+        self.selectOnly(item)
+        self.grab_set()
+
+    def _itemEntered(self, item):
+        self.selectOnly(item)
 
     def _itemLeft(self, item):
         if self.hotItem is item: self.clearSelection()
 
     def _itemReleased(self, item):
-        if self.hotItem is not item: return
+        if self.hotItem is item: item.menuActivate()
+        self._releaseGrab()
 
-        item.fire()
-        return "break"
+    def _releaseGrab(self, event=None):
+        if self.grab_current() is self: self.grab_release()
 
 
 class ScrollFrame(CoordinateSpace, Background):

@@ -781,6 +781,7 @@ class MenuActionable:
     """ Enables a widget to participate in Menu hover and activation relationships. """
     def __init__(self, parent, *args, menu=None, **kwargs):
         self._menu = menu
+        self._menu_press_bind = None
         self._menu_release_bind = None
 
         if getattr(parent, "_is_menu", False):
@@ -804,16 +805,26 @@ class MenuActionable:
 
     def menuActivate(self): pass
 
+    def _menuPressed(self, event):
+        if self._menu is not None: self._menu._itemPressed(self)
+
     def _menuReleased(self, event):
         if self._menu is not None: self._menu._itemReleased(self)
 
     def enable(self):
         super().enable()
 
+        if self._menu_press_bind is None:
+            self._menu_press_bind = self.bind("<Button-1>", self._menuPressed, "+")
+
         if self._menu_release_bind is None:
             self._menu_release_bind = self.bind("<ButtonRelease-1>", self._menuReleased, "+")
 
     def disable(self):
+        if self._menu_press_bind is not None:
+            self.unbind("<Button-1>", self._menu_press_bind)
+            self._menu_press_bind = None
+
         if self._menu_release_bind is not None:
             self.unbind("<ButtonRelease-1>", self._menu_release_bind)
             self._menu_release_bind = None
