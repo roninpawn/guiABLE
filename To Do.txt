@@ -1,9 +1,9 @@
-> BUG: Instant Button is not releasing its active state.
-
 > Should UImage utilize the same file path resolution as Skins and loadImages?
     - It's just a way for things to break and leave a dev scratching their head, really.
 
 > BUG: Why does the Drag render slightly slower when benath the cog image that's supposed to be opaque?
+
+> BUG: .fire() presuming one specific function precludes multiple function operations. Reintroduce _call_function(func)
 
 > Renderer Upgrade
     X Collection transparency
@@ -36,6 +36,10 @@
         : Can auto-size to longest row if width undeclared.
         : Normalizes ROW width, never blindly stretches row contents.
         : .add() provides convenience creation but accepts custom rows.
+    - MenuItem
+        : Could it be a mixin, so that any object can become a MenuItem?
+        : Creating a MenuItem manually must assing the parent to Menu.list - Can we resolve that by Menu automatically?
+    - Menu
     - DropDown
         : Opening/closing/placement behavior around a List.
 
@@ -230,6 +234,7 @@ X Enable true (fake) Widget transparency.
         : Support min/max geometry values.
 
 ===== DONE =====
+X BUG: Instant Button is not releasing its active state.
 X BUG: (Ctrl+)Shift+Arrow selection begins at the last clicked cursor position, not the current cursor location.
 X BUG: Scroll trough not changing state on hover or click. : Added useBgColors override to BarSkin
 X BUG: InputLine not accepting paste.

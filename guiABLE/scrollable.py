@@ -2,8 +2,8 @@ import tkinter as tk
 
 from .utilities import getLocalMouse, rectsOverlap
 from .skinnable import ScrollBarSkin, ThreeSliceSkin, Skin, ButtonPack, Placeable
-from .widgetables import Siblingable, Troughable, LinearAnimator, CoordinateSpace
-from .widgets import RepeatButton, TroughButton, LoneDrag, Background
+from .widgetables import Siblingable, Troughable, LinearAnimator, CoordinateSpace, MenuActionable
+from .widgets import RepeatButton, TroughButton, LoneDrag, Background, MenuItem
 from .uimage import UImage
 from .containables import List
 
@@ -436,6 +436,42 @@ class ScrollableList(ScrollWindow):
 
     def multiSelect(self, enabled:bool=None): return self._list.multiSelect(enabled)
     def spacing(self, spacing:int=None): return self._list.spacing(spacing)
+
+
+class Menu(ScrollableList):
+    _is_menu = True
+
+    def __init__(self, parent, width:int, height:int, vertical:bool=True, spacing:int=0, **kwargs):
+        super().__init__(parent, width, height,vertical=vertical, spacing=spacing, multiple=False, **kwargs)
+
+    @property
+    def hotItem(self):
+        selected = self.getSelected()
+        return selected[0] if selected else None
+
+    def add(self, item, function=None, index:int=None, **kwargs):
+        if isinstance(item, str):
+            item = MenuItem(self, text=item, function=function or (lambda:None), **kwargs)
+
+        elif isinstance(item, MenuActionable):
+            item.setMenu(self)
+
+        else:
+            raise TypeError("Menu items must support MenuActionable")
+
+        super().add(item, index=index)
+        return item
+
+    def _itemEntered(self, item): self.selectOnly(item)
+
+    def _itemLeft(self, item):
+        if self.hotItem is item: self.clearSelection()
+
+    def _itemReleased(self, item):
+        if self.hotItem is not item: return
+
+        item.fire()
+        return "break"
 
 
 class ScrollFrame(CoordinateSpace, Background):

@@ -7,6 +7,7 @@ Public classes are thin wrappers that combine one or more core mixins and add th
 from .widgetables import (
     TextCanvas,
     Backgroundable, Siblingable,
+    Actionable, MenuActionable,
     Imageable, Hoverable, Clickable, Pushable,
     Labelable, Labeled,
     Toggleable, Repeatable,
@@ -28,6 +29,13 @@ class Image(Labeled, Imageable, Siblingable, TextCanvas):
 class Hover(Hoverable, Siblingable, TextCanvas):
     def __init__(self, parent, skin=None, **kwargs):
         super().__init__(parent, skin=skin, **kwargs)
+
+
+class MenuItem(Labeled, MenuActionable, Actionable, Siblingable, TextCanvas):
+    def __init__(self, parent, menu=None, skin=None, function=lambda:None, text=None, font_pack=None, **kwargs):
+        super().__init__(parent, function, menu=menu, skin=skin, text=text, font_pack=font_pack, **kwargs)
+
+    def menuActivate(self): self.fire()
 
 
 class Button(Labeled, Pushable, Siblingable, TextCanvas):
@@ -84,7 +92,7 @@ class SliderHandle(LoneDrag):
 
     def mouseUp(self, event):
         super().mouseUp(event)
-        self.fire(self._release_function)
+        self._call_function(self._release_function)
 
 
 class Slider(Troughable, Imageable, Siblingable, TextCanvas):

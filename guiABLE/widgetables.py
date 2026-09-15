@@ -777,18 +777,64 @@ class Hoverable(Stateable):
         self.setState(3)
 
 
+class MenuActionable:
+    """ Enables a widget to participate in Menu hover and activation relationships. """
+    def __init__(self, parent, *args, menu=None, **kwargs):
+        self._menu = menu
+        self._menu_release_bind = None
+
+        if getattr(parent, "_is_menu", False):
+            if self._menu is None: self._menu = parent
+            parent = parent.list
+
+        super().__init__(parent, *args, **kwargs)
+
+    @property
+    def menu(self): return self._menu
+
+    def setMenu(self, menu): self._menu = menu
+
+    def mouseIn(self, event):
+        super().mouseIn(event)
+        if self._menu is not None: self._menu._itemEntered(self)
+
+    def mouseOut(self, event):
+        super().mouseOut(event)
+        if self._menu is not None: self._menu._itemLeft(self)
+
+    def menuActivate(self): pass
+
+    def _menuReleased(self, event):
+        if self._menu is not None: self._menu._itemReleased(self)
+
+    def enable(self):
+        super().enable()
+
+        if self._menu_release_bind is None:
+            self._menu_release_bind = self.bind("<ButtonRelease-1>", self._menuReleased, "+")
+
+    def disable(self):
+        if self._menu_release_bind is not None:
+            self.unbind("<ButtonRelease-1>", self._menu_release_bind)
+            self._menu_release_bind = None
+
+        super().disable()
+
+
 """ Actionable adds basic function storage and handling to the widget chain. """
 class Actionable(Hoverable):
     def __init__(self, parent, function:tuple|Callable=lambda:None, **kwargs):
         super().__init__(parent, **kwargs)
         self.function = function
 
-    def fire(self):
-        if self.function is None: return
-        if callable(self.function): self.function(); return
+    def _call_function(self, function):
+        if function is None: return
+        if callable(function): function(); return
 
-        args = [arg() if callable(arg) else arg for arg in self.function[1:]]
-        self.function[0](*args) if args else self.function[0]()
+        args = [arg() if callable(arg) else arg for arg in function[1:]]
+        function[0](*args) if args else function[0]()
+
+    def fire(self): self._call_function(self.function)
 
 
 """ Clickable executes a passed function on mouse-down. (Instant-click button) """

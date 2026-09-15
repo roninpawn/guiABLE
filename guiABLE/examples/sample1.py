@@ -160,15 +160,14 @@ def test_gui():
     source2.set("../skins/default/cog.png")    # Existing source changed: Image updates.
     filtered.link(source1)                     # Source replaced: same FilterSkin and Image update.
 
-    scroll_list = ScrollableList(scroll_win.plate, 180, 160, True, 10)
-    btn0 = Button(scroll_list.list, text="Button 0        ")
-    btn1 = Button(scroll_list.list, text="Button 1        ", function=lambda:scroll_list.add(btn0, index=0))
-    btn2 = Button(scroll_list.list, text="Button 2        ", function=lambda:print(scroll_list.index(btn1)))
-    btn3 = Button(scroll_list.list, text="Button 3        ", function=lambda:btn2.setText("Updated Button 2"))
-    btn4 = Button(scroll_list.list, text="Button 4        ", function=lambda:scroll_list.remove(btn3))
-    btn5 = Button(scroll_list.list, text="Button 5        ", function=lambda:scroll_list.moveIndex(0, 2))
-    scroll_list.add(btn1, btn2, btn3, btn4, btn5)
-    scroll_list.place(150, 420)
+    menu = Menu(scroll_win.plate, 180, 160, True, 10)
+    btn0 = MenuItem(menu, text="Button 0        ")
+    btn1 = menu.add("Button 1        ", lambda:menu.add(btn0, index=0))
+    btn2 = menu.add("Button 2        ", lambda:print(menu.index(btn1)))
+    btn3 = menu.add("Button 3        ", lambda:btn2.setText("Updated Button 2"))
+    menu.add("Button 4        ", lambda:menu.remove(btn3))
+    menu.add("Button 5        ", lambda:menu.moveIndex(0, 2))
+    menu.place(150, 420)
 
     # Prove lower/lift functionality    : Buggy right now.
     #click_btn.lift(test_toggle1)
