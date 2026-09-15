@@ -350,7 +350,7 @@ class Renderable(Skinnable):
         if candidates:
             best_res, best = min(candidates, key=lambda entry:entry[0][0] * entry[0][1])
 
-            if width * height >= best_res[0] * best_res[1] * .75:
+            if width * height >= best_res[0] * best_res[1] * .95:
                 if best is not self._native_base: self._bases[best_res]    # Touch LRU entry.
                 return best
 

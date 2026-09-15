@@ -67,6 +67,7 @@ def test_gui():
     cap_skin = Skin("../skins/default/up_glyph-48.png", orientation="n")
     trough_skin = ThreeSliceSkin(cap_skin, trough_mid, vertical=True)
     scroll_skin = ScrollBarSkin(trough_skin, buttons=ButtonPack(cap_skin), vertical=True)
+    buttonless_scroll = ScrollBarSkin(trough_skin, vertical=True)
     scroll_win = ScrollWindow(app, 450, 280, scroll_skin, bg_color="#3B4F4F")
     scroll_win.place(20, 100)
     #scroll_win.setScrollbarVisibility(1)
@@ -124,7 +125,7 @@ def test_gui():
             line = self.get("insert linestart", "insert lineend")
             return "=" in line
 
-    blob = TextBlob(scroll_win.plate, 260, 200, vertical_skin=scroll_skin, skin=brdr_skin, bg_color="#161a1a", tab_focus=False, wrap="word")
+    blob = TextBlob(scroll_win.plate, 260, 200, vertical_skin=buttonless_scroll, skin=brdr_skin, bg_color="#161a1a", tab_focus=False, wrap="word")
     blob.setText("This is an 'editable' (text) blob... And it wraps at the edge. This is an 'editable' (text) blob... And it wraps at the edge. This is an 'editable' (text) blob... And it wraps at the edge. This is an 'editable' (text) blob... And it wraps at the edge. This is an 'editable' (text) blob... And it wraps at the edge. This is an 'editable' (text) blob... And it wraps at the edge. This is an 'editable' (text) blob... And it wraps at the edge. This is an 'editable' (text) blob... And it wraps at the edge. This is an 'editable' (text) blob... And it wraps at the edge. This is an 'editable' (text) blob... And it wraps at the edge. This is an 'editable' (text) blob... And it wraps at the edge. ")
     blob.place(90, 164)
 
@@ -168,6 +169,9 @@ def test_gui():
     menu.add("Button 4        ", lambda:menu.remove(btn3))
     menu.add("Button 5        ", lambda:menu.moveIndex(0, 2))
     menu.place(150, 420)
+
+    child_win = ChildWindow(app, position=(-200, 0), width=200, height=100, visible=True)
+    grandchild = ChildWindow(child_win, position=(-100, 0), width=200, height=80, visible=True)
 
     # Prove lower/lift functionality    : Buggy right now.
     #click_btn.lift(test_toggle1)

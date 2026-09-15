@@ -2,55 +2,149 @@ import tkinter as tk
 from time import time
 
 from guiABLE.widgets import Background
-from guiABLE.utilities import resolvePath, getGeometry
+from guiABLE.utilities import resolvePath
 from guiABLE.uimage import UImage
 
 
-"""
-A ChildWindow() is an OS-ignored window that is positioned relative to its parent window, and will travel with that
-window, if it is moved. It does not appear in the taskbar, or in alt+tab overlays. It serves as the basis for a pop-up 
-window, a configuration window, or even a persistent, detached floating interface.
-"""
-class ChildWindow(tk.Toplevel):
-    def __init__(self, parent, position=(100, 100), visible=False, **kwargs):
-        parent.bindChild(self)
-        self._visible = visible
+""" Shared geometry and parent/child behavior for guiABLE windows. """
+class Windowable:
+    def __init__(self, *args, x:int=100, y:int=100, width:int=400, height:int=300, title="", **kwargs):
+        self._geometry = (x, y, width, height)
+        self._window_children = []
 
-        super().__init__(parent, **kwargs)
+        super().__init__(*args, **kwargs)
 
         self.overrideredirect(True)
-        self.geometry(f"+{self.master.winfo_rootx() + position[0]}+{self.master.winfo_rooty() + position[1]}")
-        self.update_idletasks()
+        self.title(title)
+        self.wm_geometry(self._geometryString())
+        self.bind("<Configure>", self._windowConfigured, "+")
 
-        if not self._visible:
-            self.withdraw()
+    @property
+    def rect(self) -> tuple[int,int,int,int]: return self._geometry
+    @property
+    def location(self) -> tuple[int,int]: return self._geometry[:2]
+    @property
+    def size(self) -> tuple[int,int]: return self._geometry[2:]
+    @property
+    def x(self) -> int: return self._geometry[0]
+    @property
+    def y(self) -> int: return self._geometry[1]
+    @property
+    def width(self) -> int: return self._geometry[2]
+    @property
+    def height(self) -> int: return self._geometry[3]
+    @property
+    def window(self): return self
 
-    def relative_x(self):
-        return self.winfo_rootx() - self.master.winfo_rootx()
+    def bindChild(self, child):
+        if child not in self._window_children: self._window_children.append(child)
 
-    def relative_y(self):
-        return self.winfo_rooty() - self.master.winfo_rooty()
+    def dropChild(self, child):
+        if child in self._window_children: self._window_children.remove(child)
 
-    def minimize(self): self.iconify()
-    def restore(self): self.deiconify()
-    def deiconify(self):
-        if self._visible:
-            self.geometry(f"+{self.master.winfo_rootx() + self.relative_x()}+{self.master.winfo_rooty() + self.relative_y()}")
-            super().deiconify()
+    def setGeometry(self, x:int=None, y:int=None, width:int=None, height:int=None):
+        geometry = (self.x if x is None else int(x), self.y if y is None else int(y),
+                    self.width if width is None else int(width), self.height if height is None else int(height))
 
-    def visible(self, bool=None):
-        if bool is not None:
-            self._visible = bool
-        else:
-            return self._visible
+        if geometry == self._geometry: return self
+
+        moved = geometry[:2] != self.location
+        self._geometry = geometry
+        self.wm_geometry(self._geometryString())
+
+        if moved: self._moveChildren()
+        return self
+
+    def move(self, x:int=None, y:int=None): return self.setGeometry(x=x, y=y)
+    def resize(self, width:int=None, height:int=None): return self.setGeometry(width=width, height=height)
+
+    def _geometryString(self) -> str:
+        position = f"+{self.x}+{self.y}"
+        return f"{self.width}x{self.height}{position}" if self.width > 0 and self.height > 0 else position
+
+    def _windowConfigured(self, event):
+        if event.widget is not self: return
+
+        # Position is controlled by guiABLE. Configure is only needed to learn dimensions Tk resolved for an auto-sized window.
+        if (event.width, event.height) != self.size:
+            self._geometry = (self.x, self.y, event.width, event.height)
+
+    def _moveChildren(self):
+        for child in self._window_children: child._followParent()
+
+
+"""
+A ChildWindow is an OS-ignored window positioned relative to another Windowable. It follows its parent while retaining
+its own relative position, and may itself parent additional ChildWindows.
+"""
+class ChildWindow(Windowable, tk.Toplevel):
+    def __init__(self, parent, position=(100, 100), width:int=0, height:int=0, visible=False, title="", **kwargs):
+        self._window_parent = parent.window
+        self._relative_location = tuple(position)
+        self._visible = bool(visible)
+
+        x = self._window_parent.x + position[0]
+        y = self._window_parent.y + position[1]
+
+        super().__init__(self._window_parent, x=x, y=y, width=width, height=height, title=title, **kwargs)
+
+        self._window_parent.bindChild(self)
+        if not self._visible: self.withdraw()
+
+    @property
+    def parent(self): return self._window_parent
+    @property
+    def relative_location(self): return self._relative_location
+
+    def visible(self, visible:bool=None):
+        if visible is None: return self._visible
+
+        self._visible = bool(visible)
         self.deiconify() if self._visible else self.withdraw()
+        return self._visible
+
+    def withdraw(self):
+        for child in self._window_children:
+            child.withdraw()
+
+        super().withdraw()
+
+    def deiconify(self):
+        if not self._visible: return
+
+        super().deiconify()
+
+        for child in self._window_children:
+            child.deiconify()
+
+    def close(self): self.visible(False)
+
+    def destroy(self):
+        self._window_parent.dropChild(self)
+        super().destroy()
+
+    def setGeometry(self, x:int=None, y:int=None, width:int=None, height:int=None):
+        old_location = self.location
+        super().setGeometry(x, y, width, height)
+
+        if self.location != old_location:
+            self._relative_location = (self.x - self._window_parent.x, self.y - self._window_parent.y)
+
+        return self
+
+    def _followParent(self):
+        rx, ry = self._relative_location
+        Windowable.setGeometry(self, x=self._window_parent.x + rx, y=self._window_parent.y + ry)
 
 
 class Window(Background):
     def __init__(self, x:int=100, y:int=100, width:int=400, height:int=300, title=""):
-        self._window = Windowable(width, height, x, y, title)
+        self._window = _RootWindow(width, height, x, y, title)
         super().__init__(self._window, width=width, height=height)
         self.place(x=0, y=0)
+
+    @property
+    def window(self): return self._window
 
     def bindDrag(self, widget): self._window.bindDrag(widget)
     def bindChild(self, child_window:ChildWindow): self._window.bindChild(child_window)
@@ -58,54 +152,43 @@ class Window(Background):
     def minimize(self): self._window.minimize()
     def restore(self): self._window.restore()
 
-    def windowGeometry(self): return getGeometry(self._window)
-    def setGeometry(self, x:int = None, y:int = None, width:int = None, height:int = None):
-        w, h, x1, y1  = self._window.geometry().replace("x", "+", 1).split("+")
-        if width: w = width
-        if height: h = height
-        if x: x1 = x
-        if y: y1 = y
-        self._window.geometry(f"{w}x{h}+{x1}+{y1}")
+    def windowGeometry(self): return self._window.rect
 
-        w, h = int(w), int(h)
-        if self.size != (w, h):
-            self.config(width=w, height=h)
+    def setGeometry(self, x:int=None, y:int=None, width:int=None, height:int=None):
+        self._window.setGeometry(x, y, width, height)
 
-    def resize(self, width:int = None, height: int = None): self.setGeometry(width=width, height=height)
-    def move(self, x:int=None, y:int=None): self.setGeometry(x=x, y=y)
+        if self.size != self._window.size:
+            self.config(width=self._window.width, height=self._window.height)
+
+        return self
+
+    def resize(self, width:int=None, height:int=None): return self.setGeometry(width=width, height=height)
+    def move(self, x:int=None, y:int=None): return self.setGeometry(x=x, y=y)
 
 
 """
-A Windowable is a primary/parent window without a top bar or any controls. This is accomplished be telling the OS'
-window manager to ignore it. Which means that its taskbar presence and alt+tab functionality must be faked back into
-place. So a 2nd, invisible, window is spawned and maintained to serve as the OS-tracked window.
-
-Use loadTabImage() to populate the alt+tab overlay with a custom logo/image.
+Root guiABLE window. override-redirect removes system chrome, so an invisible managed Toplevel supplies taskbar and
+Alt+Tab presence. Root-only focus/minimize handling and the render heartbeat live here rather than in Windowable.
 """
-class Windowable(tk.Tk):
+class _RootWindow(Windowable, tk.Tk):
     def __init__(self, width:int=400, height:int=300, x:int=100, y:int=100, title=""):
         self._offset_w, self._offset_h = width // 2, height // 2
-        self.child_list = []
-        self.drag_locked = True
-        self._lost_focus = time()
+        self._taskbar_size = (0, 0)
         self._drag_widget = None
+        self._drag_bind = None
+        self._lost_focus = time()
+        self.drag_locked = True
 
-        super().__init__()
-        self.overrideredirect(True)
-        self.title(title)
-        self.geometry(f"{width}x{height}+{x}+{y}")
+        super().__init__(x=x, y=y, width=width, height=height, title=title)
 
-        # overrideredirect() causes the OS to ignore the window. So a taskbar/tab presence is manufactured and managed.
         self.taskbar_handle = tk.Toplevel(self)
         self.taskbar_handle.title(title)
-
         self.taskbar_handle.geometry(f"0x0+{x + self._offset_w}+{y + self._offset_h}")
-        self.taskbar_handle.wm_attributes('-alpha', 0.0)
+        self.taskbar_handle.wm_attributes("-alpha", 0.0)
         self.taskbar_handle.wait_visibility()
-        self.taskbar_handle.wm_attributes('-alpha', 0.0)
+        self.taskbar_handle.wm_attributes("-alpha", 0.0)
         self.taskbar_handle.iconify()
 
-        # Establish default bindings
         self.bind("<ButtonRelease-1>", self.mouseUp)
         self.bind("<FocusIn>", self.tookFocus)
         self.bind("<FocusOut>", self.lostFocus)
@@ -118,49 +201,53 @@ class Windowable(tk.Tk):
     def parent(self): return self
 
     def bindDrag(self, widget:tk.Canvas):
-        if widget is not None:
-            if self._drag_widget is not None: self._drag_widget.unbind("<B1-Motion>")
-            widget.bind("<B1-Motion>", self.mouseDrag)
-            self._drag_widget = widget
+        if self._drag_widget is not None and self._drag_bind is not None:
+            self._drag_widget.unbind("<B1-Motion>", self._drag_bind)
 
-    def bindChild(self, child_window:ChildWindow):
-        self.child_list.append(child_window)
+        self._drag_widget = widget
+        self._drag_bind = widget.bind("<B1-Motion>", self.mouseDrag) if widget is not None else None
 
-    # loadTabImage() draws and fits a custom image to the invisible, OS-tracked window -- to be displayed on alt+tab.
+    # Draws a custom image to the invisible managed window so the OS can use it for Alt+Tab/taskbar previews.
     def loadTabImage(self, image_path):
         img = UImage(file=resolvePath(image_path))
         img_w, img_h = img.width(), img.height()
+        self._taskbar_size = img_w, img_h
         self._update_offsets()
 
         self.drag_locked = False
         self.taskbar_handle.deiconify()
-        self.taskbar_handle.geometry(f"{img_w}x{img_h}+"
-                                     f"{self.winfo_rootx() + self._offset_w}+"
-                                     f"{self.winfo_rooty() + self._offset_h}")
+        self.taskbar_handle.geometry(f"{img_w}x{img_h}+{self.x + self._offset_w}+{self.y + self._offset_h}")
         tab_image = Background.fromImage(self.taskbar_handle, img_w, img_h, img)
         tab_image.place(x=0, y=0)
         self.taskbar_handle.update()
         self.taskbar_handle.iconify()
         self.drag_locked = True
 
+    def setGeometry(self, x:int=None, y:int=None, width:int=None, height:int=None):
+        old_geometry = self.rect
+        super().setGeometry(x, y, width, height)
+
+        if self.size != old_geometry[2:]: self._update_offsets()
+        if self.rect != old_geometry:
+            self.taskbar_handle.geometry(f"+{self.x + self._offset_w}+{self.y + self._offset_h}")
+
+        return self
+
     def mouseDrag(self, event):
-        mx, my = self.winfo_pointerxy()
+        mx, my = event.x_root, event.y_root
+
         if self.drag_locked:
-            self.dx = mx - self.winfo_rootx()
-            self.dy = my - self.winfo_rooty()
+            self.dx = mx - self.x
+            self.dy = my - self.y
             self._update_offsets()
             self.drag_locked = False
-            self.taskbar_handle.deiconify()
+            #self.taskbar_handle.deiconify()
             self.focus_force()
-            self.active_children = [child for child in self.child_list if child.visible]
 
-        x = mx - self.dx
-        y = my - self.dy
-        self.taskbar_handle.geometry(f"+{x + self._offset_w}+{y + self._offset_h}")
-        self.geometry(f"+{x}+{y}")
+        self.move(mx - self.dx, my - self.dy)
 
-        for child in self.active_children:
-            child.geometry(f"+{x + child.relative_x()}+{y + child.relative_y()}")
+        # Tk defers toplevel movement until idle; flush once after the whole window family has queued its new geometry.
+        self.update_idletasks()
 
     def mouseUp(self, event):
         if not self.drag_locked:
@@ -169,15 +256,13 @@ class Windowable(tk.Tk):
             self.drag_locked = True
 
     def tookFocus(self, event):
-        for child in self.child_list:
-            child.lift()
+        for child in self._window_children: child.lift()
 
     def lostFocus(self, event): self._lost_focus = time() + .4
 
     def minimize(self): self.iconify()
     def iconify(self, event=None):
-        for child in self.child_list:
-            child.withdraw()
+        for child in self._window_children: child.withdraw()
         self.withdraw()
         self.taskbar_handle.iconify()
 
@@ -188,24 +273,17 @@ class Windowable(tk.Tk):
                 self.iconify()
             else:
                 super().deiconify()
-                for child in self.child_list:
-                    child.deiconify()
+                for child in self._window_children: child.deiconify()
                 self.focus_force()
+
             self.taskbar_handle.wm_iconify()
 
     """
-    _heartbeat(): Tk's update/idletasks system throttles aggressively, preferring to "hibernate" at all costs. This
-    induces a kind of stop-and-go stuttering to Tk's overall performance that isn't usually perceivable by a user.
-    But because guiABLE is rendering images at high speeds, the stuttering becomes visible in canvas draws.  
-
-    To achieve a steady canvas 'frame rate,' Tk's idletasks system must be explicitly awakened, on a schedule. This
-    _heartbeat function uses Tk's .after() method to accomplish that. By simply calling itself once every 'n'
-    milliseconds, Tk is awakened to process any events that have stacked up in the queue -- including Canvas operations.
-
-    A 2ms heartbeat is the fastest heartbeat that still throttles to zero CPU use, on modern platforms.
+    Tk throttles idle work aggressively enough to make guiABLE's image rendering visibly stutter. Scheduling a 2ms
+    no-op timer keeps Tk's event loop awake while still allowing zero-CPU idle behavior on tested modern Windows.
     """
     def _heartbeat(self): self.after(2, self._heartbeat)
 
     def _update_offsets(self):
-        self._offset_w = (self.winfo_width() - self.taskbar_handle.winfo_width()) // 2
-        self._offset_h = (self.winfo_height() - self.taskbar_handle.winfo_height()) // 2
+        self._offset_w = (self.width - self._taskbar_size[0]) // 2
+        self._offset_h = (self.height - self._taskbar_size[1]) // 2
