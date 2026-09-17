@@ -170,8 +170,9 @@ def test_gui():
     menu.add("Button 5        ", lambda:menu.moveIndex(0, 2))
     menu.place(150, 420)
 
-    child_win = ChildWindow(app, position=(-200, 0), width=200, height=100, visible=True)
-    grandchild = ChildWindow(child_win, position=(-100, 0), width=97, height=50, visible=True).snapSize()
+    child_win = ChildWindow(app, (50, 50), 50, 50, True)
+    grandchild = ChildWindow(child_win, (-100, 0), 100, 50, visible=True, stack_with_parent=False)
+    greatgrand = ChildWindow(grandchild, (-50, 0), 50, 50, True, always_on_top=True)
 
     # Prove lower/lift functionality    : Buggy right now.
     #click_btn.lift(test_toggle1)

@@ -10,26 +10,16 @@
     - Could also reserve an intentionally oversized native base for Drag, knowing it intends to move. Or even an
       intentionally oversized base for everything, just to be ready for movement.
 
-> BUG: Hovering tasbar preview image focuses the fake window, aka nothing.
-> BUG: ChildWindows can expose 1-frame of flicker when their parent window regains focus.
-    - Likely caused by the OS Window Manager raising the selected Window immediately, and Tk being notified of it 1
-      frame later.
+> BUG: Application Window() does not participate in MS Windows' shake-app gesture to minimize and restore others.
+> BUG: HiDPI issue. Windows at certain locations or of certain sizes, with Desktop scaling, resolve fractional pixel
+  placements inconsistently.
+    X snapSize is not enough alone.
+    - .snapToGrid() must conform location AND size to avoid the issue.
+> BUG: Grandchild window flickers at the right edge.
 
-> HiDPI / Windows display scaling:
-    - Separate ChildWindow Toplevels can visually jostle by one physical pixel while moving at fractional
-      Windows display scaling (e.g. 125%), despite Tk reporting perfectly stable relative geometry.
-    - Setting Windows process DPI-aware eliminates the virtualization artifact, but changes guiABLE's existing
-      pixel geometry throughout the application unless guiABLE also provides framework-wide display scaling.
-    - Do NOT enable DPI awareness piecemeal.
-    - Long-term solution is a unified guiABLE logical→display coordinate scaling layer.
-
-> BUG: Windows Taskbar previews allow the window containing the preview to be closed, leaving the application rogue.
-> BUG: Grandchild window flickers at the edge, seeming to indicate a late update allowing a gap to form.
-    X HiDPI issue. Windows at certain sizes, with Desktop scaling, resolve fractional pixel placements inconsistently.
-    X Provide an optional snapping method for windows which CONTRACTS geometry to values divisible by 4.
-    - Document the issue!
-
-> Windowing needs a central onClose path to support application specified cleanup under all circumstances.
+> Windowing needs a central onClose() path to support application specified cleanup under all circumstances.
+> Should minimize_with_parent be a separate toggle for child windows? A non-stacked child doesn't minimize with its
+  parent. I'd say that's neither right nor wrong. Just a forced choice into specific behavior.
 
 > Renderer Upgrade
     X Collection transparency
@@ -141,7 +131,7 @@ X A Window should have (non-winfo) methods to query its size and location.
 ===== TO DO =====
 
 > All of windowing.py needs a pass.
-    - Windowable is doing a lot of tricks to accomplish what it does. Review and justify or deprecate.
+    X Windowable is doing a lot of tricks to accomplish what it does. Review and justify or deprecate.
     X Backgroundable (and everything, everwhere) needs to conform to Skinnable/Widget standards.
     X Window(width, height, title, x, y)
         X Comes with a Background() (IS a Background(), containing it's parent -- a Windowable())
@@ -260,6 +250,11 @@ X Enable true (fake) Widget transparency.
         : Support min/max geometry values.
 
 ===== DONE =====
+X BUG: Windows Taskbar previews allow the window containing the preview to be closed, leaving the application rogue.
+X BUG: Hovering tasbar preview image focuses the fake window, aka nothing.
+X BUG: ChildWindows can expose 1-frame of flicker when their parent window regains focus.
+    X Likely caused by the OS Window Manager raising the selected Window immediately, and Tk being notified of it 1
+      frame later. : Fixed by OS-specific window management.
 X BUG: .fire() presuming one specific function precludes multiple function operations. Reintroduce _call_function(func)
 X BUG: Instant Button is not releasing its active state.
 X BUG: (Ctrl+)Shift+Arrow selection begins at the last clicked cursor position, not the current cursor location.
@@ -334,6 +329,13 @@ X BUG: Skin.FromColors doesn't work. Nor does SetColors.
     X The concept of everything being a Skin has probably invalidated those methods.
     X Skin.FromColors and Skin.Transparent should require width and height.
 X BUG: When mouse is over the text of a labeled button, the hover state is not shown.
+
+X HiDPI / Windows display scaling:
+    X Separate ChildWindow Toplevels can visually jostle by one physical pixel while moving at fractional
+      Windows display scaling (e.g. 125%), despite Tk reporting perfectly stable relative geometry.
+    X Setting Windows process DPI-aware eliminates the virtualization artifact, but changes guiABLE's existing
+      pixel geometry throughout the application unless guiABLE also provides framework-wide display scaling.
+    X Do NOT enable DPI awareness: Tk's PhotoImage is not equipped to handle image scaling to modern standards.
 
 X Scrollwheel atop a scrollbar should transit the bar. Horizontal too!
 X Scrollwheel on a plate with only horizontal overflow should scroll horizontally.

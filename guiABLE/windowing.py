@@ -50,22 +50,30 @@ class Windowable:
         if geometry == self._geometry: return self
 
         moved = geometry[:2] != self.location
+        resized = geometry[2:] != self.size
         self._geometry = geometry
-        self.wm_geometry(self._geometryString())
 
-        if moved: self._moveChildren()
+        # Size changes remain Tk-managed. Position changes are committed as one window-family transaction.
+        if resized and self.width > 0 and self.height > 0:
+            self.wm_geometry(f"{self.width}x{self.height}")
+
+        if moved:
+            windows = [self]
+            self._collectChildMoves(windows)
+            self._backend.moveWindows(windows)
+
         return self
 
     def move(self, x:int=None, y:int=None): return self.setGeometry(x=x, y=y)
     def resize(self, width:int=None, height:int=None): return self.setGeometry(width=width, height=height)
-    def snapSize(self, grid:int=4):
-        """Contract width/height to a pixel grid to reduce fractional display-scaling artifacts."""
+    def snapGrid(self, grid:int=4):
+        """Snap position to the nearest grid point and contract dimensions to the grid."""
         if grid < 1: raise ValueError("grid must be at least 1")
 
-        width = self.width - self.width % grid if self.width >= grid else self.width
-        height = self.height - self.height % grid if self.height >= grid else self.height
+        snap = lambda value: round(value / grid) * grid
+        contract = lambda value: value - value % grid if value >= grid else value
 
-        return self.resize(width, height)
+        return self.setGeometry(snap(self.x), snap(self.y), contract(self.width), contract(self.height))
 
     def _geometryString(self) -> str:
         position = f"+{self.x}+{self.y}"
@@ -78,8 +86,8 @@ class Windowable:
         if (event.width, event.height) != self.size:
             self._geometry = (self.x, self.y, event.width, event.height)
 
-    def _moveChildren(self):
-        for child in self._window_children: child._followParent()
+    def _collectChildMoves(self, windows:list):
+        for child in self._window_children: child._collectParentMove(windows)
 
 
 """
@@ -87,20 +95,26 @@ A ChildWindow is an OS-ignored window positioned relative to another Windowable.
 its own relative position, and may itself parent additional ChildWindows.
 """
 class ChildWindow(Windowable, tk.Toplevel):
-    def __init__(self, parent, position=(100, 100), width:int=0, height:int=0, visible=False, title="", **kwargs):
+    def __init__(self, parent, position=(100, 100), width:int=0, height:int=0, visible=False, title="",
+                 stack_with_parent=True, move_with_parent=True, always_on_top=False, **kwargs):
         self._window_parent = parent.window
         self._relative_location = tuple(position)
         self._visible = bool(visible)
+
+        self._stack_with_parent = bool(stack_with_parent)
+        self._move_with_parent = bool(move_with_parent)
+        self._topmost = bool(always_on_top)
 
         x = self._window_parent.x + position[0]
         y = self._window_parent.y + position[1]
 
         super().__init__(self._window_parent, x=x, y=y, width=width, height=height, title=title, **kwargs)
 
-        self._backend.configureChild(self._window_parent)
+        self._backend.configureChild(self._window_parent, self._stack_with_parent, self._topmost)
         self._window_parent.bindChild(self)
 
-        if not self._visible: self.withdraw()
+        if self._visible: self.after_idle(self._backend.raiseWindow)
+        else: self.withdraw()
 
     @property
     def parent(self): return self._window_parent
@@ -111,12 +125,18 @@ class ChildWindow(Windowable, tk.Toplevel):
         if visible is None: return self._visible
 
         self._visible = bool(visible)
-        self.deiconify() if self._visible else self.withdraw()
+
+        if self._visible:
+            self.deiconify()
+            self.after_idle(self._backend.raiseWindow)
+        else:
+            self.withdraw()
+
         return self._visible
 
     def withdraw(self):
         for child in self._window_children:
-            child.withdraw()
+            if child.stackWithParent(): child.withdraw()
 
         super().withdraw()
 
@@ -126,7 +146,7 @@ class ChildWindow(Windowable, tk.Toplevel):
         super().deiconify()
 
         for child in self._window_children:
-            child.deiconify()
+            if child.stackWithParent(): child.deiconify()
 
     def close(self): self.visible(False)
 
@@ -143,9 +163,51 @@ class ChildWindow(Windowable, tk.Toplevel):
 
         return self
 
-    def _followParent(self):
+    def stackWithParent(self, stack:bool=None):
+        if stack is None: return self._stack_with_parent
+
+        self._stack_with_parent = bool(stack)
+        self._backend.setOwner(self._window_parent if self._stack_with_parent else None)
+        return self._stack_with_parent
+
+    def moveWithParent(self, move_with_parent:bool=None):
+        if move_with_parent is None: return self._move_with_parent
+
+        self._move_with_parent = bool(move_with_parent)
+        self._relative_location = (self.x - self._window_parent.x, self.y - self._window_parent.y)
+        return self._move_with_parent
+
+    def alwaysOnTop(self, always_on_top:bool=None):
+        if always_on_top is None: return self._topmost
+
+        self._topmost = bool(always_on_top)
+        self._backend.setTopmost(self._topmost)
+        return self._topmost
+
+    def snapGrid(self, grid:int=4):
+        if grid < 1: raise ValueError("grid must be at least 1")
+
+        snap = lambda value: round(value / grid) * grid
+        contract = lambda value: value - value % grid if value >= grid else value
+
         rx, ry = self._relative_location
-        Windowable.setGeometry(self, x=self._window_parent.x + rx, y=self._window_parent.y + ry)
+        rx, ry = snap(rx), snap(ry)
+
+        self._relative_location = (rx, ry)
+        Windowable.setGeometry(self, self._window_parent.x + rx, self._window_parent.y + ry,
+                               contract(self.width), contract(self.height))
+        return self
+
+    def _collectParentMove(self, windows:list):
+        if not self._move_with_parent:
+            self._relative_location = (self.x - self._window_parent.x, self.y - self._window_parent.y)
+            return
+
+        rx, ry = self._relative_location
+        self._geometry = (self._window_parent.x + rx, self._window_parent.y + ry, self.width, self.height)
+
+        windows.append(self)
+        self._collectChildMoves(windows)
 
 
 class Window(Background):
@@ -175,9 +237,8 @@ class Window(Background):
 
     def move(self, x:int=None, y:int=None): return self.setGeometry(x=x, y=y)
     def resize(self, width:int=None, height:int=None): return self.setGeometry(width=width, height=height)
-    def snapSize(self, grid:int=4):
-        """Contract width/height to a pixel grid to reduce fractional display-scaling artifacts."""
-        self._window.snapSize(grid)
+    def snapGrid(self, grid:int=4):
+        self._window.snapGrid(grid)
 
         if self.size != self._window.size:
             self.config(width=self._window.width, height=self._window.height)
@@ -195,6 +256,8 @@ class _RootWindow(Windowable, tk.Tk):
         self._taskbar_size = (0, 0)
         self._drag_widget = None
         self._drag_bind = None
+        self._drag_press_bind = None
+        self._manual_drag = False
         self._lost_focus = time()
         self.drag_locked = True
         self.taskbar_handle = None
@@ -221,11 +284,22 @@ class _RootWindow(Windowable, tk.Tk):
     def parent(self): return self
 
     def bindDrag(self, widget:tk.Canvas):
-        if self._drag_widget is not None and self._drag_bind is not None:
-            self._drag_widget.unbind("<B1-Motion>", self._drag_bind)
+        if self._drag_widget is not None:
+            if self._drag_press_bind is not None:
+                self._drag_widget.unbind("<ButtonPress-1>", self._drag_press_bind)
+
+            if self._drag_bind is not None:
+                self._drag_widget.unbind("<B1-Motion>", self._drag_bind)
 
         self._drag_widget = widget
-        self._drag_bind = widget.bind("<B1-Motion>", self.mouseDrag) if widget is not None else None
+
+        if widget is None:
+            self._drag_press_bind = None
+            self._drag_bind = None
+            return
+
+        self._drag_press_bind = widget.bind("<ButtonPress-1>", self.mouseDown)
+        self._drag_bind = widget.bind("<B1-Motion>", self.mouseDrag)
 
     # Draws a custom image to the invisible managed window so the OS can use it for Alt+Tab/taskbar previews.
     def loadTabImage(self, image_path):
@@ -254,6 +328,8 @@ class _RootWindow(Windowable, tk.Tk):
         return self
 
     def mouseDrag(self, event):
+        if not self._manual_drag: return "break"
+
         mx, my = event.x_root, event.y_root
 
         if self.drag_locked:
@@ -264,23 +340,30 @@ class _RootWindow(Windowable, tk.Tk):
             self.focus_force()
 
         self.move(mx - self.dx, my - self.dy)
-
-        # Tk defers toplevel movement until idle; flush once after the whole window family has queued its new geometry.
         self.update_idletasks()
 
+    def mouseDown(self, event):
+        self._manual_drag = not self._backend.beginMove(event.x_root, event.y_root)
+        if not self._manual_drag: return "break"
+
+
     def mouseUp(self, event):
-        if not self.drag_locked:
+        if self._manual_drag and not self.drag_locked:
             self.focus_force()
             self.drag_locked = True
 
+        self._manual_drag = False
+
     def tookFocus(self, event):
-        for child in self._window_children: child.lift()
+        for child in self._window_children:
+            if child.stackWithParent(): child.lift()
 
     def lostFocus(self, event): self._lost_focus = time() + .4
 
     def minimize(self): self.iconify()
     def iconify(self, event=None):
-        for child in self._window_children: child.withdraw()
+        for child in self._window_children:
+            if child.stackWithParent(): child.withdraw()
 
         if self.taskbar_handle is None:
             super().iconify()
@@ -292,7 +375,8 @@ class _RootWindow(Windowable, tk.Tk):
     def deiconify(self, event=None):
         if self.taskbar_handle is None:
             super().deiconify()
-            for child in self._window_children: child.deiconify()
+            for child in self._window_children:
+                if child.stackWithParent(): child.deiconify()
             self.focus_force()
             return
 
@@ -301,7 +385,8 @@ class _RootWindow(Windowable, tk.Tk):
                 self.iconify()
             else:
                 super().deiconify()
-                for child in self._window_children: child.deiconify()
+                for child in self._window_children:
+                    if child.stackWithParent(): child.deiconify()
                 self.focus_force()
 
             self.taskbar_handle.wm_iconify()
@@ -315,3 +400,17 @@ class _RootWindow(Windowable, tk.Tk):
     def _update_offsets(self):
         self._offset_w = (self.width - self._taskbar_size[0]) // 2
         self._offset_h = (self.height - self._taskbar_size[1]) // 2
+
+    def _windowConfigured(self, event):
+        if event.widget is not self: return
+
+        Windowable._windowConfigured(self, event)
+
+        location = (event.x, event.y)
+        if location == self.location or not self._backend.acceptConfigureLocation(*location): return
+
+        self._geometry = (*location, self.width, self.height)
+
+        windows = []
+        self._collectChildMoves(windows)
+        self._backend.moveWindows(windows)
