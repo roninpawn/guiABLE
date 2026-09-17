@@ -1,6 +1,7 @@
 import tkinter as tk
 from time import time
 
+from guiABLE.windowbackends import windowBackend
 from guiABLE.widgets import Background
 from guiABLE.utilities import resolvePath
 from guiABLE.uimage import UImage
@@ -14,7 +15,7 @@ class Windowable:
 
         super().__init__(*args, **kwargs)
 
-        self.overrideredirect(True)
+        self._backend = windowBackend(self)
         self.title(title)
         self.wm_geometry(self._geometryString())
         self.bind("<Configure>", self._windowConfigured, "+")
@@ -57,6 +58,14 @@ class Windowable:
 
     def move(self, x:int=None, y:int=None): return self.setGeometry(x=x, y=y)
     def resize(self, width:int=None, height:int=None): return self.setGeometry(width=width, height=height)
+    def snapSize(self, grid:int=4):
+        """Contract width/height to a pixel grid to reduce fractional display-scaling artifacts."""
+        if grid < 1: raise ValueError("grid must be at least 1")
+
+        width = self.width - self.width % grid if self.width >= grid else self.width
+        height = self.height - self.height % grid if self.height >= grid else self.height
+
+        return self.resize(width, height)
 
     def _geometryString(self) -> str:
         position = f"+{self.x}+{self.y}"
@@ -88,7 +97,9 @@ class ChildWindow(Windowable, tk.Toplevel):
 
         super().__init__(self._window_parent, x=x, y=y, width=width, height=height, title=title, **kwargs)
 
+        self._backend.configureChild(self._window_parent)
         self._window_parent.bindChild(self)
+
         if not self._visible: self.withdraw()
 
     @property
@@ -162,8 +173,16 @@ class Window(Background):
 
         return self
 
-    def resize(self, width:int=None, height:int=None): return self.setGeometry(width=width, height=height)
     def move(self, x:int=None, y:int=None): return self.setGeometry(x=x, y=y)
+    def resize(self, width:int=None, height:int=None): return self.setGeometry(width=width, height=height)
+    def snapSize(self, grid:int=4):
+        """Contract width/height to a pixel grid to reduce fractional display-scaling artifacts."""
+        self._window.snapSize(grid)
+
+        if self.size != self._window.size:
+            self.config(width=self._window.width, height=self._window.height)
+
+        return self
 
 
 """
@@ -178,21 +197,22 @@ class _RootWindow(Windowable, tk.Tk):
         self._drag_bind = None
         self._lost_focus = time()
         self.drag_locked = True
+        self.taskbar_handle = None
 
         super().__init__(x=x, y=y, width=width, height=height, title=title)
 
-        self.taskbar_handle = tk.Toplevel(self)
-        self.taskbar_handle.title(title)
-        self.taskbar_handle.geometry(f"0x0+{x + self._offset_w}+{y + self._offset_h}")
-        self.taskbar_handle.wm_attributes("-alpha", 0.0)
-        self.taskbar_handle.wait_visibility()
-        self.taskbar_handle.wm_attributes("-alpha", 0.0)
-        self.taskbar_handle.iconify()
+        managed = self._backend.configureRoot()
+        if not managed:
+            self.taskbar_handle = tk.Toplevel(self)
+            self.taskbar_handle.title(title)
+            self.taskbar_handle.geometry(f"0x0+{x + self._offset_w}+{y + self._offset_h}")
+            self.taskbar_handle.wm_attributes("-alpha", 0.0)
+            self.taskbar_handle.wait_visibility()
+            self.taskbar_handle.wm_attributes("-alpha", 0.0)
 
         self.bind("<ButtonRelease-1>", self.mouseUp)
         self.bind("<FocusIn>", self.tookFocus)
         self.bind("<FocusOut>", self.lostFocus)
-        self.taskbar_handle.bind("<Map>", self.deiconify)
 
         self.update_idletasks()
         self._heartbeat()
@@ -209,18 +229,18 @@ class _RootWindow(Windowable, tk.Tk):
 
     # Draws a custom image to the invisible managed window so the OS can use it for Alt+Tab/taskbar previews.
     def loadTabImage(self, image_path):
+        if self.taskbar_handle is None: return
+
         img = UImage(file=resolvePath(image_path))
         img_w, img_h = img.width(), img.height()
         self._taskbar_size = img_w, img_h
         self._update_offsets()
 
         self.drag_locked = False
-        self.taskbar_handle.deiconify()
         self.taskbar_handle.geometry(f"{img_w}x{img_h}+{self.x + self._offset_w}+{self.y + self._offset_h}")
         tab_image = Background.fromImage(self.taskbar_handle, img_w, img_h, img)
         tab_image.place(x=0, y=0)
         self.taskbar_handle.update()
-        self.taskbar_handle.iconify()
         self.drag_locked = True
 
     def setGeometry(self, x:int=None, y:int=None, width:int=None, height:int=None):
@@ -228,7 +248,7 @@ class _RootWindow(Windowable, tk.Tk):
         super().setGeometry(x, y, width, height)
 
         if self.size != old_geometry[2:]: self._update_offsets()
-        if self.rect != old_geometry:
+        if self.rect != old_geometry and self.taskbar_handle is not None:
             self.taskbar_handle.geometry(f"+{self.x + self._offset_w}+{self.y + self._offset_h}")
 
         return self
@@ -241,7 +261,6 @@ class _RootWindow(Windowable, tk.Tk):
             self.dy = my - self.y
             self._update_offsets()
             self.drag_locked = False
-            #self.taskbar_handle.deiconify()
             self.focus_force()
 
         self.move(mx - self.dx, my - self.dy)
@@ -251,7 +270,6 @@ class _RootWindow(Windowable, tk.Tk):
 
     def mouseUp(self, event):
         if not self.drag_locked:
-            self.taskbar_handle.wm_iconify()
             self.focus_force()
             self.drag_locked = True
 
@@ -263,11 +281,21 @@ class _RootWindow(Windowable, tk.Tk):
     def minimize(self): self.iconify()
     def iconify(self, event=None):
         for child in self._window_children: child.withdraw()
-        self.withdraw()
-        self.taskbar_handle.iconify()
+
+        if self.taskbar_handle is None:
+            super().iconify()
+        else:
+            self.withdraw()
+            self.taskbar_handle.iconify()
 
     def restore(self): self.deiconify()
     def deiconify(self, event=None):
+        if self.taskbar_handle is None:
+            super().deiconify()
+            for child in self._window_children: child.deiconify()
+            self.focus_force()
+            return
+
         if self.drag_locked:
             if self.wm_state() == tk.NORMAL and time() < self._lost_focus:
                 self.iconify()

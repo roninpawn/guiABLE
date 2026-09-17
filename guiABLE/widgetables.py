@@ -89,6 +89,8 @@ class Siblingable:
         self._siblings = siblings
 
     def _bond(self, event=None):
+        if self._bonded: return
+
         # Registration is cheap/idempotent and establishes z-order immediately.
         self._parent.registerChild(self)
 

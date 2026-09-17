@@ -25,9 +25,11 @@
 
 > BUG: Windows Taskbar previews allow the window containing the preview to be closed, leaving the application rogue.
 > BUG: Grandchild window flickers at the edge, seeming to indicate a late update allowing a gap to form.
-    - HiDPI issue. Windows at certain sizes, with Desktop scaling, resolve fractional pixel placements inconsistently.
-    - Provide an optional snapping method for windows which CONTRACTS geometry to values divisible by 4.
+    X HiDPI issue. Windows at certain sizes, with Desktop scaling, resolve fractional pixel placements inconsistently.
+    X Provide an optional snapping method for windows which CONTRACTS geometry to values divisible by 4.
     - Document the issue!
+
+> Windowing needs a central onClose path to support application specified cleanup under all circumstances.
 
 > Renderer Upgrade
     X Collection transparency
