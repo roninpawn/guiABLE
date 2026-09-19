@@ -29,6 +29,10 @@ class WindowBackend:
         for window in windows:
             window.wm_geometry(f"{window.x:+d}{window.y:+d}")
 
+    def workArea(self, x:int, y:int, width:int, height:int) -> tuple[int,int,int,int]:
+        return (self.window.winfo_vrootx(), self.window.winfo_vrooty(),
+                self.window.winfo_vrootwidth(), self.window.winfo_vrootheight())
+
     def acceptConfigureLocation(self, x:int, y:int) -> bool: return True
 
 
@@ -60,6 +64,8 @@ class WindowsWindowBackend(WindowBackend):
 
     SW_MINIMIZE = 6
     SW_RESTORE = 9
+
+    MONITOR_DEFAULTTONEAREST = 2
 
     WM_WINDOWPOSCHANGED = 0x0047
 
@@ -134,6 +140,18 @@ class WindowsWindowBackend(WindowBackend):
         self._user32.EndDeferWindowPos.restype = wintypes.BOOL
 
         self._ignore_configure_location = None
+
+        class MONITORINFO(self._ctypes.Structure):
+            _fields_ = [("cbSize", wintypes.DWORD), ("rcMonitor", wintypes.RECT),
+                        ("rcWork", wintypes.RECT), ("dwFlags", wintypes.DWORD)]
+
+        self._MONITORINFO = MONITORINFO
+
+        self._user32.MonitorFromRect.argtypes = self._ctypes.POINTER(wintypes.RECT), wintypes.DWORD
+        self._user32.MonitorFromRect.restype = wintypes.HANDLE
+
+        self._user32.GetMonitorInfoW.argtypes = wintypes.HANDLE, self._ctypes.c_void_p
+        self._user32.GetMonitorInfoW.restype = wintypes.BOOL
 
         class WINDOWPOS(ctypes.Structure):
             _fields_ = [("hwnd", wintypes.HWND), ("hwndInsertAfter", wintypes.HWND),
@@ -242,6 +260,19 @@ class WindowsWindowBackend(WindowBackend):
 
         if not self._user32.EndDeferWindowPos(batch):
             raise self._ctypes.WinError()
+
+    def workArea(self, x:int, y:int, width:int, height:int) -> tuple[int,int,int,int]:
+        rect = self._RECT(x, y, x + max(1, width), y + max(1, height))
+        monitor = self._user32.MonitorFromRect(self._ctypes.byref(rect), self.MONITOR_DEFAULTTONEAREST)
+
+        info = self._MONITORINFO()
+        info.cbSize = self._ctypes.sizeof(info)
+
+        if not self._user32.GetMonitorInfoW(monitor, self._ctypes.byref(info)):
+            raise self._ctypes.WinError()
+
+        work = info.rcWork
+        return work.left, work.top, work.right - work.left, work.bottom - work.top
 
 
 def windowBackend(window) -> WindowBackend:

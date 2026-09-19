@@ -11,7 +11,7 @@ from .widgetables import (
     Imageable, Hoverable, Clickable, Pushable,
     Labelable, Labeled,
     Toggleable, Repeatable,
-    LoneDraggable, Draggable, Troughable, LinearAnimator,
+    Draggable, Troughable, LinearAnimator,
 )
 from .containables import Groupable
 
@@ -75,17 +75,12 @@ class Group(Groupable, Backgroundable, Siblingable, TextCanvas):
         super().__init__(parent, **kwargs)
 
 
-class LoneDrag(LoneDraggable, Siblingable, TextCanvas):
-    def __init__(self, parent, function=lambda:None, skin=None, **kwargs):
-        super().__init__(parent, function, skin=skin, **kwargs)
-
-
 class TroughButton(Repeatable, Siblingable, TextCanvas):
     def __init__(self, parent, function=lambda:None, skin=None, delay=150, init_delay=400, **kwargs):
         super().__init__(parent, function, skin=skin, delay=delay, init_delay=init_delay, **kwargs)
 
 
-class SliderHandle(LoneDrag):
+class SliderHandle(Drag):
     def __init__(self, parent, function, release_function:tuple|None=lambda: None, **kwargs):
         self._release_function = release_function
         super().__init__(parent, function, **kwargs)

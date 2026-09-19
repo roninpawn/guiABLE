@@ -47,9 +47,13 @@ def test_gui():
     hold_btn = RepeatButton(app, function=lambda: print("Holding"), width=80, height=40, delay=200)
     hold_btn.place(x=500, y=120)
 
-    # Create a Clickable-only button
-    click_btn = InstantButton(app, function=lambda: print("Clicked instantly!"), width=80, height=40)
+    def togglePopup(): popup.visible(not popup.visible())
+
+    click_btn = InstantButton(app, function=togglePopup, width=80, height=40)
     click_btn.place(x=500, y=180)
+
+    popup = PopupWindow(app, visible=True, anchor=click_btn, x=0, y=-30, width=80, height=30)
+    Label(popup, "Popup.", label_font).place(x=10, y=5)
 
     from guiABLE.skinnable import ThreeSliceSkin as BS
     trough_skin = Skin("../skins/default/square-48.png")
@@ -69,6 +73,7 @@ def test_gui():
     scroll_skin = ScrollBarSkin(trough_skin, buttons=ButtonPack(cap_skin), vertical=True)
     buttonless_scroll = ScrollBarSkin(trough_skin, vertical=True)
     scroll_win = ScrollWindow(app, 450, 280, scroll_skin, bg_color="#3B4F4F")
+    #scroll_win.setDragSmoothing(True)
     scroll_win.place(20, 100)
     #scroll_win.setScrollbarVisibility(1)
     #scroll_win.setScrollbarState(1)
@@ -94,7 +99,7 @@ def test_gui():
     #nude_drag = Drag(app, skin=nude_skin, width=50, height=50)
     #nude_drag.place(x=0, y=0)
 
-    for i in range(50):
+    for i in range(500):
         #label = Button(scroll_area.frame, function=lambda: print(f"Label clicked!"), skin=btn_skin, width=24, height=24)
         label = Button(scroll_win.frame, btn_skin, lambda: print("Label clicked!"), f"Item {i + 1}", label_font,
                       width=100, height=24)
@@ -170,9 +175,11 @@ def test_gui():
     menu.add("Button 5        ", lambda:menu.moveIndex(0, 2))
     menu.place(150, 420)
 
-    child_win = ChildWindow(app, (50, 50), 50, 50, True)
-    grandchild = ChildWindow(child_win, (-100, 0), 100, 50, visible=True, stack_with_parent=False)
-    greatgrand = ChildWindow(grandchild, (-50, 0), 50, 50, True, always_on_top=True)
+    child_win = ChildWindow(app, 50, 50, 50, 50, True)
+    grandchild = ChildWindow(child_win, -100, 0, 100, 50, True, stack_with_parent=False, minimize_with_parent=True)
+    greatgrand = ChildWindow(grandchild, -50, 0, 50, 50, True, always_on_top=True, stack_with_parent=False, minimize_with_parent=False)
+
+    far_popup = PopupWindow(app, anchor=(3840, 1080), x=50, y=50, width=300, height=200, visible=True)
 
     # Prove lower/lift functionality    : Buggy right now.
     #click_btn.lift(test_toggle1)

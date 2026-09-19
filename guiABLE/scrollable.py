@@ -1,9 +1,9 @@
 import tkinter as tk
 
 from .utilities import getLocalMouse, rectsOverlap
-from .skinnable import ScrollBarSkin, ThreeSliceSkin, Skin, ButtonPack, Placeable
+from .skinnable import ScrollBarSkin, ThreeSliceSkin, Skin, Placeable
 from .widgetables import Siblingable, Troughable, LinearAnimator, CoordinateSpace, MenuActionable
-from .widgets import RepeatButton, TroughButton, LoneDrag, Background, MenuItem
+from .widgets import RepeatButton, TroughButton, Drag, Background, MenuItem
 from .uimage import UImage
 from .containables import List
 
@@ -543,7 +543,11 @@ class ScrollPlate(CoordinateSpace, Placeable, tk.Frame):
     def registerChild(self, child):
         super().registerChild(child)
         self._measureContent()
-        if rectsOverlap(self.childGeometry(child), self.childRenderArea()): self._visible_children.add(child)
+
+        if rectsOverlap(self.childGeometry(child), self.childRenderArea()):
+            self._visible_children.add(child)
+        else:
+            child.after_idle(child.place_forget)
 
     def dropChild(self, child):
         super().dropChild(child)
@@ -569,11 +573,21 @@ class ScrollPlate(CoordinateSpace, Placeable, tk.Frame):
 
     def _syncVisible(self, redraw:bool=False):
         visible = {child for child in self.getChildren()
-                   if rectsOverlap(self.childGeometry(child), self.childRenderArea()) }
+                   if rectsOverlap(self.childGeometry(child), self.childRenderArea())}
 
         entering = visible - self._visible_children
-        for child in visible if redraw else entering:
+        leaving = self._visible_children - visible
+
+        for child in leaving:
+            child.place_forget()
+
+        for child in entering:
+            child._reposition()
             child.after_idle(child.redraw)
+
+        if redraw:
+            for child in visible - entering:
+                child.after_idle(child.redraw)
 
         self._visible_children = visible
 
@@ -653,7 +667,7 @@ class ScrollBar(LinearAnimator, Background):
         # Scroll options
         self.smooth_page, self.smooth_line, self.smooth_wheel, self.smooth_drag = True, True, False, False
         self.instant_page = False
-        self.line_duration, self.drag_duration = 130, 350
+        self.line_duration, self.drag_duration = 130, 60
 
         # Consolidate whiny IDE complaints about undefined variables here, instead of throughout the class.
         self._directions, self._orientation = self._directions, self._orientation
@@ -663,6 +677,8 @@ class ScrollBar(LinearAnimator, Background):
         self._state_mode = self.AUTO
         self._visibility = self.AUTO
         self._continuous_scroll = False
+        self._drag_target = None
+        self._drag_after = None
 
     @property
     def directions(self): return self._directions
@@ -745,8 +761,19 @@ class ScrollBar(LinearAnimator, Background):
                 self.button2.place_configure(x=b2_loc[0], y=b2_loc[1])
 
     def handleDragged(self):
+        self._drag_percent = self._trough.getPercent()
+
+        if self._drag_after is None:
+            self._drag_after = self.after(self.parent.smooth_rate, self._flushDrag)
+
+    def _flushDrag(self):
+        self._drag_after = None
+        percent = self._drag_percent
+        self._drag_percent = None
+
+        if percent is None: return
+
         o = self.vertical
-        percent = self._trough.getPercent()
 
         if self.smooth_drag:
             origin = self.parent._scrollPercent(o)
@@ -758,6 +785,11 @@ class ScrollBar(LinearAnimator, Background):
             self.parent._scrollToPercent(o, percent)
 
     def handleReleased(self):
+        if self._drag_after is not None:
+            self.after_cancel(self._drag_after)
+            self._drag_after = None
+
+        self._drag_percent = None
         self.stopAnimation()
         self.parent._scrollToPercent(self.vertical, self._trough.getPercent())
 
@@ -997,7 +1029,7 @@ class ScrollTrough(Troughable, TroughButton):
             self._after = self.after(self.delay, self._keepClicking)
 
 
-class ScrollHandle(LoneDrag):
+class ScrollHandle(Drag):
     def __init__(self, parent:ScrollTrough, bar_skin:ThreeSliceSkin = None, vertical:bool = True, **kwargs):
         self.vertical = vertical
         super().__init__(parent, skin=bar_skin or ThreeSliceSkin(vertical=vertical), **kwargs)
@@ -1014,7 +1046,7 @@ class ScrollHandle(LoneDrag):
 
     def mouseDrag(self, event=None):
         super().mouseDrag(event)
-        self.update_idletasks()
+        #self.update_idletasks()
         self.parent.handleDragged()
 
     def mouseUp(self, event):

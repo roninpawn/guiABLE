@@ -10,16 +10,12 @@
     - Could also reserve an intentionally oversized native base for Drag, knowing it intends to move. Or even an
       intentionally oversized base for everything, just to be ready for movement.
 
-> BUG: Application Window() does not participate in MS Windows' shake-app gesture to minimize and restore others.
-> BUG: HiDPI issue. Windows at certain locations or of certain sizes, with Desktop scaling, resolve fractional pixel
-  placements inconsistently.
-    X snapSize is not enough alone.
-    - .snapToGrid() must conform location AND size to avoid the issue.
-> BUG: Grandchild window flickers at the right edge.
-
+X BUG: minimize_with_parent isn't working: Added <Map> <UnMap> tracking.
+X BUG: Popup window appears in the top left when the application loads, showing its whole constructor operation.
+X BUG: always_on_top is still considered stacked with parent for the purpose of minimize_with_parent checks: Correct.
+> BUG: Minimize() doesn't route through per-OS code.
+> BUG: restore flickers harder when the Popup window is visible.
 > Windowing needs a central onClose() path to support application specified cleanup under all circumstances.
-> Should minimize_with_parent be a separate toggle for child windows? A non-stacked child doesn't minimize with its
-  parent. I'd say that's neither right nor wrong. Just a forced choice into specific behavior.
 
 > Renderer Upgrade
     X Collection transparency
@@ -250,6 +246,13 @@ X Enable true (fake) Widget transparency.
         : Support min/max geometry values.
 
 ===== DONE =====
+X BUG: Application Window() does not participate in MS Windows' shake-app gesture to minimize and restore others.
+X BUG: HiDPI issue. Windows at certain locations or of certain sizes, with Desktop scaling, resolve fractional pixel
+  placements inconsistently.
+    X snapSize is not enough alone.
+    X .snapToGrid() must conform location AND size to avoid the issue.
+X BUG: Grandchild window flickers at the right edge : Lag between window positioning calls. Propagate all changes in
+  one burst.
 X BUG: Windows Taskbar previews allow the window containing the preview to be closed, leaving the application rogue.
 X BUG: Hovering tasbar preview image focuses the fake window, aka nothing.
 X BUG: ChildWindows can expose 1-frame of flicker when their parent window regains focus.
@@ -329,6 +332,21 @@ X BUG: Skin.FromColors doesn't work. Nor does SetColors.
     X The concept of everything being a Skin has probably invalidated those methods.
     X Skin.FromColors and Skin.Transparent should require width and height.
 X BUG: When mouse is over the text of a labeled button, the hover state is not shown.
+
+X Major optimization issues in ScrollWindow
+    X Widgets were not being removed from mapping, when invisible.
+        X Now they are, but we need to handle z-order re-resolution when place_forget'ing and restoring widgets.
+        X No need. Z-order is maintained by place_forget.
+    X Found a needless update_idletasks() in ScrollHandle.mouseDrag()
+        X Handle doesn't stretch as much, but springs back and forth during drag now.
+        X Bug in drag calculations. Fixing allowed merging LoneDraggable and Draggable into just one widget.
+    X Could try a coallescing limit, so only n plate-events are allowed per second.
+
+X PopupWindow should conform to the actual visible area - less the Windows taskbar - not just the max desktop geometry.
+
+X Should minimize_with_parent be a separate toggle for child windows? A non-stacked child doesn't minimize with its
+  parent. I'd say that's neither right nor wrong. Just a forced choice into specific behavior.
+    X Yes. But only for non-stacked children. Stacked should always follow.
 
 X HiDPI / Windows display scaling:
     X Separate ChildWindow Toplevels can visually jostle by one physical pixel while moving at fractional

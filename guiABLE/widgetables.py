@@ -1140,15 +1140,15 @@ class Repeatable(Holdable):
             self._after = self.after(self.delay, self._keepClicking)
 
 
-""" LoneDraggable is dragged by the mouse while left click is held. It remains within its parent's boundaries by default,
-    but its bounds can be overridden using setBounds(). It does not have sibling awareness and is expected to be the
-    only child of its parent widget. (like a ScrollHandle) For correct redraw, moving objects like Draggable must be
+""" Draggable is dragged by the mouse while left click is held. It remains within its parent's boundaries by default,
+    but its bounds can be overridden using setBounds(). For correct redraw, moving objects like Draggable must be
     drawn atop a Canvasable. Otherwise, tkinter's stale draw rectangle issue creates ghosting/visual stretching."""
-class LoneDraggable(Holdable):
+class Draggable(Holdable):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self._bounds = None
-        self._x_origin, self._y_origin = 0, 0
+        self._drag_mouse = (0, 0)
+        self._drag_origin = (0, 0)
 
     def setBounds(self, bbox:tuple[int,int,int,int]|None): self._bounds = bbox
 
@@ -1161,15 +1161,15 @@ class LoneDraggable(Holdable):
         super().disable()
 
     def clicked(self, event):
-        self._x_origin = event.x
-        self._y_origin = event.y
+        self._drag_mouse = (event.x_root, event.y_root)
+        self._drag_origin = self.location
         self._clicking = True
         self.grab_set()
         self.setState(2)
 
     def mouseDrag(self, event):
-        x = event.x - self._x_origin + self._geometry[0]
-        y = event.y - self._y_origin + self._geometry[1]
+        x = self._drag_origin[0] + event.x_root - self._drag_mouse[0]
+        y = self._drag_origin[1] + event.y_root - self._drag_mouse[1]
         self.move(x, y)
 
     def move(self, x:int, y:int):
@@ -1183,13 +1183,6 @@ class LoneDraggable(Holdable):
             self.place_configure(x=x, y=y, implied=True)
             self.fire()
 
-
-""" Draggable adds sibling awareness to LoneDraggable, allowing it to composite transparencies with other widgets. """
-class Draggable(LoneDraggable):
-    def mouseDrag(self, event=None):
-        x = event.x - self._x_origin + self._geometry[0]
-        y = event.y - self._y_origin + self._geometry[1]
-        self.move(x, y)
 
 """ Troughable establishes a one-dimensional space traversed by a child handle and provides normalized position access. """
 class Troughable:
