@@ -13,12 +13,20 @@ class Windowable:
         self._geometry = (x, y, width, height)
         self._window_children = []
 
+        self._shield = None
+        self._shield_image = None
+        self._shield_source = None
+        self._shield_after = None
+        self._shield_serial = 0
+        self._shield_active = False
+
         super().__init__(*args, **kwargs)
 
         self._backend = windowBackend(self)
         self.title(title)
         self.wm_geometry(self._geometryString())
         self.bind("<Configure>", self._windowConfigured, "+")
+        self.bind("<Map>", self._shieldMapped, "+")
 
     @property
     def rect(self) -> tuple[int,int,int,int]: return self._geometry
@@ -75,6 +83,55 @@ class Windowable:
 
         return self.setGeometry(snap(self.x), snap(self.y), contract(self.width), contract(self.height))
 
+    def setShieldSource(self, source):
+        self._shield_source = source
+
+        if self._shield is None:
+            self._shield = tk.Label(self, bd=0, highlightthickness=0)
+            self._shield.place(x=0, y=0, width=self.width, height=self.height)
+            self._shield.lower()
+
+        return self
+
+    def _cancelShieldRelease(self):
+        self._shield_serial += 1
+
+        if self._shield_after is not None:
+            try: self.after_cancel(self._shield_after)
+            except tk.TclError: pass
+            self._shield_after = None
+
+    def _scheduleShieldRelease(self, delay:int):
+        self._cancelShieldRelease()
+        serial = self._shield_serial
+        self._shield_after = self.after(delay, self._releaseShield, serial)
+
+    def _prepareShield(self):
+        self._cancelShieldRelease()
+
+        if self._shield_source is not None:
+            image = self._shield_source()
+            if image is not None:
+                self._shield_image = image
+                self._shield.configure(image=image)
+                self._shield.place_configure(x=0, y=0, width=self.width, height=self.height)
+                self._shield.lift()
+                self._shield_active = True
+
+        for child in self._window_children:
+            if child.minimizeWithParent(): child._prepareShield()
+
+    def _shieldMapped(self, event):
+        if event.widget is self and self._shield_active:
+            self._scheduleShieldRelease(200)
+
+    def _releaseShield(self, serial:int):
+        if serial != self._shield_serial or not self._shield_active: return
+
+        self._shield_after = None
+        self._shield.lower()
+        self._shield_active = False
+
     def _geometryString(self) -> str:
         position = f"+{self.x}+{self.y}"
         return f"{self.width}x{self.height}{position}" if self.width > 0 and self.height > 0 else position
@@ -82,7 +139,7 @@ class Windowable:
     def _windowConfigured(self, event):
         if event.widget is not self: return
 
-        # Position is controlled by guiABLE. Configure is only needed to learn dimensions Tk resolved for an auto-sized window.
+        # Position is controlled by guiABLE. Configure is only needed to learn dimensions Tk resolved to an auto-sized window.
         if (event.width, event.height) != self.size:
             self._geometry = (self.x, self.y, event.width, event.height)
 
@@ -122,6 +179,7 @@ class _RootWindow(Windowable, tk.Tk):
         self.bind("<FocusOut>", self.lostFocus)
         self.bind("<Map>", self._windowMapped, "+")
         self.bind("<Unmap>", self._windowUnmapped, "+")
+        self.bind("<Unmap>", self._prepareRestoreShield, "+")
 
         self.update_idletasks()
         self._heartbeat()
@@ -251,6 +309,10 @@ class _RootWindow(Windowable, tk.Tk):
 
         for child in self._window_children:
             if child.minimizeWithParent(): child.withdraw()
+
+    def _prepareRestoreShield(self, event):
+        if event.widget is self:
+            self._prepareShield()
 
     def _windowConfigured(self, event):
         if event.widget is not self: return
@@ -503,6 +565,7 @@ class PopupWindow(Background):
         super().__init__(self._window, skin=skin, width=width, height=height, **kwargs)
         self.place(x=0, y=0)
 
+        self._window.setShieldSource(self.zImage)
         self._window.bind("<Configure>", self._syncWindowSize, "+")
         self._syncWindowSize()
 
@@ -558,7 +621,8 @@ class ChildWindow(Background):
 
         super().__init__(self._window, skin=skin, width=width, height=height, **kwargs)
         self.place(x=0, y=0)
-
+        
+        self._window.setShieldSource(self.zImage)
         self._window.bind("<Configure>", self._syncWindowSize, "+")
         self._syncWindowSize()
 
@@ -606,6 +670,8 @@ class Window(Background):
         self._window = _RootWindow(width, height, x, y, title)
         super().__init__(self._window, width=width, height=height)
         self.place(x=0, y=0)
+
+        self._window.setShieldSource(self.zImage)
 
     @property
     def window(self): return self._window

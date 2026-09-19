@@ -10,11 +10,19 @@
     - Could also reserve an intentionally oversized native base for Drag, knowing it intends to move. Or even an
       intentionally oversized base for everything, just to be ready for movement.
 
-X BUG: minimize_with_parent isn't working: Added <Map> <UnMap> tracking.
-X BUG: Popup window appears in the top left when the application loads, showing its whole constructor operation.
-X BUG: always_on_top is still considered stacked with parent for the purpose of minimize_with_parent checks: Correct.
 > BUG: Minimize() doesn't route through per-OS code.
-> BUG: restore flickers harder when the Popup window is visible.
+
+> Heartbeat should be a monolith. We don't want multiple, overlapping heartbeats.
+    - Is it correct to have one per parent window, or is it more correct to just have one for the entire application?
+      The goal is to keep Tk's lazy scheduler active and waking regularly.
+
+> The Restore Flicker
+    X Another Tk issue where many widgets, of any kind, repaint from bottom to top, visibly, on restore. Made worse by
+      using an actual HWND, because it repaints widget surfaces with true transparency first.
+    - Solution: Use a tk.Label containing pre-composed image of the application's surface to block the view of the
+      restoring application. This label stains the otherwise-transparent holes with an image of the same thing that is
+      being repainted, hiding the nasty flicker.
+
 > Windowing needs a central onClose() path to support application specified cleanup under all circumstances.
 
 > Renderer Upgrade
@@ -246,6 +254,9 @@ X Enable true (fake) Widget transparency.
         : Support min/max geometry values.
 
 ===== DONE =====
+X BUG: minimize_with_parent isn't working: Added <Map> <UnMap> tracking.
+X BUG: Popup window appears in the top left when the application loads, showing its whole constructor operation.
+X BUG: always_on_top is still considered stacked with parent for the purpose of minimize_with_parent checks: Correct.
 X BUG: Application Window() does not participate in MS Windows' shake-app gesture to minimize and restore others.
 X BUG: HiDPI issue. Windows at certain locations or of certain sizes, with Desktop scaling, resolve fractional pixel
   placements inconsistently.
