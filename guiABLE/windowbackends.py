@@ -81,6 +81,9 @@ class WindowsWindowBackend(WindowBackend):
         self._comctl32 = ctypes.windll.comctl32
         self._subclassed_hwnd = None
 
+        # Addresses SWMP_NOMOVE Bug by passing last good x/y when incoming x/y are not for use as movement.
+        self._last_window_position = self.window.location
+
         result_t = ctypes.c_ssize_t
         wparam_t = ctypes.c_size_t
         lparam_t = ctypes.c_ssize_t
@@ -139,8 +142,6 @@ class WindowsWindowBackend(WindowBackend):
         self._user32.EndDeferWindowPos.argtypes = (wintypes.HANDLE,)
         self._user32.EndDeferWindowPos.restype = wintypes.BOOL
 
-        self._ignore_configure_location = None
-
         class MONITORINFO(self._ctypes.Structure):
             _fields_ = [("cbSize", wintypes.DWORD), ("rcMonitor", wintypes.RECT),
                         ("rcWork", wintypes.RECT), ("dwFlags", wintypes.DWORD)]
@@ -160,12 +161,6 @@ class WindowsWindowBackend(WindowBackend):
 
         self._WINDOWPOS = WINDOWPOS
 
-    def acceptConfigureLocation(self, x:int, y:int) -> bool:
-        if self._ignore_configure_location != (x, y): return True
-
-        self._ignore_configure_location = None
-        return False
-
     def _hwnd(self, window=None, refresh=True) -> int:
         window = window or self.window
         if refresh: window.update_idletasks()
@@ -174,13 +169,13 @@ class WindowsWindowBackend(WindowBackend):
     def _windowProc(self, hwnd, message, wparam, lparam, subclass_id, ref_data):
         if message == self.WM_NCCALCSIZE and wparam: return 0
 
-        # Tk wrongly turns SWP_NOMOVE signals into <Configure> events, so we must expose and ignore them manually.
+        # Tk wrongly consumes x/y from SWP_NOMOVE signals, so we must sanitize them before Tkinter's <Configure> sees.
         if message == self.WM_WINDOWPOSCHANGED:
             pos = self._ctypes.cast(lparam, self._ctypes.POINTER(self._WINDOWPOS)).contents
 
             if pos.flags & self.SWP_NOMOVE:
-                self._ignore_configure_location = (pos.x, pos.y)
-            else: self._ignore_configure_location = None
+                pos.x, pos.y = self._last_window_position
+            else: self._last_window_position = (pos.x, pos.y)
 
         return self._comctl32.DefSubclassProc(hwnd, message, wparam, lparam)
 

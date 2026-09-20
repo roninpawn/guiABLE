@@ -10,7 +10,13 @@
     - Could also reserve an intentionally oversized native base for Drag, knowing it intends to move. Or even an
       intentionally oversized base for everything, just to be ready for movement.
 
-> BUG: Minimize() doesn't route through per-OS code.
+> BUG: Minimize() doesn't route through per-OS code. Throws error because overrideredirect = True.
+    - Must handle that correctly for non-Windows OS too.
+> BUG: After Aero-Shake Restore, always on top child ceases to be always on top.
+
+> When a Labeled widget is sized by its Skin, the label thinks auto-sizing is allowed.
+    - Is that true? Is a Skin a user-declaration of size? How do you decide what wins?
+    - If it IS, then Labelable/Labeled needs to acknowledge it, instead of only "width/height" in kwargs.
 
 > Heartbeat should be a monolith. We don't want multiple, overlapping heartbeats.
     - Is it correct to have one per parent window, or is it more correct to just have one for the entire application?

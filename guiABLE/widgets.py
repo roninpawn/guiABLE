@@ -76,14 +76,14 @@ class Group(Groupable, Backgroundable, Siblingable, TextCanvas):
 
 
 class TroughButton(Repeatable, Siblingable, TextCanvas):
-    def __init__(self, parent, function=lambda:None, skin=None, delay=150, init_delay=400, **kwargs):
+    def __init__(self, parent, skin=None, function=lambda:None, delay=150, init_delay=400, **kwargs):
         super().__init__(parent, function, skin=skin, delay=delay, init_delay=init_delay, **kwargs)
 
 
 class SliderHandle(Drag):
     def __init__(self, parent, function, release_function:tuple|None=lambda: None, **kwargs):
         self._release_function = release_function
-        super().__init__(parent, function, **kwargs)
+        super().__init__(parent, function=function, **kwargs)
 
     def mouseUp(self, event):
         super().mouseUp(event)

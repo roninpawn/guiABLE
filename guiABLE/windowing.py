@@ -346,7 +346,7 @@ class _RootWindow(Windowable, tk.Tk):
         Windowable._windowConfigured(self, event)
 
         location = (event.x, event.y)
-        if location == self.location or not self._backend.acceptConfigureLocation(*location): return
+        if location == self.location: return
 
         self._geometry = (*location, self.width, self.height)
 
