@@ -13,10 +13,12 @@ class Windowable:
         self._geometry = (x, y, width, height)
         self._window_children = []
 
+        # A shield is used for blocking interaction and for hiding Tk's flicker when repainting widgets during restore.
         self._shield = None
         self._shield_image = None
         self._shield_source = None
-        self._shield_after = None
+        self._shield_quiet_after = None
+        self._shield_hard_after = None
         self._shield_serial = 0
         self._shield_active = False
 
@@ -27,6 +29,7 @@ class Windowable:
         self.wm_geometry(self._geometryString())
         self.bind("<Configure>", self._windowConfigured, "+")
         self.bind("<Map>", self._shieldMapped, "+")
+        self.bind("<Expose>", self._shieldExposed, "+")
 
     @property
     def rect(self) -> tuple[int,int,int,int]: return self._geometry
@@ -93,19 +96,6 @@ class Windowable:
 
         return self
 
-    def _cancelShieldRelease(self):
-        self._shield_serial += 1
-
-        if self._shield_after is not None:
-            try: self.after_cancel(self._shield_after)
-            except tk.TclError: pass
-            self._shield_after = None
-
-    def _scheduleShieldRelease(self, delay:int):
-        self._cancelShieldRelease()
-        serial = self._shield_serial
-        self._shield_after = self.after(delay, self._releaseShield, serial)
-
     def _prepareShield(self):
         self._cancelShieldRelease()
 
@@ -121,14 +111,50 @@ class Windowable:
         for child in self._window_children:
             if child.minimizeWithParent(): child._prepareShield()
 
-    def _shieldMapped(self, event):
-        if event.widget is self and self._shield_active:
-            self._scheduleShieldRelease(200)
+    def _cancelShieldRelease(self):
+        self._shield_serial += 1
 
-    def _releaseShield(self, serial:int):
+        for name in ("_shield_quiet_after", "_shield_hard_after"):
+            after = getattr(self, name)
+            if after is not None:
+                try: self.after_cancel(after)
+                except tk.TclError: pass
+                setattr(self, name, None)
+
+    def _restartShieldQuiet(self, serial):
+        if self._shield_quiet_after is not None:
+            try: self.after_cancel(self._shield_quiet_after)
+            except tk.TclError: pass
+
+        self._shield_quiet_after = self.after(50, self._releaseShield, serial)
+
+    def _shieldMapped(self, event):
+        if event.widget is not self or not self._shield_active: return
+
+        self._cancelShieldRelease()
+        self._shield.lift()
+
+        serial = self._shield_serial
+        self._shield_hard_after = self.after(200, self._releaseShield, serial)
+
+    def _shieldExposed(self, event):
+        if not self._shield_active or self._shield_hard_after is None: return
+        if event.widget is self._shield: return
+
+        self._restartShieldQuiet(self._shield_serial)
+
+    def _releaseShield(self, serial):
         if serial != self._shield_serial or not self._shield_active: return
 
-        self._shield_after = None
+        self._shield_serial += 1
+
+        for name in ("_shield_quiet_after", "_shield_hard_after"):
+            after = getattr(self, name)
+            if after is not None:
+                try: self.after_cancel(after)
+                except tk.TclError: pass
+                setattr(self, name, None)
+
         self._shield.lower()
         self._shield_active = False
 
