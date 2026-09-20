@@ -16,29 +16,8 @@
     - Is it correct to have one per parent window, or is it more correct to just have one for the entire application?
       The goal is to keep Tk's lazy scheduler active and waking regularly.
 
-> The Restore Flicker
-    X Another Tk issue where many widgets, of any kind, repaint from bottom to top, visibly, on restore. Made worse by
-      using an actual HWND, because it repaints widget surfaces with true transparency first.
-    X Solution: Use a tk.Label containing pre-composed image of the application's surface to block the view of the
-      restoring application. This label stains the otherwise-transparent holes with an image of the same thing that is
-      being repainted, hiding the nasty flicker.
-    - Shield is ready, just need a rendered image of the whole Window's surface.
-
+> childWindows should restore with their parent AFTER the last <Expose>
 > Windowing needs a central onClose() path to support application specified cleanup under all circumstances.
-
-> Renderer Upgrade
-    X Collection transparency
-    X  Collection members must participate in the physical sibling family despite their logical parent.
-    - Downward contribution
-      When compositing a real nested sibling beneath the caller, recursively inspect only descendants intersecting
-      the requested composite area and blit their existing zImages. They are job-local contributors, not siblings.
-    - Upward damage propagation
-      Intrinsic visual changes send an old∪new/current damage rectangle upward through nested containers.
-      Each boundary clips/translates it and only intersecting siblings ABOVE that boundary receive restricted redraws.
-      Dependent redraws never emit new damage.
-    - Full window compositing for the blocking/restore shield image.
-    - DO NOT CACHE COMPOSITED CONTAINER SURFACES OR MAINTAIN PERSISTENT DIRTY RECTANGLE SETS UNLESS PROFILING LATER
-      PROVES THAT JOB-LOCAL DESCENDANT TRAVERSAL IS A BOTTLENECK.
 
 > Modifiable default font_pack applies to all labels and text elements?
     - Handle fallback fonts?
@@ -81,10 +60,6 @@
 > Add a middle-click drag mode to scrolling?
 
 > Move BorderAble, Paddable, etc, and some combinatorial packages to their own file. Widgethables.py for widgetables!
-
-> Find and include nested children in compositing jobs. So being atop a Scrollarea renders the contents it contains.
-    X Importantly, children WITHIN nested areas should NOT consider siblings outside of them -- below or above.
-        X So do not 'bind' lower widget when atop widget finds it beneath. Just render its surface to yourself.
 
 > Cleanup protected member access and investigate getattr() uses for potential sloppy handling.
     - Cleanup methods to implicitly guarantee we're checking the right thing, where it makes more sense.
@@ -173,7 +148,7 @@ X A Window should have (non-winfo) methods to query its size and location.
     - Coffee stains return on those widgets
     - Atop and below are not regarded correctly by Draggable.
     - So the issue is that the Draggable isn't getting a correctly z-sorted list of its siblings.
-> BUG: A naked widget (no images, no bg_colors) displays a single pixel in the top left.
+
 > BUG: Cursor setting 'fleur' does not distinguish between a parent and its children.
 
 > Skin stuff
@@ -204,8 +179,6 @@ X Enable true (fake) Widget transparency.
         X Store geometry locally instead of polling winfo.
             X Test if this is significantly faster. : Yup
             -- Consider caching root-space x/y if getLocalMouse() profiling shows winfo_rootx/y matters.
-
-> Write FastTile smarter. Blit in chunks, not slices. Find remaining area and copy that area to the bbox area.
 
 > Everything needs default sizes.
     X Inherit from Skinnable image sizes if not declared.
@@ -238,7 +211,7 @@ X Enable true (fake) Widget transparency.
     - Match font-scaling for text.
     - Re-Place all elements at x * scale, y * scale.
 
-> Support faked background transparency via screenschot method?
+- Support faked background transparency via screenschot method?
     - Would implement an OS-specific method. Fuck Linux, if you're going to do it, burn the bridge.
 
 > Resizable Windows
@@ -256,6 +229,7 @@ X Enable true (fake) Widget transparency.
         : Support min/max geometry values.
 
 ===== DONE =====
+X BUG: A naked widget (no images, no bg_colors) displays a single pixel in the top left.
 X BUG: minimize_with_parent isn't working: Added <Map> <UnMap> tracking.
 X BUG: Popup window appears in the top left when the application loads, showing its whole constructor operation.
 X BUG: always_on_top is still considered stacked with parent for the purpose of minimize_with_parent checks: Correct.
@@ -346,6 +320,30 @@ X BUG: Skin.FromColors doesn't work. Nor does SetColors.
     X Skin.FromColors and Skin.Transparent should require width and height.
 X BUG: When mouse is over the text of a labeled button, the hover state is not shown.
 
+X Renderer Upgrade
+    X Collection transparency
+    X  Collection members must participate in the physical sibling family despite their logical parent.
+    X Downward contribution
+      When compositing a real nested sibling beneath the caller, recursively inspect only descendants intersecting
+      the requested composite area and blit their existing zImages. They are job-local contributors, not siblings.
+    X Upward damage propagation
+      Intrinsic visual changes send an old∪new/current damage rectangle upward through nested containers.
+      Each boundary clips/translates it and only intersecting siblings ABOVE that boundary receive restricted redraws.
+      Dependent redraws never emit new damage.
+    X Full window compositing for the blocking/restore shield image.
+    X Invented SiblingBranches for EFFICIENT (2.5x faster) recursive views.
+X Find and include nested children in compositing jobs. So being atop a Scrollarea renders the contents it contains.
+    X Importantly, children WITHIN nested areas should NOT consider siblings outside of them -- below or above.
+        X So do not 'bind' lower widget when atop widget finds it beneath. Just render its surface to yourself.
+
+X The Restore Flicker
+    X Another Tk issue where many widgets, of any kind, repaint from bottom to top, visibly, on restore. Made worse by
+      using an actual HWND, because it repaints widget surfaces with true transparency first.
+    X Solution: Use a tk.Label containing pre-composed image of the application's surface to block the view of the
+      restoring application. This label stains the otherwise-transparent holes with an image of the same thing that is
+      being repainted, hiding the nasty flicker.
+    X Shield is ready, just need a rendered image of the whole Window's surface.
+
 X Major optimization issues in ScrollWindow
     X Widgets were not being removed from mapping, when invisible.
         X Now they are, but we need to handle z-order re-resolution when place_forget'ing and restoring widgets.
@@ -372,6 +370,7 @@ X Scrollwheel atop a scrollbar should transit the bar. Horizontal too!
 X Scrollwheel on a plate with only horizontal overflow should scroll horizontally.
     X 3 modes: Auto, Vertical, Horizontal; just like scrollbar appearance.
 
+X Write FastTile smarter. Blit in chunks, not slices. Find remaining area and copy that area to the bbox area.
 X BorderSkin / NineSliceSkin
     X 8box with minimally 1 corner and one edge that get rotated to compose square image with a border.
     X Transparent interior is supported.

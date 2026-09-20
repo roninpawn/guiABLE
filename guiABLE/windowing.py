@@ -135,7 +135,7 @@ class Windowable:
         self._shield.lift()
 
         serial = self._shield_serial
-        self._shield_hard_after = self.after(200, self._releaseShield, serial)
+        self._shield_hard_after = self.after(250, self._releaseShield, serial)
 
     def _shieldExposed(self, event):
         if not self._shield_active or self._shield_hard_after is None: return
@@ -591,7 +591,7 @@ class PopupWindow(Background):
         super().__init__(self._window, skin=skin, width=width, height=height, **kwargs)
         self.place(x=0, y=0)
 
-        self._window.setShieldSource(self.zImage)
+        self._window.setShieldSource(self.screenshot)
         self._window.bind("<Configure>", self._syncWindowSize, "+")
         self._syncWindowSize()
 
@@ -648,7 +648,7 @@ class ChildWindow(Background):
         super().__init__(self._window, skin=skin, width=width, height=height, **kwargs)
         self.place(x=0, y=0)
         
-        self._window.setShieldSource(self.zImage)
+        self._window.setShieldSource(self.screenshot)
         self._window.bind("<Configure>", self._syncWindowSize, "+")
         self._syncWindowSize()
 
@@ -697,7 +697,7 @@ class Window(Background):
         super().__init__(self._window, width=width, height=height)
         self.place(x=0, y=0)
 
-        self._window.setShieldSource(self.zImage)
+        self._window.setShieldSource(self.screenshot)
 
     @property
     def window(self): return self._window

@@ -1203,6 +1203,7 @@ class Childable():
     def childChanged(self, child): pass     # Override this function in other classes.
 
     def destroy(self):
+        if getattr(self, "_placed", False): self._dirtySiblingBranch()
         self._parent.dropChild(self)
         super().destroy()
 
@@ -1222,6 +1223,18 @@ class Childable():
             self._children.insert(index, child)
         else:
             self._children.insert(0, child)
+
+    def _dirtySiblingBranch(self):
+        host = getattr(self, "master", None)
+
+        while host is not None:
+            branch = getattr(host, "_sibling_branch", None)
+
+            if branch is not None:
+                branch.dirty()
+                return
+
+            host = getattr(host, "master", None)
 
     def _afterGeometryChanges(self):
         if isinstance(self._parent, Childable):
@@ -1284,8 +1297,6 @@ class Placeable(Measurable):
 
     # TODO: Can route place() through place_configure if we handle auto-expansion in place_configure.
     def place(self, x:int=None, y:int=None, **kwargs):
-        self._placed = True
-
         if 'x' not in kwargs and x is not None: kwargs['x'] = x
         if 'y' not in kwargs and y is not None: kwargs['y'] = y
         if 'width' in kwargs: self._size_declared[0] = True
@@ -1304,6 +1315,7 @@ class Placeable(Measurable):
             kwargs['x'], kwargs['y'] = self._parent.mapChildToMaster(local_x, local_y)
 
         super().place(**kwargs)
+        self._setPlaced(True)
         return self
 
     def place_configure(self, x:int=None, y:int=None, **kwargs):
@@ -1330,15 +1342,28 @@ class Placeable(Measurable):
         local_x, local_y = kwargs['x'], kwargs['y']
         if hasattr(self._parent, "mapChildToMaster"):
             kwargs['x'], kwargs['y'] = self._parent.mapChildToMaster(local_x, local_y)
-        super().place_configure(**kwargs)
 
+        super().place_configure(**kwargs)
+        self._setPlaced(True)
         return self     # Enables one-line instantiation and placement. eg. my_btn = Button(...).place(10, 10)
+
+    def place_forget(self):
+        result = super().place_forget()
+        self._setPlaced(False)
+        return result
+
+    def _setPlaced(self, placed:bool):
+        changed = self._placed != placed
+        self._placed = placed
+        if changed: self._dirtySiblingBranch()
 
     # Re-apply local geometry to Tk without changing the local coordinates themselves.
     def _reposition(self):
         x, y = self._parent.mapChildToMaster(self.x, self.y) \
             if hasattr(self._parent, "mapChildToMaster") else self.location
+
         super().place_configure(x=x, y=y, width=self.width, height=self.height)
+        self._setPlaced(True)
 
 
 """ Skinnable is a mixin that provides core Skin() handling functionality to guiABLE widgets. """

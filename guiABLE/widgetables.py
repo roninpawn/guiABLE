@@ -5,9 +5,121 @@ from typing import Callable, NamedTuple
 
 from guiABLE.skinnable import Skinnable, Measurable, Skin, NineSliceSkin, Childable
 from guiABLE.fontable import Fontable, FontPack
-from guiABLE.utilities import (rectsOverlap, rectUnion, pointIsInRect, getOverlap, decimateRect, rectIntersect,
-                               rectsUnion, LimitedDict)
+from guiABLE.utilities import (Overlap, getOverlap, rectsOverlap, rectIntersect, rectUnion, rectsUnion, pointIsInRect,
+                               decimateRect, LimitedDict)
 from guiABLE.uimage import UImage
+
+
+class RenderJob(NamedTuple):
+    caller: object
+    area: tuple[int,int,int,int]
+    siblings: list
+    overlaps: list
+    opaque_rects: list
+    floor: UImage|None
+
+
+class RenderComposite(NamedTuple):
+    image: UImage
+    deliveries: list
+
+
+class RenderGeometry(NamedTuple):
+    geometry: tuple[int,int,int,int]       # Full widget bounds in caller-parent space.
+    clip: tuple[int,int,int,int]           # Portion physically visible through ancestors.
+
+
+class SiblingBranch:
+    """ Maintained view of one nested physical child-space within an outer sibling relationship. """
+    def __init__(self, owner, parent=None):
+        self.owner = owner
+        self.parent = parent
+        self._family = []
+        self._dirty = True
+        self._damage = None
+        self._damage_after = None
+        owner._sibling_branch = self
+
+    @classmethod
+    def forOwner(cls, owner, parent=None):
+        branch = getattr(owner, "_sibling_branch", None)
+
+        if not isinstance(branch, cls):
+            branch = cls(owner, parent)
+        elif parent is not None:
+            branch.parent = parent
+
+        return branch
+
+    @property
+    def family(self):
+        if self._dirty: self._rebuild()
+        return self._family
+
+    def contributors(self, origin:tuple[int,int], clip:tuple[int,int,int,int], area:tuple[int,int,int,int]):
+        family, geometries = [], {}
+        self.flatten(origin, clip, area, family, geometries)
+        return family, geometries
+
+    def dirty(self):
+        self._dirty = True
+
+    def _rebuild(self):
+        self._family = []
+
+        # Expensive, authoritative z-order query occurs only when the branch structure actually changes.
+        for child in self.owner.winfo_children():
+            if not isinstance(child, Measurable) or not getattr(child, "_placed", False): continue
+
+            member = SiblingBranch.forOwner(child, self) if child.children else child
+            self._family.append(member)
+
+        self._dirty = False
+
+    def flatten(self, origin, parent_clip, union, family, geometries):
+        for member in reversed(self.family):
+            child = member.owner if isinstance(member, SiblingBranch) else member
+            geometry = self.owner.childGeometry(child) if hasattr(self.owner, "childGeometry") else child.geometry
+
+            x = origin[0] + geometry[0]
+            y = origin[1] + geometry[1]
+            geometry = (x, y, *geometry[2:])
+            clip = rectIntersect(geometry, parent_clip)
+
+            if clip is None or not rectsOverlap(clip, union): continue
+
+            if isinstance(member, SiblingBranch):
+                member.flatten((x, y), clip, union, family, geometries)
+
+            if hasattr(child, "zImage") and hasattr(child, "isOpaque"):
+                family.append(child)
+                geometries[child] = RenderGeometry(geometry, clip)
+
+    # Area arrives in this branch owner's local coordinate space.
+    def damage(self, area):
+        area = rectIntersect(area, (0, 0, *self.owner.size))
+        if area is None: return
+
+        if self.parent is not None:
+            geometry = self.parent.owner.childGeometry(self.owner)
+            self.parent.damage((area[0] + geometry[0], area[1] + geometry[1], *area[2:]))
+            return
+
+        if not hasattr(self.owner, "propagateDamage"): return
+
+        self._damage = rectUnion(self._damage, area) if self._damage is not None else area
+
+        if self._damage_after is None:
+            self._damage_after = self.owner.after_idle(self._flushDamage)
+
+    def _flushDamage(self):
+        self._damage_after = None
+        area, self._damage = self._damage, None
+        geometry = self.owner._siblingGeometry(self.owner)
+
+        self.owner.propagateDamage(
+            (geometry[0] + area[0], geometry[1] + area[1], *area[2:])
+        )
 
 
 """ Siblingable is a mixin that provides parent/sibling awareness & overlap tracking.  """
@@ -37,11 +149,13 @@ class Siblingable:
         host = self._siblingHost()
         self.after_idle(host._raiseChildIndex, self, above)
         self.after_idle(self._registerSiblings, host.getChildren())
+        self._dirtySiblingBranch()
     def lower(self, below=None):
         tk.Misc.lower(self, below)
         host = self._siblingHost()
         self.after_idle(host._lowerChildIndex, self, below)
         self.after_idle(self._registerSiblings, host.getChildren())
+        self._dirtySiblingBranch()
 
     def destroy(self):
         for sibling in self._siblings:
@@ -49,6 +163,23 @@ class Siblingable:
         super().destroy()
 
     def _siblingHost(self): return self.master if hasattr(self.master, "getChildren") else self._parent
+
+    # Notify transparent siblings above this widget that pixels beneath them have changed.
+    def propagateDamage(self, area:tuple[int,int,int,int]=None):
+        area = self._siblingGeometry(self) if area is None else area
+        if self not in self._siblings: return set()
+
+        rendered = set()
+        above = self._siblings[self._siblings.index(self) + 1:]
+
+        # _siblings is bottom-first. Let the lowest affected surface carry the redraw upward.
+        for sibling in above:
+            if sibling in rendered or not isinstance(sibling, Renderable): continue
+            if sibling.isOpaque() or not rectsOverlap(area, self._siblingGeometry(sibling)): continue
+
+            rendered.update(sibling.redraw(draw_area=area))
+
+        return rendered
 
     # Express a physical sibling in this widget's logical-parent coordinate space.
     def _siblingGeometry(self, sibling):
@@ -105,13 +236,27 @@ class Siblingable:
         self._bonded = True
         self.redraw()
 
-    def _cull_siblings(self, siblings, union):
+    def _jobOverlap(self, sibling, union, geometries=None):
+        if not geometries or sibling not in geometries:
+            return getOverlap(union, self._siblingGeometry(sibling))
+
+        geometry, clip = geometries[sibling]
+        overlap = getOverlap(union, clip)
+        if overlap is None: return None
+
+        cx, cy, cw, ch = overlap.crop
+        cx += clip[0] - geometry[0]
+        cy += clip[1] - geometry[1]
+
+        return Overlap((cx, cy, cw, ch), overlap.insert)
+
+    def _cull_siblings(self, siblings, union, geometries=None):
         new_siblings, overlaps, atop = [], [], True
         opaque_rects, trans_rects = [], []
 
         for i in range(len(siblings)-1, -1, -1):
             sib = siblings[i]
-            overlap = getOverlap(union, self._siblingGeometry(sib))
+            overlap = self._jobOverlap(sib, union, geometries)
 
             if overlap is None: continue
 
@@ -143,20 +288,6 @@ class Siblingable:
         if self._bonded: self._registerSiblings()
 
 
-class RenderJob(NamedTuple):
-    caller: object
-    area: tuple[int,int,int,int]
-    siblings: list
-    overlaps: list
-    opaque_rects: list
-    floor: UImage|None
-
-
-class RenderComposite(NamedTuple):
-    image: UImage
-    deliveries: list
-
-
 class Renderable(Skinnable):
     def __init__(self, *args, **kwargs):
         self.skin_offset:tuple[int,int] = getattr(kwargs, 'skin_offset', (0, 0))
@@ -177,7 +308,26 @@ class Renderable(Skinnable):
     @property
     def state(self): return self._img_state
 
-    def redraw(self, floor:UImage=None, draw_area:tuple=None):
+    def screenshot(self) -> UImage:
+        area = (0, 0, *self.size)
+        family, geometries = SiblingBranch.forOwner(self).contributors((0, 0), area, area)
+        base = self.zImage().crop()
+
+        # Branch contributors are top-first; screenshots composite bottom-first.
+        for widget in reversed(family):
+            geometry, clip = geometries[widget]
+            overlap = getOverlap(area, clip)
+            if overlap is None: continue
+
+            cx, cy, cw, ch = overlap.crop
+            cx += clip[0] - geometry[0]
+            cy += clip[1] - geometry[1]
+
+            widget.zImage().cropTo(base, cx, cy, cw, ch, *overlap.insert)
+
+        return base
+
+    def redraw(self, floor:UImage=None, draw_area:tuple=None, propagate_damage=True):
         start = time()
         job = self._buildRenderJob(floor, draw_area)
         if job is None: return set()
@@ -191,6 +341,14 @@ class Renderable(Skinnable):
         if self.benches >= 100:
             print(f"{round(self.bench / 100, 5)}s per draw.")
             self.bench, self.benches = 0, 0
+
+        if propagate_damage:
+            branch = getattr(self.master, "_sibling_branch", None)
+
+            if branch is not None:
+                geometry = branch.owner.childGeometry(self)
+                dx, dy = geometry[0] - self.x, geometry[1] - self.y
+                branch.damage((job.area[0] + dx, job.area[1] + dy, *job.area[2:]))
 
         return rendered
 
@@ -252,6 +410,12 @@ class Renderable(Skinnable):
                     union = new_union
                     siblings.reverse()
                     siblings, overlaps, opaque_rects = self._cull_siblings(siblings, union)
+
+            expanded, geometries = self._expandBranches(siblings, union)
+
+            if geometries is not None:
+                expanded.reverse()   # _cull_siblings() expects bottom-first input.
+                siblings, overlaps, opaque_rects = self._cull_siblings(expanded, union, geometries)
 
         if not siblings: return None
 
@@ -334,7 +498,30 @@ class Renderable(Skinnable):
             if child in rendered or not isinstance(child, Renderable): continue
             if child.isOpaque() or not rectsOverlap(draw_area, child.geometry): continue
 
-            rendered.update(child.redraw(floor=floor, draw_area=draw_area))
+            rendered.update(child.redraw(floor=floor, draw_area=draw_area, propagate_damage=False))
+
+    def _expandBranches(self, siblings, union):
+        if self not in siblings: return siblings, None
+
+        expanded = list(siblings)
+        geometries = {}
+
+        # Culled siblings are top-first; only spaces below self contribute to self's background.
+        for sibling in siblings[siblings.index(self) + 1:]:
+            if not isinstance(sibling, tk.Misc) or not sibling.children: continue
+
+            sx, sy, sw, sh = self._siblingGeometry(sibling)
+            clip = rectIntersect((sx, sy, sw, sh), union)
+            if clip is None: continue
+
+            family, branch_geometries = SiblingBranch.forOwner(sibling).contributors((sx, sy), clip, union)
+
+            if family:
+                index = expanded.index(sibling)
+                expanded[index:index] = family
+                geometries.update(branch_geometries)
+
+        return expanded, geometries or None
 
     def _acquireBase(self, width:int, height:int) -> UImage:
         native_res = self.size
@@ -1247,6 +1434,10 @@ class CoordinateSpace:
         if (x, y) != self.location:
             self.place_configure(x=x, y=y, implied=True, skip=True)
             if isinstance(self.parent, Childable): self.parent.childChanged(self)
+
+            branch = getattr(self, "_sibling_branch", None)
+            if branch is not None: branch.damage((0, 0, *self.size))
+
             self.spaceTranslated()
 
         return self

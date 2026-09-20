@@ -309,7 +309,7 @@ class ScrollWindow(Scrollable, Placeable, Siblingable, tk.Frame):
     # Including these methods allows Scrollable to be considered in sibling culling.
     @staticmethod
     def isOpaque(): return True
-    def redraw(self): pass
+    def redraw(self, *args, **kwargs): pass
     def zImage(self): return self._frame.skin.image()
 
     def scrollByDelta(self, delta_x:int, delta_y:int): self._movePlate(delta_x, delta_y)

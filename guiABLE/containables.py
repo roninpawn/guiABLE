@@ -319,6 +319,8 @@ class Collection(Expandable, Measurable, Nothing):
         if last_xy != self.location: self._reposition()
         self._last_geometry = self._geometry
 
+    def childRenderArea(self): return None
+
     def _reposition(self):
         for child in self.getChildren():
             if hasattr(child, "_reposition"): child._reposition()

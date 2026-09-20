@@ -611,9 +611,9 @@ class TextNestable(Fontable, Nestable):
             color = self._textBackground()
             if self._text._bg_color != color: self._text.setBackground(color)
 
-    def redraw(self):
+    def redraw(self, *args, **kwargs):
         self._syncTextBackground()
-        return super().redraw()
+        return super().redraw(*args, **kwargs)
 
 
 """ Read-only text display built around Textable, with automatic sizing and image-backed presentation. """

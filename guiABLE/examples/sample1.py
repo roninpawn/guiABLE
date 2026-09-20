@@ -94,10 +94,10 @@ def test_gui():
     test_toggle4.function = (toggle_smoothing, test_toggle4.isTrue)
     test_toggle4.place(x=444, y=24)
 
-    #nude_skin = BS()
-    #nude_skin.usesBgColors(False)
-    #nude_drag = Drag(app, skin=nude_skin, width=50, height=50)
-    #nude_drag.place(x=0, y=0)
+    nude_skin = ThreeSliceSkin()
+    nude_skin.usesBgColors(False)
+    nude_drag = Drag(app, skin=nude_skin, width=50, height=50)
+    nude_drag.place(x=0, y=0)
 
     for i in range(100):
         #label = Button(scroll_area.frame, function=lambda: print(f"Label clicked!"), skin=btn_skin, width=24, height=24)
@@ -179,7 +179,7 @@ def test_gui():
     grandchild = ChildWindow(child_win, -100, 0, 100, 50, True, stack_with_parent=False, minimize_with_parent=True)
     greatgrand = ChildWindow(grandchild, -50, 0, 50, 50, True, always_on_top=True, stack_with_parent=False, minimize_with_parent=False)
 
-    far_popup = PopupWindow(app, anchor=(0, 1080), x=0, y=0, width=300, height=200, visible=True)
+    far_popup = PopupWindow(app, anchor=(0, 1080), x=300, y=0, width=300, height=200, visible=True)
 
     # Prove lower/lift functionality    : Buggy right now.
     #click_btn.lift(test_toggle1)
