@@ -311,7 +311,6 @@ class ScrollWindow(Scrollable, Placeable, Siblingable, tk.Frame):
     def isOpaque(): return True
     def redraw(self): pass
     def zImage(self): return self._frame.skin.image()
-    def setState(self, index:int = 0): pass
 
     def scrollByDelta(self, delta_x:int, delta_y:int): self._movePlate(delta_x, delta_y)
 

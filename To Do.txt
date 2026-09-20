@@ -19,9 +19,10 @@
 > The Restore Flicker
     X Another Tk issue where many widgets, of any kind, repaint from bottom to top, visibly, on restore. Made worse by
       using an actual HWND, because it repaints widget surfaces with true transparency first.
-    - Solution: Use a tk.Label containing pre-composed image of the application's surface to block the view of the
+    X Solution: Use a tk.Label containing pre-composed image of the application's surface to block the view of the
       restoring application. This label stains the otherwise-transparent holes with an image of the same thing that is
       being repainted, hiding the nasty flicker.
+    - Shield is ready, just need a rendered image of the whole Window's surface.
 
 > Windowing needs a central onClose() path to support application specified cleanup under all circumstances.
 
@@ -35,6 +36,7 @@
       Intrinsic visual changes send an old∪new/current damage rectangle upward through nested containers.
       Each boundary clips/translates it and only intersecting siblings ABOVE that boundary receive restricted redraws.
       Dependent redraws never emit new damage.
+    - Full window compositing for the blocking/restore shield image.
     - DO NOT CACHE COMPOSITED CONTAINER SURFACES OR MAINTAIN PERSISTENT DIRTY RECTANGLE SETS UNLESS PROFILING LATER
       PROVES THAT JOB-LOCAL DESCENDANT TRAVERSAL IS A BOTTLENECK.
 

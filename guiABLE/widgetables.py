@@ -1,7 +1,7 @@
 import tkinter as tk
 
 from time import time
-from typing import Callable
+from typing import Callable, NamedTuple
 
 from guiABLE.skinnable import Skinnable, Measurable, Skin, NineSliceSkin, Childable
 from guiABLE.fontable import Fontable, FontPack
@@ -143,6 +143,20 @@ class Siblingable:
         if self._bonded: self._registerSiblings()
 
 
+class RenderJob(NamedTuple):
+    caller: object
+    area: tuple[int,int,int,int]
+    siblings: list
+    overlaps: list
+    opaque_rects: list
+    floor: UImage|None
+
+
+class RenderComposite(NamedTuple):
+    image: UImage
+    deliveries: list
+
+
 class Renderable(Skinnable):
     def __init__(self, *args, **kwargs):
         self.skin_offset:tuple[int,int] = getattr(kwargs, 'skin_offset', (0, 0))
@@ -163,31 +177,25 @@ class Renderable(Skinnable):
     @property
     def state(self): return self._img_state
 
-    def redraw(self):
-        self.setState(self._img_state)
+    def redraw(self, floor:UImage=None, draw_area:tuple=None):
+        start = time()
+        job = self._buildRenderJob(floor, draw_area)
+        if job is None: return set()
+
+        composite = self._compositeRenderJob(job)
+        rendered = self._propagateRenderJob(composite.deliveries)
+
+        self.bench += time() - start
+        self.benches += 1
+
+        if self.benches >= 100:
+            print(f"{round(self.bench / 100, 5)}s per draw.")
+            self.bench, self.benches = 0, 0
+
+        return rendered
 
     @staticmethod
     def contributesToComposite(): return True
-
-    def _renderChildren(self, floor:UImage, draw_area:tuple[int,int,int,int]):
-        if not self._children: return
-
-        rendered = set()
-
-        # Child order is top-first, so begin at the bottom. One lower child's
-        # composite pass may already render overlapping siblings above it.
-        for child in reversed(self._children):
-            if child.parent is not self: continue    # Collection descendants render independently.
-            if child in rendered or not isinstance(child, Renderable): continue
-            if child.isOpaque() or not rectsOverlap(draw_area, child.geometry): continue
-
-            rendered.update(
-                child.setState(
-                    child._img_state,
-                    floor=floor,
-                    draw_area=draw_area
-                )
-            )
 
     # The ZImage() is a persistent render of what the widget looks like on its own. Only updated if something changed.
     def zImage(self) -> UImage:
@@ -197,19 +205,17 @@ class Renderable(Skinnable):
             self.dirty = False
         return self._z_img
 
-    def setState(self, state_index:int=0, floor:UImage=None, draw_area:tuple=None):
-        start = time()
-        rendered = set()
+    def setState(self, state_index:int=0):
         self._img_state = state_index
+        return self.redraw()
 
+    def _buildRenderJob(self, floor:UImage=None, draw_area:tuple=None) -> RenderJob|None:
         union = rectUnion(self._geometry, self._last_geometry)
 
-        # A parent-context redraw only needs the portion whose floor has changed.
         if draw_area is not None:
             union = rectIntersect(union, draw_area)
-            if not union or union[2] <= 0 or union[3] <= 0: return rendered
+            if not union or union[2] <= 0 or union[3] <= 0: return None
 
-        """ Reduce union and siblings to only what is visible and necessary to draw. """
         if hasattr(self.parent, "childRenderArea"):
             render_area = self.parent.childRenderArea()
 
@@ -217,18 +223,14 @@ class Renderable(Skinnable):
                 visible = rectIntersect(self._geometry, render_area)
                 union_visible = rectIntersect(union, render_area)
 
-                if not union_visible or union_visible[2] <= 0 or union_visible[3] <= 0: return rendered
-
-                # Preserve whole-widget composition when this widget itself changes while
-                # straddling a rendering boundary. Parent-driven redraws stay restricted.
+                if not union_visible or union_visible[2] <= 0 or union_visible[3] <= 0: return None
                 if draw_area is not None or visible == self._geometry: union = union_visible
 
         elif isinstance(self.parent, Measurable):
             union = rectIntersect(union, (0, 0, *self.parent.size))
 
-        if not union or union[2] <= 0 or union[3] <= 0: return rendered
+        if not union or union[2] <= 0 or union[3] <= 0: return None
 
-        # Cull caller's siblings by overlap and visibility.
         if not isinstance(self, Siblingable):
             siblings = [self]
             overlaps = [getOverlap(union, self._geometry)]
@@ -237,11 +239,9 @@ class Renderable(Skinnable):
         else:
             siblings, overlaps, opaque_rects = self._cull_siblings(self._siblings, union)
 
-            # Remove last_geometry from union if self is opaque and the only sibling.
             if len(siblings) == 1 and self.isOpaque():
                 union = self._geometry
 
-            # Shrink the union further where opaque siblings block whole areas.
             union_remains = decimateRect((0, 0, *union[2:]), opaque_rects)
 
             if union_remains:
@@ -253,79 +253,88 @@ class Renderable(Skinnable):
                     siblings.reverse()
                     siblings, overlaps, opaque_rects = self._cull_siblings(siblings, union)
 
-        if not siblings: return rendered
+        if not siblings: return None
 
-        x, y, w, h = union
-
-        # A Renderable child uses its parent's completed raster surface as its floor.
-        # Root/non-renderable parents continue using their own Skin below.
         if floor is None and isinstance(self._parent, Renderable):
             floor = self._parent.scratchImage()
 
-        # Non-raster participant with nothing local beneath/above to composite:
-        # copy its completed floor directly to its surface.
-        if floor is not None and len(siblings) == 1 and siblings[0] == self \
-                and not self.contributesToComposite():
+        return RenderJob(self, union, siblings, overlaps, opaque_rects, floor)
+
+    def _compositeRenderJob(self, job:RenderJob) -> RenderComposite:
+        caller = job.caller
+        siblings, overlaps = job.siblings, job.overlaps
+        x, y, w, h = job.area
+
+        if job.floor is not None and len(siblings) == 1 and siblings[0] == caller \
+                and not caller.contributesToComposite():
 
             overlap = overlaps[0]
             cx, cy, cw, ch = overlap.crop
             ix, iy = overlap.insert
 
-            final = self.scratchImage()
-            floor.cropTo(final, x + ix, y + iy, cw, ch, cx, cy)
-            self.render(final, self.skin_offset)
+            final = caller.scratchImage()
+            job.floor.cropTo(final, x + ix, y + iy, cw, ch, cx, cy)
+            caller.dirty = False
 
-            self.dirty = False
-            rendered.add(self)
-            self._renderChildren(final, (cx, cy, cw, ch))
-            return rendered
+            return RenderComposite(final, [(caller, final, (cx, cy, cw, ch))])
 
-        """ Composite local sibling family to one base. """
-        base = self._acquireBase(w, h)
+        base = caller._acquireBase(w, h)
 
-        # Establish the floor only if some of it remains visible.
-        if not (len(siblings) == 1 and self.isOpaque()) \
-                and decimateRect((0, 0, w, h), opaque_rects):
+        if not (len(siblings) == 1 and caller.isOpaque()) \
+                and decimateRect((0, 0, w, h), job.opaque_rects):
 
-            if floor is not None:
-                floor.cropTo(base, x, y, w, h)
+            if job.floor is not None:
+                job.floor.cropTo(base, x, y, w, h)
 
             else:
-                bg_x, bg_y = self._parent.childBackgroundPoint(x, y, w, h) \
-                    if hasattr(self._parent, "childBackgroundPoint") else (x, y)
+                bg_x, bg_y = caller._parent.childBackgroundPoint(x, y, w, h) \
+                    if hasattr(caller._parent, "childBackgroundPoint") else (x, y)
 
-                self._parent.skin.imageFor(self._parent).cropTo(base, bg_x, bg_y, w, h)
+                caller._parent.skin.imageFor(caller._parent).cropTo(base, bg_x, bg_y, w, h)
 
-        # Composite siblings bottom-to-top, rendering self and necessary siblings above.
-        atop = self not in siblings
+        deliveries = []
+        atop = caller not in siblings
 
         for i in range(len(siblings)-1, -1, -1):
             sibling, overlap = siblings[i], overlaps[i]
             cx, cy, cw, ch = overlap.crop
             ix, iy = overlap.insert
 
-            if getattr(sibling, "contributesToComposite", lambda: True)():
+            if getattr(sibling, "contributesToComposite", lambda:True)():
                 sibling.zImage().cropTo(base, cx, cy, cw, ch, ix, iy)
 
-            if sibling == self: atop = True
+            if sibling == caller: atop = True
 
-            if atop and not (sibling != self and sibling.isOpaque()):
+            if atop and not (sibling != caller and sibling.isOpaque()):
                 final = sibling.scratchImage()
                 base.cropTo(final, ix, iy, cw, ch, cx, cy)
-                sibling.render(final, sibling.skin_offset)
+                deliveries.append((sibling, final, (cx, cy, cw, ch)))
 
-                if isinstance(sibling, Renderable):
-                    rendered.add(sibling)
-                    sibling._renderChildren(final, (cx, cy, cw, ch))
+        return RenderComposite(base, deliveries)
 
-        self.bench += time() - start
-        self.benches += 1
+    def _propagateRenderJob(self, deliveries:list) -> set:
+        rendered = set()
 
-        if self.benches >= 100:
-            print(f"{round(self.bench / 100, 5)}s per draw.")
-            self.bench, self.benches = 0, 0
+        for sibling, image, draw_area in deliveries:
+            sibling.render(image, sibling.skin_offset)
+
+            if isinstance(sibling, Renderable):
+                rendered.add(sibling)
+                sibling._propagateChildren(image, draw_area)
 
         return rendered
+
+    def _propagateChildren(self, floor:UImage, draw_area:tuple[int,int,int,int]):
+        if not self._children: return
+
+        rendered = set()
+
+        for child in reversed(self._children):
+            if child.parent is not self: continue
+            if child in rendered or not isinstance(child, Renderable): continue
+            if child.isOpaque() or not rectsOverlap(draw_area, child.geometry): continue
+
+            rendered.update(child.redraw(floor=floor, draw_area=draw_area))
 
     def _acquireBase(self, width:int, height:int) -> UImage:
         native_res = self.size
@@ -1097,11 +1106,8 @@ class Toggleable(Pushable):
         self.setState(self._img_state % self._state_span)
         return self._toggle_state
 
-    def setState(self, state_index:int=0, floor:UImage=None, draw_area:tuple=None):
-        return super().setState(
-            (state_index % self._state_span) + self._state_offset,
-            floor, draw_area
-        )
+    def setState(self, state_index:int=0):
+        return super().setState((state_index % self._state_span) + self._state_offset)
 
 
 class Holdable(Pushable):
