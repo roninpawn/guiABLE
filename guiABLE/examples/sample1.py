@@ -177,7 +177,7 @@ def test_gui():
 
     child_win = ChildWindow(app, 50, 50, 50, 50, True)
     grandchild = ChildWindow(child_win, -100, 0, 100, 50, True, stack_with_parent=False, minimize_with_parent=True)
-    greatgrand = ChildWindow(grandchild, -50, 0, 50, 50, True, always_on_top=True, stack_with_parent=False, minimize_with_parent=False)
+    greatgrand = ChildWindow(grandchild, -50, 0, 50, 50, True, always_on_top=True, stack_with_parent=False, minimize_with_parent=True)
 
     far_popup = PopupWindow(app, anchor=(0, 1080), x=300, y=0, width=300, height=200, visible=True)
 

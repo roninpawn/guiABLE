@@ -67,7 +67,6 @@ class SiblingBranch:
     def _rebuild(self):
         self._family = []
 
-        # Expensive, authoritative z-order query occurs only when the branch structure actually changes.
         for child in self.owner.winfo_children():
             if not isinstance(child, Measurable) or not getattr(child, "_placed", False): continue
 
@@ -100,27 +99,24 @@ class SiblingBranch:
         area = rectIntersect(area, (0, 0, *self.owner.size))
         if area is None: return
 
+        # A Siblingable branch is an exit into its local sibling space.
+        if hasattr(self.owner, "propagateDamage"):
+            self._damage = rectUnion(self._damage, area) if self._damage is not None else area
+
+            if self._damage_after is None:
+                self._damage_after = self.owner.after_idle(self._flushDamage)
+
+        # Damage also continues upward through the physical branch tree.
         if self.parent is not None:
             geometry = self.parent.owner.childGeometry(self.owner)
             self.parent.damage((area[0] + geometry[0], area[1] + geometry[1], *area[2:]))
-            return
-
-        if not hasattr(self.owner, "propagateDamage"): return
-
-        self._damage = rectUnion(self._damage, area) if self._damage is not None else area
-
-        if self._damage_after is None:
-            self._damage_after = self.owner.after_idle(self._flushDamage)
 
     def _flushDamage(self):
         self._damage_after = None
         area, self._damage = self._damage, None
+
         geometry = self.owner._siblingGeometry(self.owner)
-
-        self.owner.propagateDamage(
-            (geometry[0] + area[0], geometry[1] + area[1], *area[2:])
-        )
-
+        self.owner.propagateDamage((geometry[0] + area[0], geometry[1] + area[1], *area[2:]))
 
 """ Siblingable is a mixin that provides parent/sibling awareness & overlap tracking.  """
 class Siblingable:

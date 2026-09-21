@@ -1,7 +1,7 @@
 > Should UImage utilize the same file path resolution as Skins and loadImages?
     - It's just a way for things to break and leave a dev scratching their head, really.
 
-> BUG: Why does the Drag render slightly slower when benath the cog image that's supposed to be opaque?
+> BUG: Why does the Drag render slightly slower when beneath the cog image that's supposed to be opaque?
 > BUG: Drag can still be trapped into using a significantly larger _base than needed and losing significant performance.
     X Probaby because it moves. So the minimum size needed isn't the default size, it's the default +1px per axis. So
       after a large _base is made, if the needed base is between native size and native size + 25%, the large base is
@@ -12,7 +12,6 @@
 
 > BUG: Minimize() doesn't route through per-OS code. Throws error because overrideredirect = True.
     - Must handle that correctly for non-Windows OS too.
-> BUG: After Aero-Shake Restore, always on top child ceases to be always on top.
 
 > When a Labeled widget is sized by its Skin, the label thinks auto-sizing is allowed.
     - Is that true? Is a Skin a user-declaration of size? How do you decide what wins?
@@ -235,6 +234,10 @@ X Enable true (fake) Widget transparency.
         : Support min/max geometry values.
 
 ===== DONE =====
+X BUG: After Aero-Shake Restore, always on top child ceases to be always on top.
+    X Legit Windows / Aero Shake bug. Order of insertion can actually change the topmost state of nearby windows in the
+      reorder stack. So now we actively reassert topmost state on movement.
+X BUG: Dirtying events do not travel upward after minimize and restore.
 X BUG: A naked widget (no images, no bg_colors) displays a single pixel in the top left.
 X BUG: minimize_with_parent isn't working: Added <Map> <UnMap> tracking.
 X BUG: Popup window appears in the top left when the application loads, showing its whole constructor operation.

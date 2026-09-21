@@ -33,11 +33,11 @@ class WindowBackend:
         return (self.window.winfo_vrootx(), self.window.winfo_vrooty(),
                 self.window.winfo_vrootwidth(), self.window.winfo_vrootheight())
 
-    def acceptConfigureLocation(self, x:int, y:int) -> bool: return True
-
 
 class WindowsWindowBackend(WindowBackend):
     HWND_TOP = 0
+    HWND_TOPMOST = -1
+    HWND_NOTOPMOST = -2
 
     GWL_STYLE = -16
     GWL_EXSTYLE = -20
@@ -122,17 +122,11 @@ class WindowsWindowBackend(WindowBackend):
 
         self._RECT = wintypes.RECT
 
-        self._user32.GetWindowRect.argtypes = wintypes.HWND, ctypes.POINTER(wintypes.RECT)
-        self._user32.GetWindowRect.restype = wintypes.BOOL
-
         self._user32.PostMessageW.argtypes = wintypes.HWND, wintypes.UINT, wparam_t, lparam_t
         self._user32.PostMessageW.restype = wintypes.BOOL
 
         self._user32.ReleaseCapture.argtypes = ()
         self._user32.ReleaseCapture.restype = wintypes.BOOL
-
-        self._user32.SendMessageW.argtypes = wintypes.HWND, wintypes.UINT, wparam_t, lparam_t
-        self._user32.SendMessageW.restype = result_t
 
         self._user32.DeferWindowPos.argtypes = (
             wintypes.HANDLE, wintypes.HWND, wintypes.HWND, ctypes.c_int, ctypes.c_int,
@@ -186,6 +180,32 @@ class WindowsWindowBackend(WindowBackend):
             raise self._ctypes.WinError()
 
         self._subclassed_hwnd = hwnd
+
+    # Aero Shake's Undo operation has a longstanding Windows Z-order restoration bug. Because topmost status in Win32 is
+    # entangled with Z-order insertion, a bad reconstruction event can mutate the topmost state of windows it is trying
+    # to reorder. These mutations can propagate through ownership and accumulate across repeated restores. So guiABLE
+    # actively reasseerts the topmost state of its windows to maintain correctness.
+    def _reassertTopmostBands(self, windows):
+        flags = self.SWP_NOMOVE | self.SWP_NOSIZE | self.SWP_NOACTIVATE | self.SWP_NOOWNERZORDER
+
+        family = [self.window]
+        family.extend(window for window in windows if window is not self.window)
+
+        # First remove any leaked topmost state.
+        for window in family:
+            if getattr(window, "_topmost", False): continue
+
+            if not self._user32.SetWindowPos(
+                    self._hwnd(window, False), self.HWND_NOTOPMOST, 0, 0, 0, 0, flags):
+                raise self._ctypes.WinError()
+
+        # Then make guiABLE's explicit topmost declarations authoritative.
+        for window in family:
+            if not getattr(window, "_topmost", False): continue
+
+            if not self._user32.SetWindowPos(
+                    self._hwnd(window, False), self.HWND_TOPMOST, 0, 0, 0, 0, flags):
+                raise self._ctypes.WinError()
 
     def configureRoot(self) -> bool:
         window = self.window
@@ -255,6 +275,9 @@ class WindowsWindowBackend(WindowBackend):
 
         if not self._user32.EndDeferWindowPos(batch):
             raise self._ctypes.WinError()
+
+        self._reassertTopmostBands(windows)
+
 
     def workArea(self, x:int, y:int, width:int, height:int) -> tuple[int,int,int,int]:
         rect = self._RECT(x, y, x + max(1, width), y + max(1, height))
