@@ -14,14 +14,13 @@
     - Must handle that correctly for non-Windows OS too.
 
 > When a Labeled widget is sized by its Skin, the label thinks auto-sizing is allowed.
-    - Is that true? Is a Skin a user-declaration of size? How do you decide what wins?
+    - Is that true? Is a Skin a dev-declaration of size? How do you decide what wins?
     - If it IS, then Labelable/Labeled needs to acknowledge it, instead of only "width/height" in kwargs.
 
 > Heartbeat should be a monolith. We don't want multiple, overlapping heartbeats.
     - Is it correct to have one per parent window, or is it more correct to just have one for the entire application?
-      The goal is to keep Tk's lazy scheduler active and waking regularly.
+      The goal is to keep Tk's lazy scheduler active and waking regularly, for smooth animation and fast compositing.
 
-> childWindows should restore with their parent AFTER the last <Expose>
 > Windowing needs a central onClose() path to support application specified cleanup under all circumstances.
 
 > Modifiable default font_pack applies to all labels and text elements?
@@ -329,6 +328,7 @@ X BUG: Skin.FromColors doesn't work. Nor does SetColors.
     X Skin.FromColors and Skin.Transparent should require width and height.
 X BUG: When mouse is over the text of a labeled button, the hover state is not shown.
 
+X childWindows should restore with their parent AFTER the last <Expose> : After shield drops.
 X Renderer Upgrade
     X Collection transparency
     X  Collection members must participate in the physical sibling family despite their logical parent.

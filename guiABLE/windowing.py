@@ -157,6 +157,9 @@ class Windowable:
 
         self._shield.lower()
         self._shield_active = False
+        self._shieldReleased()
+
+    def _shieldReleased(self): pass
 
     def _geometryString(self) -> str:
         position = f"+{self.x}+{self.y}"
@@ -324,11 +327,15 @@ class _RootWindow(Windowable, tk.Tk):
         self._offset_w = (self.width - self._taskbar_size[0]) // 2
         self._offset_h = (self.height - self._taskbar_size[1]) // 2
 
-    def _windowMapped(self, event):
-        if event.widget is not self: return
+    def _shieldReleased(self): self._restoreChildren()
 
+    def _restoreChildren(self):
         for child in self._window_children:
             if child.minimizeWithParent(): child.deiconify()
+
+    def _windowMapped(self, event):
+        if event.widget is not self: return
+        if not self._shield_active: self._restoreChildren()
 
     def _windowUnmapped(self, event):
         if event.widget is not self: return
